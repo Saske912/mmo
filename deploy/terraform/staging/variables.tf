@@ -47,6 +47,7 @@ variable "image_registry_override" {
 
 variable "image_tag" {
   type        = string
+  description = "Тег образа в Harbor (лучше short SHA коммита; Makefile выставляет TF_VAR_image_tag)."
   default     = "local"
 }
 

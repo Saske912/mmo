@@ -1,9 +1,16 @@
-.PHONY: proto build test consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply
+.PHONY: proto build test print-image-tag consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply
 
 STAGING_DIR := deploy/terraform/staging
 
 PROTOC ?= protoc
-DOCKER_IMAGE ?= mmo-backend:local
+
+# Образ привязан к коммиту: short SHA, при изменённом дереве суффикс -dirty. Вне git — unknown.
+GIT_SHORT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_DIRTY := $(shell git status --porcelain 2>/dev/null | grep -q . && echo -dirty || true)
+IMAGE_TAG ?= $(GIT_SHORT_SHA)$(GIT_DIRTY)
+DOCKER_IMAGE ?= mmo-backend:$(IMAGE_TAG)
+# Согласовать деплой staging с тем же тегом, что и docker build / harbor-push.
+export TF_VAR_image_tag := $(IMAGE_TAG)
 
 proto:
 	$(PROTOC) -I proto proto/cell/v1/cell.proto \
@@ -18,6 +25,10 @@ build:
 test:
 	go test ./...
 
+# Вывести тег образа (коммит ± -dirty) для CI / ручного TF_VAR_image_tag.
+print-image-tag:
+	@echo $(IMAGE_TAG)
+
 # Нужен живой Consul (см. scripts/consul-smoke.sh).
 consul-smoke:
 	bash scripts/consul-smoke.sh
@@ -30,7 +41,7 @@ staging-verify:
 	bash scripts/staging-verify.sh
 
 docker-build:
-	docker build -t $(DOCKER_IMAGE) .
+	docker build --build-arg GIT_REVISION=$(IMAGE_TAG) -t $(DOCKER_IMAGE) .
 
 # kind load docker-image $(DOCKER_IMAGE)
 kind-load:
@@ -47,10 +58,14 @@ harbor-login:
 		fi && \
 		printf '%s' "$$PASS" | docker login "$$HOST" -u "$$USER" --password-stdin
 
-# Сборка, тег по container_image из staging (Harbor pass-k8s по умолчанию), push.
+# Push по тегу коммита (IMAGE_TAG). Не используем tofu output container_image — в state может быть старый тег до apply.
+HARBOR_PROJECT ?= library
+IMAGE_REPOSITORY ?= mmo-backend
+
 harbor-push: docker-build harbor-login
 	@cd $(STAGING_DIR) && \
-		REF=$$(tofu output -raw container_image) && \
+		HOST=$$(tofu output -raw harbor_registry_hostname) && \
+		REF="$$HOST/$(HARBOR_PROJECT)/$(IMAGE_REPOSITORY):$(IMAGE_TAG)" && \
 		docker tag $(DOCKER_IMAGE) "$$REF" && \
 		docker push "$$REF" && \
 		echo "Pushed $$REF"
@@ -63,4 +78,4 @@ tofu-plan:
 	cd $(STAGING_DIR) && tofu plan
 
 tofu-apply:
-	cd $(STAGING_DIR) && tofu apply
+	cd $(STAGING_DIR) && tofu apply -input=false -auto-approve

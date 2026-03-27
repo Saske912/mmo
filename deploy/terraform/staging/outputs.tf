@@ -10,6 +10,11 @@ output "cell_grpc_advertise" {
   value = local.cell_grpc_advertise
 }
 
+output "image_tag" {
+  description = "var.image_tag (синхрон с локальным IMAGE_TAG при make tofu-apply / harbor-push)."
+  value       = var.image_tag
+}
+
 output "container_image" {
   description = "Итоговый reference образа (Harbor или локальный)."
   value       = local.image
