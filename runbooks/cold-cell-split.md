@@ -28,7 +28,7 @@ mmoctl partition-plan ... -tfvars-skeleton   # каркас блоков под 
 
 ## 2. Инфраструктура: дочерние соты
 
-- Добавьте детей в map `cell_instances` (OpenTofu staging): отдельный Deployment/Service на шард, свой `MMO_CELL_GRPC_ADVERTISE`, те же `id`/`bounds`/`level`, что в плане.
+- Добавьте детей в map `cell_instances` (OpenTofu staging): отдельный Deployment/Service на шард, свой `MMO_CELL_GRPC_ADVERTISE`, те же `id`/`bounds`/`level`, что в плане. **Ключ шарда в map** должен быть в форме RFC 1123 (например `child-sw`), без `_` — иначе Kubernetes отклонит имя Deployment/Service.
 - `tofu apply` / выкат образов.
 
 ## 3. Пока в каталоге есть родитель и дети
