@@ -86,12 +86,19 @@ fi
 echo "== make print-image-tag =="
 TAG="$(make -s print-image-tag)"
 echo "IMAGE_TAG=$TAG"
-
+# Один и тот же тег для push и tofu (без IMAGE_TAG= каждый make пересчитывает git и теоретически может разъехаться).
 echo "== make harbor-push =="
-make harbor-push
+make harbor-push IMAGE_TAG="$TAG"
+
+echo "== check manifest in Harbor (после login из harbor-push) =="
+HARBOR_REF="$(make -s print-harbor-image-ref IMAGE_TAG="$TAG")"
+if ! docker manifest inspect "$HARBOR_REF" >/dev/null 2>&1; then
+  echo "образ не читается из Harbor: $HARBOR_REF (проверь push, логин и право robot на pull/manifest)" >&2
+  exit 1
+fi
 
 echo "== make tofu-apply =="
-make tofu-apply
+make tofu-apply IMAGE_TAG="$TAG"
 
 echo ""
 echo "Готово. Образ: harbor (тег $TAG). Проверка: bash scripts/staging-verify.sh"

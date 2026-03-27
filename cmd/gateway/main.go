@@ -33,16 +33,11 @@ func main() {
 	jwtSecret := flag.String("jwt-secret", "dev-insecure-change-me", "HMAC ключ для session JWT")
 	resX := flag.Float64("resolve-x", 0, "координата для ResolvePosition (выбор соты)")
 	resZ := flag.Float64("resolve-z", 0, "")
-	cellGRPC := flag.String("cell-grpc", "", "если задан host:port — подключаться к соте напрямую, без ResolvePosition (K8s single-cell)")
 	flag.Parse()
 
 	jwtBytes := []byte(*jwtSecret)
 	if v := strings.TrimSpace(os.Getenv("GATEWAY_JWT_SECRET")); v != "" {
 		jwtBytes = []byte(v)
-	}
-	cellEp := strings.TrimSpace(*cellGRPC)
-	if v := strings.TrimSpace(os.Getenv("GATEWAY_CELL_GRPC")); v != "" {
-		cellEp = v
 	}
 
 	g := &gateway{
@@ -50,7 +45,6 @@ func main() {
 		jwtSecret:    jwtBytes,
 		resolveX:     *resX,
 		resolveZ:     *resZ,
-		cellGRPC:     cellEp,
 	}
 
 	mux := http.NewServeMux()
@@ -61,11 +55,7 @@ func main() {
 	mux.HandleFunc("/v1/session", g.session)
 	mux.HandleFunc("/v1/ws", g.ws)
 
-	if cellEp != "" {
-		log.Printf("gateway http://%s cell=%s (direct)", *listen, cellEp)
-	} else {
-		log.Printf("gateway http://%s registry=%s resolve=(%.1f,%.1f)", *listen, *registry, *resX, *resZ)
-	}
+	log.Printf("gateway http://%s registry=%s resolve=(%.1f,%.1f)", *listen, *registry, *resX, *resZ)
 	log.Fatal(http.ListenAndServe(*listen, mux))
 }
 
@@ -74,7 +64,6 @@ type gateway struct {
 	jwtSecret    []byte
 	resolveX     float64
 	resolveZ     float64
-	cellGRPC     string
 }
 
 var sessionLimiters sync.Map // IP -> *rate.Limiter
@@ -144,6 +133,30 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	playerID := claims.Subject
 
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	regCC, err := grpc.NewClient(g.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("registry dial: %v", err)
+		http.Error(w, "registry unavailable", http.StatusBadGateway)
+		return
+	}
+	defer regCC.Close()
+	reg := cellv1.NewRegistryClient(regCC)
+	res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: g.resolveX, Z: g.resolveZ})
+	if err != nil {
+		log.Printf("resolve: %v", err)
+		http.Error(w, "registry resolve failed", http.StatusBadGateway)
+		return
+	}
+	if !res.Found || res.Cell == nil || res.Cell.GrpcEndpoint == "" {
+		log.Printf("no cell for (%.f, %.f)", g.resolveX, g.resolveZ)
+		http.Error(w, "no cell for resolve position", http.StatusServiceUnavailable)
+		return
+	}
+	ep := res.Cell.GrpcEndpoint
+
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("ws upgrade: %v", err)
@@ -152,30 +165,6 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	inLim := rate.NewLimiter(rate.Limit(100), 50)
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	ep := g.cellGRPC
-	if ep == "" {
-		regCC, err := grpc.NewClient(g.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Printf("registry dial: %v", err)
-			return
-		}
-		defer regCC.Close()
-		reg := cellv1.NewRegistryClient(regCC)
-		res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: g.resolveX, Z: g.resolveZ})
-		if err != nil {
-			log.Printf("resolve: %v", err)
-			return
-		}
-		if !res.Found || res.Cell == nil || res.Cell.GrpcEndpoint == "" {
-			log.Printf("no cell for (%.f, %.f)", g.resolveX, g.resolveZ)
-			return
-		}
-		ep = res.Cell.GrpcEndpoint
-	}
 
 	cellCC, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

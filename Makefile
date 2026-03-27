@@ -1,4 +1,4 @@
-.PHONY: proto build test print-image-tag consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
+.PHONY: proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
 
 STAGING_DIR := deploy/terraform/staging
 
@@ -31,6 +31,12 @@ test:
 # Вывести тег образа (коммит ± -dirty) для CI / ручного TF_VAR_image_tag.
 print-image-tag:
 	@echo $(IMAGE_TAG)
+
+# Полный reference в Harbor (хост из tofu output). Передайте IMAGE_TAG=... если тег уже зафиксирован в шелле.
+print-harbor-image-ref:
+	@cd $(STAGING_DIR) && \
+		HOST=$$(tofu output -raw harbor_registry_hostname) && \
+		printf '%s\n' "$$HOST/$(HARBOR_PROJECT)/$(IMAGE_REPOSITORY):$(IMAGE_TAG)"
 
 # Нужен живой Consul (см. scripts/consul-smoke.sh).
 consul-smoke:

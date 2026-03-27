@@ -254,14 +254,11 @@ resource "kubernetes_deployment" "gateway" {
           image_pull_policy = "Always"
 
           command = ["/gateway"]
-          # Прямой gRPC на соту: в текущем staging каталог Consul с mmo-consul-ui может не отдавать
-          # здоровые сервисы в API (ResolvePosition пустой); для одной соты в кластере надёжнее DNS Service.
           args = [
             "-listen", "0.0.0.0:${var.gateway_http_port}",
             "-registry", "${var.grid_service_name}.${var.namespace}.svc.cluster.local:${var.grid_grpc_port}",
             "-resolve-x", "0",
             "-resolve-z", "0",
-            "-cell-grpc", "${var.cell_service_name}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}",
           ]
 
           port {

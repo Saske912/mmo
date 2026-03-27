@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/hashicorp/consul/api"
@@ -35,7 +36,9 @@ func (c *ConsulCatalog) RegisterCell(ctx context.Context, spec *cellv1.CellSpec)
 	if err != nil {
 		return err
 	}
+	checkID := ttlCheckID(spec.Id)
 	reg.Check = &api.AgentServiceCheck{
+		CheckID:                        checkID,
 		TTL:                            "30s",
 		DeregisterCriticalServiceAfter: "90s",
 	}
@@ -45,14 +48,17 @@ func (c *ConsulCatalog) RegisterCell(ctx context.Context, spec *cellv1.CellSpec)
 	return c.passTTL(spec.Id)
 }
 
+func ttlCheckID(serviceID string) string {
+	return "service:" + serviceID
+}
+
 func (c *ConsulCatalog) passTTL(serviceID string) error {
-	checkID := "service:" + serviceID
-	return c.client.Agent().UpdateTTL(checkID, "ok", api.HealthPassing)
+	return c.client.Agent().UpdateTTL(ttlCheckID(serviceID), "ok", api.HealthPassing)
 }
 
 // MaintainTTL периодически обновляет TTL check (нужно для статуса passing).
 func (c *ConsulCatalog) MaintainTTL(ctx context.Context, serviceID string) {
-	checkID := "service:" + serviceID
+	checkID := ttlCheckID(serviceID)
 	tick := time.NewTicker(8 * time.Second)
 	defer tick.Stop()
 	for {
@@ -83,15 +89,31 @@ func (c *ConsulCatalog) List(ctx context.Context) ([]*cellv1.CellSpec, error) {
 		return nil, err
 	}
 	out := make([]*cellv1.CellSpec, 0, len(entries))
+	var droppedParse int
 	for _, e := range entries {
 		if e.Service == nil {
 			continue
 		}
 		spec, err := agentServiceToCellSpec(e.Service)
 		if err != nil {
+			sid := e.Service.ID
+			log.Printf("consul catalog: skip service %q: %v", sid, err)
+			droppedParse++
 			continue
 		}
 		out = append(out, spec)
+	}
+	if droppedParse > 0 {
+		log.Printf("consul catalog: dropped %d mmo-cell instance(s) with invalid meta", droppedParse)
+	}
+	if len(entries) > 0 && len(out) == 0 && droppedParse == 0 {
+		log.Printf("consul catalog: %d health row(s) for mmo-cell but none parsed (unexpected)", len(entries))
+	}
+	if len(out) == 0 {
+		all, _, err := c.client.Health().Service(ServiceNameMMOCell, "", false, q)
+		if err == nil && len(all) > 0 {
+			log.Printf("consul catalog: no passing mmo-cell, but %d instance(s) exist (check TTL/health)", len(all))
+		}
 	}
 	return out, nil
 }
