@@ -205,6 +205,7 @@ const (
 	Cell_Join_FullMethodName            = "/mmo.cell.v1.Cell/Join"
 	Cell_Leave_FullMethodName           = "/mmo.cell.v1.Cell/Leave"
 	Cell_ApplyInput_FullMethodName      = "/mmo.cell.v1.Cell/ApplyInput"
+	Cell_Update_FullMethodName          = "/mmo.cell.v1.Cell/Update"
 	Cell_SubscribeDeltas_FullMethodName = "/mmo.cell.v1.Cell/SubscribeDeltas"
 )
 
@@ -218,6 +219,7 @@ type CellClient interface {
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 	Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*LeaveResponse, error)
 	ApplyInput(ctx context.Context, in *ApplyInputRequest, opts ...grpc.CallOption) (*ApplyInputResponse, error)
+	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
 	SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error)
 }
 
@@ -269,6 +271,16 @@ func (c *cellClient) ApplyInput(ctx context.Context, in *ApplyInputRequest, opts
 	return out, nil
 }
 
+func (c *cellClient) Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateResponse)
+	err := c.cc.Invoke(ctx, Cell_Update_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *cellClient) SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &Cell_ServiceDesc.Streams[0], Cell_SubscribeDeltas_FullMethodName, cOpts...)
@@ -298,6 +310,7 @@ type CellServer interface {
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	Leave(context.Context, *LeaveRequest) (*LeaveResponse, error)
 	ApplyInput(context.Context, *ApplyInputRequest) (*ApplyInputResponse, error)
+	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
 	SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error
 	mustEmbedUnimplementedCellServer()
 }
@@ -320,6 +333,9 @@ func (UnimplementedCellServer) Leave(context.Context, *LeaveRequest) (*LeaveResp
 }
 func (UnimplementedCellServer) ApplyInput(context.Context, *ApplyInputRequest) (*ApplyInputResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyInput not implemented")
+}
+func (UnimplementedCellServer) Update(context.Context, *UpdateRequest) (*UpdateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Update not implemented")
 }
 func (UnimplementedCellServer) SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeDeltas not implemented")
@@ -417,6 +433,24 @@ func _Cell_ApplyInput_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_Update_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).Update(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_Update_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).Update(ctx, req.(*UpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Cell_SubscribeDeltas_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeDeltasRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -450,6 +484,10 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyInput",
 			Handler:    _Cell_ApplyInput_Handler,
+		},
+		{
+			MethodName: "Update",
+			Handler:    _Cell_Update_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -326,6 +326,160 @@ func (x *Delta) GetChanged() []*EntityState {
 	return nil
 }
 
+// Сущность для персиста cell-node в Redis (позиция + скорость + здоровье).
+type CellPersistEntity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityId      uint64                 `protobuf:"varint,1,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Position      *Vec3F                 `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	Velocity      *Vec3F                 `protobuf:"bytes,3,opt,name=velocity,proto3" json:"velocity,omitempty"`
+	Flags         uint32                 `protobuf:"varint,4,opt,name=flags,proto3" json:"flags,omitempty"`
+	HpCur         float32                `protobuf:"fixed32,5,opt,name=hp_cur,json=hpCur,proto3" json:"hp_cur,omitempty"`
+	HpMax         float32                `protobuf:"fixed32,6,opt,name=hp_max,json=hpMax,proto3" json:"hp_max,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CellPersistEntity) Reset() {
+	*x = CellPersistEntity{}
+	mi := &file_game_v1_replication_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CellPersistEntity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CellPersistEntity) ProtoMessage() {}
+
+func (x *CellPersistEntity) ProtoReflect() protoreflect.Message {
+	mi := &file_game_v1_replication_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CellPersistEntity.ProtoReflect.Descriptor instead.
+func (*CellPersistEntity) Descriptor() ([]byte, []int) {
+	return file_game_v1_replication_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CellPersistEntity) GetEntityId() uint64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *CellPersistEntity) GetPosition() *Vec3F {
+	if x != nil {
+		return x.Position
+	}
+	return nil
+}
+
+func (x *CellPersistEntity) GetVelocity() *Vec3F {
+	if x != nil {
+		return x.Velocity
+	}
+	return nil
+}
+
+func (x *CellPersistEntity) GetFlags() uint32 {
+	if x != nil {
+		return x.Flags
+	}
+	return 0
+}
+
+func (x *CellPersistEntity) GetHpCur() float32 {
+	if x != nil {
+		return x.HpCur
+	}
+	return 0
+}
+
+func (x *CellPersistEntity) GetHpMax() float32 {
+	if x != nil {
+		return x.HpMax
+	}
+	return 0
+}
+
+// Снимок мира для восстановления после рестарта (игроки не мапятся по player_id — переподключаются).
+type CellPersist struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	Tick          uint64                 `protobuf:"varint,2,opt,name=tick,proto3" json:"tick,omitempty"`
+	LoopTps       float32                `protobuf:"fixed32,3,opt,name=loop_tps,json=loopTps,proto3" json:"loop_tps,omitempty"`
+	Entities      []*CellPersistEntity   `protobuf:"bytes,4,rep,name=entities,proto3" json:"entities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CellPersist) Reset() {
+	*x = CellPersist{}
+	mi := &file_game_v1_replication_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CellPersist) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CellPersist) ProtoMessage() {}
+
+func (x *CellPersist) ProtoReflect() protoreflect.Message {
+	mi := &file_game_v1_replication_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CellPersist.ProtoReflect.Descriptor instead.
+func (*CellPersist) Descriptor() ([]byte, []int) {
+	return file_game_v1_replication_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *CellPersist) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *CellPersist) GetTick() uint64 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *CellPersist) GetLoopTps() float32 {
+	if x != nil {
+		return x.LoopTps
+	}
+	return 0
+}
+
+func (x *CellPersist) GetEntities() []*CellPersistEntity {
+	if x != nil {
+		return x.Entities
+	}
+	return nil
+}
+
 var File_game_v1_replication_proto protoreflect.FileDescriptor
 
 const file_game_v1_replication_proto_rawDesc = "" +
@@ -352,7 +506,19 @@ const file_game_v1_replication_proto_rawDesc = "" +
 	"\x05Delta\x12\x12\n" +
 	"\x04tick\x18\x01 \x01(\x04R\x04tick\x12\x1b\n" +
 	"\tfrom_tick\x18\x02 \x01(\x04R\bfromTick\x122\n" +
-	"\achanged\x18\x03 \x03(\v2\x18.mmo.game.v1.EntityStateR\achangedB\x17Z\x15mmo/gen/gamev1;gamev1b\x06proto3"
+	"\achanged\x18\x03 \x03(\v2\x18.mmo.game.v1.EntityStateR\achanged\"\xd4\x01\n" +
+	"\x11CellPersistEntity\x12\x1b\n" +
+	"\tentity_id\x18\x01 \x01(\x04R\bentityId\x12.\n" +
+	"\bposition\x18\x02 \x01(\v2\x12.mmo.game.v1.Vec3fR\bposition\x12.\n" +
+	"\bvelocity\x18\x03 \x01(\v2\x12.mmo.game.v1.Vec3fR\bvelocity\x12\x14\n" +
+	"\x05flags\x18\x04 \x01(\rR\x05flags\x12\x15\n" +
+	"\x06hp_cur\x18\x05 \x01(\x02R\x05hpCur\x12\x15\n" +
+	"\x06hp_max\x18\x06 \x01(\x02R\x05hpMax\"\x9f\x01\n" +
+	"\vCellPersist\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x12\n" +
+	"\x04tick\x18\x02 \x01(\x04R\x04tick\x12\x19\n" +
+	"\bloop_tps\x18\x03 \x01(\x02R\aloopTps\x12:\n" +
+	"\bentities\x18\x04 \x03(\v2\x1e.mmo.game.v1.CellPersistEntityR\bentitiesB\x17Z\x15mmo/gen/gamev1;gamev1b\x06proto3"
 
 var (
 	file_game_v1_replication_proto_rawDescOnce sync.Once
@@ -366,23 +532,28 @@ func file_game_v1_replication_proto_rawDescGZIP() []byte {
 	return file_game_v1_replication_proto_rawDescData
 }
 
-var file_game_v1_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_game_v1_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_game_v1_replication_proto_goTypes = []any{
-	(*Vec3F)(nil),       // 0: mmo.game.v1.Vec3f
-	(*ClientInput)(nil), // 1: mmo.game.v1.ClientInput
-	(*EntityState)(nil), // 2: mmo.game.v1.EntityState
-	(*Snapshot)(nil),    // 3: mmo.game.v1.Snapshot
-	(*Delta)(nil),       // 4: mmo.game.v1.Delta
+	(*Vec3F)(nil),             // 0: mmo.game.v1.Vec3f
+	(*ClientInput)(nil),       // 1: mmo.game.v1.ClientInput
+	(*EntityState)(nil),       // 2: mmo.game.v1.EntityState
+	(*Snapshot)(nil),          // 3: mmo.game.v1.Snapshot
+	(*Delta)(nil),             // 4: mmo.game.v1.Delta
+	(*CellPersistEntity)(nil), // 5: mmo.game.v1.CellPersistEntity
+	(*CellPersist)(nil),       // 6: mmo.game.v1.CellPersist
 }
 var file_game_v1_replication_proto_depIdxs = []int32{
 	0, // 0: mmo.game.v1.EntityState.position:type_name -> mmo.game.v1.Vec3f
 	2, // 1: mmo.game.v1.Snapshot.entities:type_name -> mmo.game.v1.EntityState
 	2, // 2: mmo.game.v1.Delta.changed:type_name -> mmo.game.v1.EntityState
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 3: mmo.game.v1.CellPersistEntity.position:type_name -> mmo.game.v1.Vec3f
+	0, // 4: mmo.game.v1.CellPersistEntity.velocity:type_name -> mmo.game.v1.Vec3f
+	5, // 5: mmo.game.v1.CellPersist.entities:type_name -> mmo.game.v1.CellPersistEntity
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_game_v1_replication_proto_init() }
@@ -396,7 +567,7 @@ func file_game_v1_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_game_v1_replication_proto_rawDesc), len(file_game_v1_replication_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

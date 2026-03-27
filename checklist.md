@@ -13,7 +13,8 @@
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
 - **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, cell ping, gateway `/healthz`, ws-smoke).
 - **Kubernetes:** рабочий кластер (в т.ч. Talos); приложение в namespace **`mmo`** — это не то же самое, что примеры `mmo-backend` / `monitoring` / `state` в пункте 0.1 ниже (см. `deploy/terraform/staging/main.tf`).
-- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
+- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `Update`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
+- **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
 
 ```mermaid
@@ -32,7 +33,7 @@ flowchart LR
 
 **Следующий шаг (приоритет):**
 
-1. gRPC `Update` / команды, сплит соты; персист снепшота при shutdown.
+1. Сплит соты, grid-manager → cell с полноценными командами в `Update`.
 2. ServiceMonitor / scrape Prometheus в кластере, дашборды Grafana.
 3. Клиент Unity или расширенный отладочный клиент (интерполяция, UI).
 

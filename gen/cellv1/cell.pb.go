@@ -892,6 +892,178 @@ func (x *LeaveResponse) GetMessage() string {
 	return ""
 }
 
+// Пустое сообщение для варианта oneof (noop).
+type CellUpdateNoop struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CellUpdateNoop) Reset() {
+	*x = CellUpdateNoop{}
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CellUpdateNoop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CellUpdateNoop) ProtoMessage() {}
+
+func (x *CellUpdateNoop) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CellUpdateNoop.ProtoReflect.Descriptor instead.
+func (*CellUpdateNoop) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{17}
+}
+
+type UpdateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*UpdateRequest_Noop
+	//	*UpdateRequest_SetTargetTps
+	Payload       isUpdateRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateRequest) Reset() {
+	*x = UpdateRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateRequest) ProtoMessage() {}
+
+func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
+func (*UpdateRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *UpdateRequest) GetPayload() isUpdateRequest_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *UpdateRequest) GetNoop() *CellUpdateNoop {
+	if x != nil {
+		if x, ok := x.Payload.(*UpdateRequest_Noop); ok {
+			return x.Noop
+		}
+	}
+	return nil
+}
+
+func (x *UpdateRequest) GetSetTargetTps() int32 {
+	if x != nil {
+		if x, ok := x.Payload.(*UpdateRequest_SetTargetTps); ok {
+			return x.SetTargetTps
+		}
+	}
+	return 0
+}
+
+type isUpdateRequest_Payload interface {
+	isUpdateRequest_Payload()
+}
+
+type UpdateRequest_Noop struct {
+	Noop *CellUpdateNoop `protobuf:"bytes,1,opt,name=noop,proto3,oneof"`
+}
+
+type UpdateRequest_SetTargetTps struct {
+	// Целевой TPS игрового цикла соты (grid-manager / админка).
+	SetTargetTps int32 `protobuf:"varint,2,opt,name=set_target_tps,json=setTargetTps,proto3,oneof"`
+}
+
+func (*UpdateRequest_Noop) isUpdateRequest_Payload() {}
+
+func (*UpdateRequest_SetTargetTps) isUpdateRequest_Payload() {}
+
+type UpdateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateResponse) Reset() {
+	*x = UpdateResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateResponse) ProtoMessage() {}
+
+func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
+func (*UpdateResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *UpdateResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *UpdateResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // Кадр мира: снапшот или дельта (game.v1).
 type WorldChunk struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -906,7 +1078,7 @@ type WorldChunk struct {
 
 func (x *WorldChunk) Reset() {
 	*x = WorldChunk{}
-	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	mi := &file_cell_v1_cell_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -918,7 +1090,7 @@ func (x *WorldChunk) String() string {
 func (*WorldChunk) ProtoMessage() {}
 
 func (x *WorldChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	mi := &file_cell_v1_cell_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -931,7 +1103,7 @@ func (x *WorldChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldChunk.ProtoReflect.Descriptor instead.
 func (*WorldChunk) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{17}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *WorldChunk) GetKind() isWorldChunk_Kind {
@@ -1028,6 +1200,14 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"9\n" +
 	"\rLeaveResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x10\n" +
+	"\x0eCellUpdateNoop\"u\n" +
+	"\rUpdateRequest\x121\n" +
+	"\x04noop\x18\x01 \x01(\v2\x1b.mmo.cell.v1.CellUpdateNoopH\x00R\x04noop\x12&\n" +
+	"\x0eset_target_tps\x18\x02 \x01(\x05H\x00R\fsetTargetTpsB\t\n" +
+	"\apayload\":\n" +
+	"\x0eUpdateResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"u\n" +
 	"\n" +
 	"WorldChunk\x123\n" +
@@ -1037,13 +1217,14 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
-	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\xe2\x02\n" +
+	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\xa5\x03\n" +
 	"\x04Cell\x12;\n" +
 	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
 	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12>\n" +
 	"\x05Leave\x12\x19.mmo.cell.v1.LeaveRequest\x1a\x1a.mmo.cell.v1.LeaveResponse\x12M\n" +
 	"\n" +
-	"ApplyInput\x12\x1e.mmo.cell.v1.ApplyInputRequest\x1a\x1f.mmo.cell.v1.ApplyInputResponse\x12Q\n" +
+	"ApplyInput\x12\x1e.mmo.cell.v1.ApplyInputRequest\x1a\x1f.mmo.cell.v1.ApplyInputResponse\x12A\n" +
+	"\x06Update\x12\x1a.mmo.cell.v1.UpdateRequest\x1a\x1b.mmo.cell.v1.UpdateResponse\x12Q\n" +
 	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
 
 var (
@@ -1058,7 +1239,7 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_cell_v1_cell_proto_goTypes = []any{
 	(*Bounds)(nil),                  // 0: mmo.cell.v1.Bounds
 	(*CellSpec)(nil),                // 1: mmo.cell.v1.CellSpec
@@ -1077,40 +1258,46 @@ var file_cell_v1_cell_proto_goTypes = []any{
 	(*ApplyInputResponse)(nil),      // 14: mmo.cell.v1.ApplyInputResponse
 	(*LeaveRequest)(nil),            // 15: mmo.cell.v1.LeaveRequest
 	(*LeaveResponse)(nil),           // 16: mmo.cell.v1.LeaveResponse
-	(*WorldChunk)(nil),              // 17: mmo.cell.v1.WorldChunk
-	(*gamev1.ClientInput)(nil),      // 18: mmo.game.v1.ClientInput
-	(*gamev1.Snapshot)(nil),         // 19: mmo.game.v1.Snapshot
-	(*gamev1.Delta)(nil),            // 20: mmo.game.v1.Delta
+	(*CellUpdateNoop)(nil),          // 17: mmo.cell.v1.CellUpdateNoop
+	(*UpdateRequest)(nil),           // 18: mmo.cell.v1.UpdateRequest
+	(*UpdateResponse)(nil),          // 19: mmo.cell.v1.UpdateResponse
+	(*WorldChunk)(nil),              // 20: mmo.cell.v1.WorldChunk
+	(*gamev1.ClientInput)(nil),      // 21: mmo.game.v1.ClientInput
+	(*gamev1.Snapshot)(nil),         // 22: mmo.game.v1.Snapshot
+	(*gamev1.Delta)(nil),            // 23: mmo.game.v1.Delta
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
 	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
 	1,  // 1: mmo.cell.v1.RegisterRequest.cell:type_name -> mmo.cell.v1.CellSpec
 	1,  // 2: mmo.cell.v1.ListCellsResponse.cells:type_name -> mmo.cell.v1.CellSpec
 	1,  // 3: mmo.cell.v1.ResolvePositionResponse.cell:type_name -> mmo.cell.v1.CellSpec
-	18, // 4: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
-	19, // 5: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
-	20, // 6: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
-	2,  // 7: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
-	4,  // 8: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
-	6,  // 9: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
-	8,  // 10: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	10, // 11: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
-	15, // 12: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
-	13, // 13: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
-	12, // 14: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
-	3,  // 15: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5,  // 16: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7,  // 17: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	9,  // 18: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	11, // 19: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
-	16, // 20: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
-	14, // 21: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
-	17, // 22: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
-	15, // [15:23] is the sub-list for method output_type
-	7,  // [7:15] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	21, // 4: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
+	17, // 5: mmo.cell.v1.UpdateRequest.noop:type_name -> mmo.cell.v1.CellUpdateNoop
+	22, // 6: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
+	23, // 7: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
+	2,  // 8: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
+	4,  // 9: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
+	6,  // 10: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
+	8,  // 11: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	10, // 12: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	15, // 13: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
+	13, // 14: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
+	18, // 15: mmo.cell.v1.Cell.Update:input_type -> mmo.cell.v1.UpdateRequest
+	12, // 16: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
+	3,  // 17: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 18: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 19: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	9,  // 20: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	11, // 21: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	16, // 22: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
+	14, // 23: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
+	19, // 24: mmo.cell.v1.Cell.Update:output_type -> mmo.cell.v1.UpdateResponse
+	20, // 25: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
+	17, // [17:26] is the sub-list for method output_type
+	8,  // [8:17] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_cell_v1_cell_proto_init() }
@@ -1118,7 +1305,11 @@ func file_cell_v1_cell_proto_init() {
 	if File_cell_v1_cell_proto != nil {
 		return
 	}
-	file_cell_v1_cell_proto_msgTypes[17].OneofWrappers = []any{
+	file_cell_v1_cell_proto_msgTypes[18].OneofWrappers = []any{
+		(*UpdateRequest_Noop)(nil),
+		(*UpdateRequest_SetTargetTps)(nil),
+	}
+	file_cell_v1_cell_proto_msgTypes[20].OneofWrappers = []any{
 		(*WorldChunk_Snapshot)(nil),
 		(*WorldChunk_Delta)(nil),
 	}
@@ -1128,7 +1319,7 @@ func file_cell_v1_cell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -64,6 +64,45 @@ func TestJoinIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpdateNoop(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "t03", Sim: sim}
+	ctx := context.Background()
+
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_Noop{Noop: &cellv1.CellUpdateNoop{}},
+	})
+	if err != nil || res == nil || !res.Ok {
+		t.Fatalf("Update noop: %+v err=%v", res, err)
+	}
+}
+
+func TestUpdateSetTargetTps(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "t04", Sim: sim}
+	ctx := context.Background()
+
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetTargetTps{SetTargetTps: 40},
+	})
+	if err != nil || !res.Ok {
+		t.Fatalf("Update: %+v err=%v", res, err)
+	}
+	sim.Mu.Lock()
+	got := sim.Loop.TPS
+	sim.Mu.Unlock()
+	if got != 40 {
+		t.Fatalf("TPS=%v", got)
+	}
+
+	bad, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetTargetTps{SetTargetTps: 200},
+	})
+	if err != nil || bad.Ok {
+		t.Fatalf("expected range error, got %+v err=%v", bad, err)
+	}
+}
+
 func TestLeaveIdempotent(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	srv := &Server{CellID: "t02", Sim: sim}

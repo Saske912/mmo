@@ -132,3 +132,18 @@ func (w *World) VisitHealth(fn func(e Entity, h Health)) {
 func (w *World) EntityCount() int {
 	return len(w.alive)
 }
+
+// RestorePersistEntity восстанавливает сущность с явным id (персист). Поднимает nextID, чтобы CreateEntity не коллизил.
+func (w *World) RestorePersistEntity(id Entity, pos Position, vel Velocity, h Health, hasHealth bool) {
+	w.alive[id] = struct{}{}
+	w.positions[id] = pos
+	w.velocities[id] = vel
+	if hasHealth {
+		w.healths[id] = h
+	} else {
+		delete(w.healths, id)
+	}
+	if id >= w.nextID {
+		w.nextID = id + 1
+	}
+}

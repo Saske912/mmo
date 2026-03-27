@@ -53,6 +53,11 @@ func (s *Server) isPlayer(e ecs.Entity) bool {
 	return ok
 }
 
+// IsPlayer сущность зарегистрирована как игрок (для персиста — такие пропускаем).
+func (s *Server) IsPlayer(e ecs.Entity) bool {
+	return s.isPlayer(e)
+}
+
 // Join создаёт сущность игрока в ECS. Повторный Join с тем же player_id идемпотентен.
 func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinResponse, error) {
 	pid := strings.TrimSpace(req.GetPlayerId())
@@ -175,6 +180,34 @@ func (s *Server) reportApplyInput(ok bool) {
 	s.playerMu.Unlock()
 	if fn != nil {
 		fn(ok)
+	}
+}
+
+// Update команды от grid-manager / админки (noop, смена TPS).
+func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.UpdateResponse, error) {
+	if req == nil {
+		return &cellv1.UpdateResponse{Ok: false, Message: "nil request"}, nil
+	}
+	switch p := req.Payload.(type) {
+	case nil:
+		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
+	case *cellv1.UpdateRequest_Noop:
+		_ = p
+		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
+	case *cellv1.UpdateRequest_SetTargetTps:
+		tps := p.SetTargetTps
+		if tps < 1 || tps > 120 {
+			return &cellv1.UpdateResponse{Ok: false, Message: "target_tps out of range [1,120]"}, nil
+		}
+		if s.Sim == nil || s.Sim.Loop == nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "no_sim"}, nil
+		}
+		s.Sim.Mu.Lock()
+		s.Sim.Loop.TPS = float64(tps)
+		s.Sim.Mu.Unlock()
+		return &cellv1.UpdateResponse{Ok: true, Message: "ok"}, nil
+	default:
+		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}
 }
 

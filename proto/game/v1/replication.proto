@@ -38,3 +38,21 @@ message Delta {
   uint64 from_tick = 2;
   repeated EntityState changed = 3;
 }
+
+// Сущность для персиста cell-node в Redis (позиция + скорость + здоровье).
+message CellPersistEntity {
+  uint64 entity_id = 1;
+  Vec3f position = 2;
+  Vec3f velocity = 3;
+  uint32 flags = 4;
+  float hp_cur = 5;
+  float hp_max = 6;
+}
+
+// Снимок мира для восстановления после рестарта (игроки не мапятся по player_id — переподключаются).
+message CellPersist {
+  uint32 schema_version = 1;
+  uint64 tick = 2;
+  float loop_tps = 3;
+  repeated CellPersistEntity entities = 4;
+}

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	cellv1 "mmo/gen/cellv1"
 	"mmo/internal/cellsim"
+	"mmo/internal/config"
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/cellsvc"
 )
@@ -33,7 +34,15 @@ func main() {
 	zmax := flag.Float64("zmax", 1000, "bounds z_max")
 	demoNPCs := flag.Int("demo-npcs", 0, "если > 0 — заспавнить столько демо-NPC в ECS (один раз)")
 	metricsListen := flag.String("metrics-listen", "", "HTTP listen для /metrics (например 0.0.0.0:9090); пусто — выкл")
+	persistSnapshot := flag.Bool("persist-snapshot", true, "при REDIS_ADDR — загрузка/сохранение ECS в Redis (ключ mmo:cell:<id>:state); -persist-snapshot=false выкл")
 	flag.Parse()
+
+	cfg := config.FromEnv()
+	usePersist := *persistSnapshot && cfg.RedisAddr != ""
+	rdb := openRedis(cfg.RedisAddr, cfg.RedisPassword)
+	if rdb != nil {
+		defer func() { _ = rdb.Close() }()
+	}
 
 	if *cellID == "" {
 		fmt.Fprintln(os.Stderr, "cell-node: -id is required")
@@ -66,10 +75,7 @@ func main() {
 	}
 
 	sim := cellsim.NewRuntime()
-	if *demoNPCs > 0 {
-		sim.SpawnDemoNPCs(*demoNPCs)
-		log.Printf("ECS demo: spawned %d NPCs", *demoNPCs)
-	}
+	tryLoadAndMaybeSpawnNPCs(ctx, rdb, redisStateKey(*cellID), sim, *demoNPCs, usePersist)
 
 	cellSvc := &cellsvc.Server{CellID: *cellID, Sim: sim}
 	wirePrometheus(*metricsListen, cellSvc, sim)
@@ -127,6 +133,7 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
+	saveOnShutdown(shutdownCtx, rdb, redisStateKey(*cellID), sim, cellSvc, usePersist)
 	if consulCat != nil {
 		if err := consulCat.Deregister(shutdownCtx, discovery.ConsulServiceInstanceID(*cellID)); err != nil {
 			log.Printf("consul deregister: %v", err)

@@ -97,6 +97,22 @@ message LeaveResponse {
   string message = 2;
 }
 
+// Пустое сообщение для варианта oneof (noop).
+message CellUpdateNoop {}
+
+message UpdateRequest {
+  oneof payload {
+    CellUpdateNoop noop = 1;
+    // Целевой TPS игрового цикла соты (grid-manager / админка).
+    int32 set_target_tps = 2;
+  }
+}
+
+message UpdateResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
 // Кадр мира: снапшот или дельта (game.v1).
 message WorldChunk {
   oneof kind {
@@ -111,5 +127,6 @@ service Cell {
   rpc Join(JoinRequest) returns (JoinResponse);
   rpc Leave(LeaveRequest) returns (LeaveResponse);
   rpc ApplyInput(ApplyInputRequest) returns (ApplyInputResponse);
+  rpc Update(UpdateRequest) returns (UpdateResponse);
   rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }
