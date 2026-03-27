@@ -1,4 +1,4 @@
-.PHONY: proto build test consul-smoke infra-smoke docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply
+.PHONY: proto build test consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply
 
 STAGING_DIR := deploy/terraform/staging
 
@@ -25,6 +25,9 @@ consul-smoke:
 # Consul + NATS (см. scripts/infra-smoke.sh).
 infra-smoke:
 	bash scripts/infra-smoke.sh
+
+staging-verify:
+	bash scripts/staging-verify.sh
 
 docker-build:
 	docker build -t $(DOCKER_IMAGE) .

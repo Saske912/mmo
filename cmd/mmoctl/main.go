@@ -78,6 +78,7 @@ func usage() {
   mmoctl [-registry host:port] list
   mmoctl [-registry host:port] resolve <x> <z>
   mmoctl ping <host:port>
+  mmoctl join <host:port> <player_id>
 `)
 	os.Exit(2)
 }
@@ -239,6 +240,23 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			log.Fatal(err)
 		}
 		fmt.Printf("cell_id=%s time_ms=%d\n", p.CellId, p.ServerTimeUnixMs)
+	case "join":
+		if len(rest) != 2 {
+			log.Fatal("join: need host:port player_id")
+		}
+		ep := rest[0]
+		playerID := rest[1]
+		conn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewCellClient(conn)
+		j, err := cl.Join(ctx, &cellv1.JoinRequest{PlayerId: playerID})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ok=%v cell_id=%s entity_id=%d msg=%s\n", j.Ok, j.CellId, j.EntityId, j.Message)
 	default:
 		log.Fatalf("unknown command %q", cmd)
 	}

@@ -535,6 +535,118 @@ func (x *PingResponse) GetServerTimeUnixMs() int64 {
 	return 0
 }
 
+type JoinRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId      string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JoinRequest) Reset() {
+	*x = JoinRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinRequest) ProtoMessage() {}
+
+func (x *JoinRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
+func (*JoinRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *JoinRequest) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+type JoinResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	CellId        string                 `protobuf:"bytes,2,opt,name=cell_id,json=cellId,proto3" json:"cell_id,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	EntityId      uint64                 `protobuf:"varint,4,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JoinResponse) Reset() {
+	*x = JoinResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinResponse) ProtoMessage() {}
+
+func (x *JoinResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinResponse.ProtoReflect.Descriptor instead.
+func (*JoinResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *JoinResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *JoinResponse) GetCellId() string {
+	if x != nil {
+		return x.CellId
+	}
+	return ""
+}
+
+func (x *JoinResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *JoinResponse) GetEntityId() uint64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
 var File_cell_v1_cell_proto protoreflect.FileDescriptor
 
 const file_cell_v1_cell_proto_rawDesc = "" +
@@ -568,13 +680,21 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"V\n" +
 	"\fPingResponse\x12\x17\n" +
 	"\acell_id\x18\x01 \x01(\tR\x06cellId\x12-\n" +
-	"\x13server_time_unix_ms\x18\x02 \x01(\x03R\x10serverTimeUnixMs2\xfd\x01\n" +
+	"\x13server_time_unix_ms\x18\x02 \x01(\x03R\x10serverTimeUnixMs\"*\n" +
+	"\vJoinRequest\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"n\n" +
+	"\fJoinResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x17\n" +
+	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1b\n" +
+	"\tentity_id\x18\x04 \x01(\x04R\bentityId2\xfd\x01\n" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
-	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2C\n" +
+	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\x80\x01\n" +
 	"\x04Cell\x12;\n" +
-	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponseB\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
+	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
+	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponseB\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
 
 var (
 	file_cell_v1_cell_proto_rawDescOnce sync.Once
@@ -588,7 +708,7 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_cell_v1_cell_proto_goTypes = []any{
 	(*Bounds)(nil),                  // 0: mmo.cell.v1.Bounds
 	(*CellSpec)(nil),                // 1: mmo.cell.v1.CellSpec
@@ -600,25 +720,29 @@ var file_cell_v1_cell_proto_goTypes = []any{
 	(*ResolvePositionResponse)(nil), // 7: mmo.cell.v1.ResolvePositionResponse
 	(*PingRequest)(nil),             // 8: mmo.cell.v1.PingRequest
 	(*PingResponse)(nil),            // 9: mmo.cell.v1.PingResponse
+	(*JoinRequest)(nil),             // 10: mmo.cell.v1.JoinRequest
+	(*JoinResponse)(nil),            // 11: mmo.cell.v1.JoinResponse
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
-	0, // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
-	1, // 1: mmo.cell.v1.RegisterRequest.cell:type_name -> mmo.cell.v1.CellSpec
-	1, // 2: mmo.cell.v1.ListCellsResponse.cells:type_name -> mmo.cell.v1.CellSpec
-	1, // 3: mmo.cell.v1.ResolvePositionResponse.cell:type_name -> mmo.cell.v1.CellSpec
-	2, // 4: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
-	4, // 5: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
-	6, // 6: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
-	8, // 7: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	3, // 8: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5, // 9: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7, // 10: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	9, // 11: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
+	1,  // 1: mmo.cell.v1.RegisterRequest.cell:type_name -> mmo.cell.v1.CellSpec
+	1,  // 2: mmo.cell.v1.ListCellsResponse.cells:type_name -> mmo.cell.v1.CellSpec
+	1,  // 3: mmo.cell.v1.ResolvePositionResponse.cell:type_name -> mmo.cell.v1.CellSpec
+	2,  // 4: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
+	4,  // 5: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
+	6,  // 6: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
+	8,  // 7: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	10, // 8: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	3,  // 9: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 10: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 11: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	9,  // 12: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	11, // 13: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	9,  // [9:14] is the sub-list for method output_type
+	4,  // [4:9] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_cell_v1_cell_proto_init() }
@@ -632,7 +756,7 @@ func file_cell_v1_cell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

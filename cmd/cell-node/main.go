@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	cellv1 "mmo/gen/cellv1"
+	"mmo/internal/cellsim"
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/cellsvc"
 )
@@ -30,6 +31,7 @@ func main() {
 	xmax := flag.Float64("xmax", 1000, "bounds x_max")
 	zmin := flag.Float64("zmin", -1000, "bounds z_min")
 	zmax := flag.Float64("zmax", 1000, "bounds z_max")
+	demoNPCs := flag.Int("demo-npcs", 0, "если > 0 — заспавнить столько демо-NPC в ECS (один раз)")
 	flag.Parse()
 
 	if *cellID == "" {
@@ -62,11 +64,22 @@ func main() {
 		Bounds:       &cellv1.Bounds{XMin: *xmin, XMax: *xmax, ZMin: *zmin, ZMax: *zmax},
 	}
 
+	sim := cellsim.NewRuntime()
+	if *demoNPCs > 0 {
+		sim.SpawnDemoNPCs(*demoNPCs)
+		log.Printf("ECS demo: spawned %d NPCs", *demoNPCs)
+	}
+
 	srv := grpc.NewServer()
-	cellv1.RegisterCellServer(srv, &cellsvc.Server{CellID: *cellID})
+	cellv1.RegisterCellServer(srv, &cellsvc.Server{CellID: *cellID, Sim: sim})
 
 	errServe := make(chan error, 1)
 	go func() { errServe <- srv.Serve(lis) }()
+	go func() {
+		if err := sim.Run(ctx); err != nil && err != context.Canceled {
+			log.Printf("ecs loop: %v", err)
+		}
+	}()
 
 	var consulCat *discovery.ConsulCatalog
 	if caddr != "" {

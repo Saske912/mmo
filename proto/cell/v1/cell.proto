@@ -61,7 +61,19 @@ message PingResponse {
   int64 server_time_unix_ms = 2;
 }
 
+message JoinRequest {
+  string player_id = 1;
+}
+
+message JoinResponse {
+  bool ok = 1;
+  string cell_id = 2;
+  string message = 3;
+  uint64 entity_id = 4;
+}
+
 // Cell — минимальный игровой узел соты (первая итерация).
 service Cell {
   rpc Ping(PingRequest) returns (PingResponse);
+  rpc Join(JoinRequest) returns (JoinResponse);
 }

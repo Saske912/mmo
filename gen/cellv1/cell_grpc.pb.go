@@ -202,6 +202,7 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	Cell_Ping_FullMethodName = "/mmo.cell.v1.Cell/Ping"
+	Cell_Join_FullMethodName = "/mmo.cell.v1.Cell/Join"
 )
 
 // CellClient is the client API for Cell service.
@@ -211,6 +212,7 @@ const (
 // Cell — минимальный игровой узел соты (первая итерация).
 type CellClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
+	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 }
 
 type cellClient struct {
@@ -231,6 +233,16 @@ func (c *cellClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.Cal
 	return out, nil
 }
 
+func (c *cellClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JoinResponse)
+	err := c.cc.Invoke(ctx, Cell_Join_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CellServer is the server API for Cell service.
 // All implementations must embed UnimplementedCellServer
 // for forward compatibility.
@@ -238,6 +250,7 @@ func (c *cellClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.Cal
 // Cell — минимальный игровой узел соты (первая итерация).
 type CellServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
+	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	mustEmbedUnimplementedCellServer()
 }
 
@@ -250,6 +263,9 @@ type UnimplementedCellServer struct{}
 
 func (UnimplementedCellServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedCellServer) Join(context.Context, *JoinRequest) (*JoinResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Join not implemented")
 }
 func (UnimplementedCellServer) mustEmbedUnimplementedCellServer() {}
 func (UnimplementedCellServer) testEmbeddedByValue()              {}
@@ -290,6 +306,24 @@ func _Cell_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_Join_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).Join(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_Join_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).Join(ctx, req.(*JoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Cell_ServiceDesc is the grpc.ServiceDesc for Cell service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -300,6 +334,10 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _Cell_Ping_Handler,
+		},
+		{
+			MethodName: "Join",
+			Handler:    _Cell_Join_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
