@@ -74,6 +74,22 @@ go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL
 echo "== mmoctl forward-update split-prepare (grid-manager -> cell Update) id=${FIRST_CELL} =="
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" split-prepare staging-verify
 
+echo "== split-drain (primary pod = port-forward ${CELL_SVC}) =="
+DRAIN_CELL="$(go run ./cmd/mmoctl ping "127.0.0.1:${CELL_PORT}" | head -1 | sed 's/cell_id=//' | awk '{print $1}')"
+if [ -z "${DRAIN_CELL:-}" ]; then
+  echo "could not parse cell_id from ping" >&2
+  exit 1
+fi
+go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$DRAIN_CELL" split-drain true
+JOIN_DENY="$(go run ./cmd/mmoctl join "127.0.0.1:${CELL_PORT}" "staging-drain-$(date +%s)")"
+echo "$JOIN_DENY"
+if echo "$JOIN_DENY" | grep -q 'ok=true'; then
+  echo "expected join to fail under split_drain" >&2
+  go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$DRAIN_CELL" split-drain false
+  exit 1
+fi
+go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$DRAIN_CELL" split-drain false
+
 echo "== B2: unit-тест каталога (родитель + SW-ребёнок, Resolve) =="
 go test ./internal/discovery -run TestResolveMostSpecific_childWinsInSWQuadrant -count=1
 

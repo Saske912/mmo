@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,8 @@ type Server struct {
 	players      map[uint64]struct{}
 	playerByID   map[string]ecs.Entity
 	onApplyInput func(ok bool) // опционально: метрики (устанавливает cell-node)
+	// splitDrain: новые Join отклоняются (оператор / grid-manager через Update set_split_drain).
+	splitDrain atomic.Bool
 }
 
 // SetApplyInputHook вызывается из cell-node для Prometheus; не обязателен.
@@ -85,6 +88,10 @@ func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinR
 			Message:  "already_joined",
 			EntityId: uint64(existing),
 		}, nil
+	}
+	if s.splitDrain.Load() {
+		s.playerMu.Unlock()
+		return &cellv1.JoinResponse{Ok: false, CellId: s.CellID, Message: "split_drain: new joins disabled"}, nil
 	}
 	s.playerMu.Unlock()
 
@@ -238,6 +245,16 @@ func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.U
 			msg += ch.GetId()
 		}
 		return &cellv1.UpdateResponse{Ok: true, Message: msg}, nil
+	case *cellv1.UpdateRequest_SetSplitDrain:
+		en := false
+		if p.SetSplitDrain != nil {
+			en = p.SetSplitDrain.GetEnabled()
+		}
+		s.splitDrain.Store(en)
+		if en {
+			return &cellv1.UpdateResponse{Ok: true, Message: "split_drain enabled"}, nil
+		}
+		return &cellv1.UpdateResponse{Ok: true, Message: "split_drain disabled"}, nil
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}

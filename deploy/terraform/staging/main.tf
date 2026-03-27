@@ -148,6 +148,14 @@ resource "kubernetes_deployment" "grid_manager" {
               name = kubernetes_secret.mmo_backend.metadata[0].name
             }
           }
+
+          dynamic "env" {
+            for_each = var.mmo_structured_logs ? [1] : []
+            content {
+              name  = "MMO_LOG_FORMAT"
+              value = "json"
+            }
+          }
         }
       }
     }
@@ -227,6 +235,14 @@ resource "kubernetes_deployment" "cell_node" {
           env {
             name  = "MMO_CELL_GRPC_ADVERTISE"
             value = local.cell_grpc_advertise[each.key]
+          }
+
+          dynamic "env" {
+            for_each = var.mmo_structured_logs ? [1] : []
+            content {
+              name  = "MMO_LOG_FORMAT"
+              value = "json"
+            }
           }
         }
       }
@@ -368,6 +384,14 @@ resource "kubernetes_deployment" "gateway" {
           env_from {
             secret_ref {
               name = kubernetes_secret.mmo_backend.metadata[0].name
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.mmo_structured_logs ? [1] : []
+            content {
+              name  = "MMO_LOG_FORMAT"
+              value = "json"
             }
           }
         }

@@ -53,6 +53,24 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatalf("profile after upsert: %q err=%v", dn, err)
 	}
 
+	if err := EnsurePlayerStats(ctx, pool, "stats-user"); err != nil {
+		t.Fatal(err)
+	}
+	var lvl int
+	var xp int64
+	err = pool.QueryRow(ctx, `SELECT level, xp FROM mmo_player_stats WHERE player_id = $1`, "stats-user").Scan(&lvl, &xp)
+	if err != nil || lvl != 1 || xp != 0 {
+		t.Fatalf("stats row: level=%d xp=%d err=%v", lvl, xp, err)
+	}
+	lvl2, xp2, ok2, err := GetPlayerStats(ctx, pool, "stats-user")
+	if err != nil || !ok2 || lvl2 != 1 || xp2 != 0 {
+		t.Fatalf("GetPlayerStats: %v ok=%v %d %d", err, ok2, lvl2, xp2)
+	}
+	_, _, okMiss, err := GetPlayerStats(ctx, pool, "no-stats-row-xyz")
+	if err != nil || okMiss {
+		t.Fatalf("GetPlayerStats missing: err=%v ok=%v", err, okMiss)
+	}
+
 	if err := UpsertPlayerLastCell(ctx, pool, "test-last-cell", "cell_0_0_0", 10.5, -20.25); err != nil {
 		t.Fatal(err)
 	}

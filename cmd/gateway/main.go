@@ -207,10 +207,25 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.UpsertPlayerProfile(ictx, g.db, body.PlayerID, body.DisplayName); ierr != nil {
 			log.Printf("session profile: %v", ierr)
 		}
+		if ierr := db.EnsurePlayerStats(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session stats ensure: %v", ierr)
+		}
 		icancel()
 	}
+
+	out := map[string]any{"token": signed}
+	if g.db != nil {
+		sctx, scancel := context.WithTimeout(r.Context(), 2*time.Second)
+		lvl, xpv, ok, serr := db.GetPlayerStats(sctx, g.db, body.PlayerID)
+		scancel()
+		if serr != nil {
+			log.Printf("session stats read: %v", serr)
+		} else if ok {
+			out["stats"] = map[string]any{"level": lvl, "xp": xpv}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"token": signed})
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {

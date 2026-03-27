@@ -55,12 +55,18 @@ message CellUpdateSplitPrepare {
   string reason = 1;
 }
 
+// Включить/выключить режим drain перед сплитом: новые Join отклоняются, уже вошедшие играют до Leave.
+message CellUpdateSetSplitDrain {
+  bool enabled = 1;
+}
+
 message UpdateRequest {
   oneof payload {
     CellUpdateNoop noop = 1;
     // Целевой TPS игрового цикла соты (grid-manager / админка).
     int32 set_target_tps = 2;
     CellUpdateSplitPrepare split_prepare = 3;
+    CellUpdateSetSplitDrain set_split_drain = 4;
   }
 }
 

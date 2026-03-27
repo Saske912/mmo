@@ -184,6 +184,12 @@ variable "harbor_docker_password" {
   sensitive   = true
 }
 
+variable "mmo_structured_logs" {
+  type        = bool
+  description = "MMO_LOG_FORMAT=json у подов gateway / grid-manager / cell-node (structured logs в stdout для Loki/Alloy)."
+  default     = true
+}
+
 variable "service_monitor_enabled" {
   type        = bool
   description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."

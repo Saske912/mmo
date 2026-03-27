@@ -110,3 +110,25 @@ ON CONFLICT (player_id) DO UPDATE SET
 	_, err := pool.Exec(ctx, q, playerID, displayName)
 	return err
 }
+
+// EnsurePlayerStats создаёт строку прогрессии для игрока при первой сессии (идемпотентно).
+func EnsurePlayerStats(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	const q = `
+INSERT INTO mmo_player_stats (player_id) VALUES ($1)
+ON CONFLICT (player_id) DO NOTHING`
+	_, err := pool.Exec(ctx, q, playerID)
+	return err
+}
+
+// GetPlayerStats возвращает level и xp; ok=false если строки ещё нет (после Ensure — всегда ok).
+func GetPlayerStats(ctx context.Context, pool *pgxpool.Pool, playerID string) (level int, xp int64, ok bool, err error) {
+	const q = `SELECT level, xp FROM mmo_player_stats WHERE player_id = $1`
+	err = pool.QueryRow(ctx, q, playerID).Scan(&level, &xp)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, err
+	}
+	return level, xp, true, nil
+}

@@ -107,6 +107,42 @@ func TestUpdateSetTargetTps(t *testing.T) {
 	}
 }
 
+func TestUpdateSetSplitDrain(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "t_drain", Sim: sim}
+	ctx := context.Background()
+
+	off, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetSplitDrain{SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: false}},
+	})
+	if err != nil || !off.Ok {
+		t.Fatalf("disable drain: %+v err=%v", off, err)
+	}
+	on, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetSplitDrain{SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: true}},
+	})
+	if err != nil || !on.Ok {
+		t.Fatalf("enable drain: %+v err=%v", on, err)
+	}
+	j, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "new_while_drain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Ok || j.Message == "" {
+		t.Fatalf("join should fail under drain: %+v", j)
+	}
+	_, err = srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetSplitDrain{SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: false}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j2, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "after_undrain"})
+	if err != nil || !j2.Ok {
+		t.Fatalf("join after undrain: %+v err=%v", j2, err)
+	}
+}
+
 func TestUpdateSplitPrepare(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
