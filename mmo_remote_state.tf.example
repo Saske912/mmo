@@ -1,6 +1,7 @@
 # Пример: игровой MMO-бэкенд (отдельный стек) читает outputs.staging.mmo.
-# Переменные секрета ниже совпадают с загрузкой из окружения в internal/config (FromEnv).
-# Перед apply staging с Harbor: ./scripts/download-staging-charts.sh && ./scripts/upload-charts-to-harbor.sh nats consul
+# Сборка/деплой приложения: OpenTofu — см. deploy/terraform/staging (tofu init, tofu apply).
+# Образы staging по умолчанию: Harbor https://harbor.pass-k8s.ru/; push: make harbor-push (учётка из outputs.mmo.harbor).
+# Перед apply staging с Harbor (вне этого репозитория): чарты nats/consul при необходимости.
 # NATS: https://artifacthub.io/packages/helm/nats/nats | Consul: https://artifacthub.io/packages/helm/hashicorp/consul
 
 data "terraform_remote_state" "staging" {
@@ -21,7 +22,10 @@ locals {
   redis  = try(local.mmo.redis, null)
   nats   = try(local.mmo.nats, null)
   consul = try(local.mmo.consul, null)
+  harbor = try(local.mmo.harbor, null)
   # Готовые строки адресов: redis.redis_addr, nats.client_addr, consul.dns_addr / http_addr, scylla.cql_addr, meta.base_url
+  # Harbor: registry_host, docker_login_username, docker_login_password → образ
+  # "${local.harbor.registry_host}/<project>/<repo>:<tag>" ; OpenTofu собирает путь в deploy/terraform/staging.
 }
 
 # Пример: проброс в Deployment / Helm (пароли — set_sensitive)
@@ -38,6 +42,9 @@ locals {
 #     NATS_URL        = try(local.nats.urls, "")
 #     CONSUL_HTTP_ADDR  = try(local.consul.http_api_base_url, "")
 #     CONSUL_DNS_ADDR   = try(local.consul.dns_addr, "")
+#     HARBOR_REGISTRY   = try(local.harbor.registry_host, "")
+#     HARBOR_USER       = try(local.harbor.docker_login_username, "")
+#     HARBOR_PASSWORD   = try(local.harbor.docker_login_password, "")
 #     LOKI_PUSH_URL   = try(local.mmo.monitoring.loki.push_url, "")
 #     TEMPO_OTLP_GRPC = try(local.mmo.monitoring.tempo.otlp_grpc, "")
 #   }

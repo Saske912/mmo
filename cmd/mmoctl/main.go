@@ -91,6 +91,10 @@ func printInfra() {
 	fmt.Printf("DATABASE_URL_RW=%s\n", maskDSN(c.DatabaseURLRW))
 	fmt.Printf("REDIS_ADDR=%s\n", valOrUnset(c.RedisAddr))
 	fmt.Printf("REDIS_PASSWORD=%s\n", maskSecret(c.RedisPassword))
+	fmt.Printf("MMO_CELL_GRPC_ADVERTISE/CELL_GRPC_ENDPOINT=%s\n", valOrUnset(c.CellGRPCAdvertise))
+	fmt.Printf("HARBOR_REGISTRY=%s\n", valOrUnset(c.HarborRegistry))
+	fmt.Printf("HARBOR_USER=%s\n", valOrUnset(c.HarborUser))
+	fmt.Printf("HARBOR_PASSWORD=%s\n", maskSecret(c.HarborPassword))
 }
 
 func valOrUnset(s string) string {

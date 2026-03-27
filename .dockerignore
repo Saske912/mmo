@@ -1,0 +1,9 @@
+.git
+.gitignore
+bin
+.cursor
+**/.cursor
+**/*_test.go
+*.md
+deploy/terraform/staging/.terraform
+deploy/terraform/staging/*.tfstate*

@@ -1,0 +1,5 @@
+/bin/
+deploy/terraform/staging/.terraform/
+deploy/terraform/staging/*.tfstate
+deploy/terraform/staging/*.tfstate.*
+deploy/terraform/staging/.terraform.lock.hcl

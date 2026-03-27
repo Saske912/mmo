@@ -1,0 +1,104 @@
+variable "kube_config_path" {
+  type        = string
+  description = "Путь к kubeconfig для провайдера Kubernetes и remote state backend."
+  default     = "~/.kube/config"
+}
+
+variable "remote_state_namespace" {
+  type        = string
+  description = "Namespace, где lego/terraform backend хранит state secret (как в основном IAC)."
+  default     = "state"
+}
+
+variable "remote_state_secret_suffix" {
+  type        = string
+  default     = "terraform"
+}
+
+variable "namespace" {
+  type        = string
+  description = "Namespace для приложения MMO backend."
+  default     = "mmo"
+}
+
+variable "secret_name" {
+  type        = string
+  description = "Имя Opaque Secret с env для подов (ключи как в internal/config)."
+  default     = "mmo-backend"
+}
+
+variable "image_repository" {
+  type        = string
+  description = "Имя репозитория в Harbor без хоста/проекта (например mmo-backend). С Harbor: <registry_host>/<harbor_project>/<image_repository>:tag"
+  default     = "mmo-backend"
+}
+
+variable "harbor_project" {
+  type        = string
+  description = "Проект Harbor в пути образа. Для robot вида harbor@library+library — проект library."
+  default     = "library"
+}
+
+variable "image_registry_override" {
+  type        = string
+  description = "База реестра образов (URL или хост). По умолчанию Harbor staging; пустая строка — только outputs.mmo.harbor.registry_host из remote state."
+  default     = "https://harbor.pass-k8s.ru/"
+}
+
+variable "image_tag" {
+  type        = string
+  default     = "local"
+}
+
+variable "image_override" {
+  type        = string
+  description = "Полный reference образа (например harbor.example.com/mmo/mmo-backend:v1). Если задан — игнорируются image_repository, harbor_project, image_tag и сборка пути из Harbor."
+  default     = ""
+}
+
+variable "image_pull_policy" {
+  type        = string
+  description = "Для kind/local обычно IfNotPresent."
+  default     = "IfNotPresent"
+}
+
+variable "grid_grpc_port" {
+  type    = number
+  default = 9100
+}
+
+variable "cell_grpc_port" {
+  type    = number
+  default = 50051
+}
+
+variable "cell_id" {
+  type        = string
+  description = "Идентификатор первой соты в staging."
+  default     = "cell_0_0_0"
+}
+
+variable "cell_service_name" {
+  type        = string
+  description = "Имя Service для cell-node (используется в MMO_CELL_GRPC_ADVERTISE)."
+  default     = "mmo-cell"
+}
+
+variable "grid_service_name" {
+  type    = string
+  default = "mmo-grid-manager"
+}
+
+variable "harbor_docker_username" {
+  type        = string
+  description = "Логин Harbor для env секрета приложения и make harbor-login (если непусто — приоритет над outputs.mmo.harbor.docker_login_username)."
+  default     = ""
+  sensitive   = false
+}
+
+variable "harbor_docker_password" {
+  type        = string
+  description = "Пароль Harbor для env секрета приложения и make harbor-push (если непусто — приоритет над outputs.mmo.harbor.docker_login_password)."
+  default     = ""
+  sensitive   = true
+}

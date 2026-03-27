@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 func main() {
 	listen := flag.String("listen", "127.0.0.1:0", "cell gRPC listen address (0 picks free port)")
+	grpcAdvertise := flag.String("grpc-advertise", "", "host:port для регистрации в Consul/memory (K8s DNS); иначе env MMO_CELL_GRPC_ADVERTISE / CELL_GRPC_ENDPOINT; иначе адрес listen")
 	registryAddr := flag.String("registry", "127.0.0.1:9100", "grid-manager Registry address (used if Consul is not configured)")
 	consulAddr := flag.String("consul-addr", "", "Consul HTTP host:port (default: CONSUL_HTTP_ADDR)")
 	cellID := flag.String("id", "", "cell id (required)")
@@ -50,7 +52,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	endpoint := lis.Addr().String()
+	listenAddr := lis.Addr().String()
+	endpoint := grpcEndpointForRegistry(*grpcAdvertise, listenAddr)
 
 	spec := &cellv1.CellSpec{
 		Id:           *cellID,
@@ -78,7 +81,7 @@ func main() {
 			log.Fatalf("consul register: %v", err)
 		}
 		go consulCat.MaintainTTL(ctx, *cellID)
-		log.Printf("cell %q registered in Consul (http=%s), gRPC %s", *cellID, caddr, endpoint)
+		log.Printf("cell %q registered in Consul (http=%s), advertise gRPC %s (listen %s)", *cellID, caddr, endpoint, listenAddr)
 	}
 
 	if caddr == "" {
@@ -94,7 +97,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("registry register: %v", err)
 		}
-		log.Printf("cell %q registered at %s (registry=%s)", *cellID, endpoint, *registryAddr)
+		log.Printf("cell %q registered at %s listen %s (registry=%s)", *cellID, endpoint, listenAddr, *registryAddr)
 	}
 
 	select {
@@ -115,3 +118,17 @@ func main() {
 	}
 	srv.GracefulStop()
 }
+
+func grpcEndpointForRegistry(flagAdvertise, listenAddr string) string {
+	for _, s := range []string{
+		strings.TrimSpace(flagAdvertise),
+		strings.TrimSpace(os.Getenv("MMO_CELL_GRPC_ADVERTISE")),
+		strings.TrimSpace(os.Getenv("CELL_GRPC_ENDPOINT")),
+	} {
+		if s != "" {
+			return s
+		}
+	}
+	return listenAddr
+}
+

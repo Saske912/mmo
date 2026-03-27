@@ -18,16 +18,26 @@ type Config struct {
 	DatabaseURLRW   string
 	RedisAddr       string
 	RedisPassword   string
+	// Harbor (проброс из секрета K8s / remote state, для docker login и отладки).
+	HarborRegistry string
+	HarborUser     string
+	HarborPassword string
+	// Публичный gRPC соты для Consul (K8s DNS); см. cmd/cell-node.
+	CellGRPCAdvertise string
 }
 
 // FromEnv загружает конфиг из окружения. Пустые строки означают «не задано».
 func FromEnv() Config {
 	c := Config{
-		ConsulHTTPToken: os.Getenv("CONSUL_HTTP_TOKEN"),
-		ConsulDNSAddr:   strings.TrimSpace(os.Getenv("CONSUL_DNS_ADDR")),
-		DatabaseURLRW:   firstNonEmpty(os.Getenv("DATABASE_URL_RW"), os.Getenv("DATABASE_URL")),
-		RedisAddr:       strings.TrimSpace(os.Getenv("REDIS_ADDR")),
-		RedisPassword:   os.Getenv("REDIS_PASSWORD"),
+		ConsulHTTPToken:   os.Getenv("CONSUL_HTTP_TOKEN"),
+		ConsulDNSAddr:     strings.TrimSpace(os.Getenv("CONSUL_DNS_ADDR")),
+		DatabaseURLRW:     firstNonEmpty(os.Getenv("DATABASE_URL_RW"), os.Getenv("DATABASE_URL")),
+		RedisAddr:         strings.TrimSpace(os.Getenv("REDIS_ADDR")),
+		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
+		HarborRegistry:    strings.TrimSpace(os.Getenv("HARBOR_REGISTRY")),
+		HarborUser:        os.Getenv("HARBOR_USER"),
+		HarborPassword:    os.Getenv("HARBOR_PASSWORD"),
+		CellGRPCAdvertise: firstNonEmpty(os.Getenv("MMO_CELL_GRPC_ADVERTISE"), os.Getenv("CELL_GRPC_ENDPOINT")),
 	}
 	if a := strings.TrimSpace(os.Getenv("CONSUL_HTTP_ADDR")); a != "" {
 		c.ConsulHTTPAddr = normalize.ConsulHTTPAddr(a)

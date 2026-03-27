@@ -1,0 +1,33 @@
+output "namespace" {
+  value = kubernetes_namespace.mmo.metadata[0].name
+}
+
+output "grid_manager_grpc" {
+  value = "${var.grid_service_name}.${var.namespace}.svc.cluster.local:${var.grid_grpc_port}"
+}
+
+output "cell_grpc_advertise" {
+  value = local.cell_grpc_advertise
+}
+
+output "container_image" {
+  description = "Итоговый reference образа (Harbor или локальный)."
+  value       = local.image
+}
+
+output "harbor_registry_hostname" {
+  description = "Хост реестра для docker login / docker push (без схемы и пути)."
+  value       = local.registry_host_normalized
+}
+
+output "harbor_docker_username" {
+  description = "Учётная запись для docker push (make harbor-login) и env приложения."
+  value       = local.harbor_user
+  sensitive   = true
+}
+
+output "harbor_docker_password" {
+  description = "Пароль для docker push; не используется для pull подов (реестр на уровне кластера)."
+  value       = local.harbor_pass
+  sensitive   = true
+}
