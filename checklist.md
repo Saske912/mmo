@@ -14,7 +14,7 @@
 - **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz` и **`/readyz`** (readiness + Ping Postgres при **`DATABASE_URL_RW`**), ws-smoke, опционально второй игрок **`-second-player`**). Опционально: **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`** для регрессии нескольких шардов.
 - **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Несколько сот: переменная **`cell_instances`** (map) — по одному Deployment + Service на шард, лейблы `cell_shard`, отдельный **`MMO_CELL_GRPC_ADVERTISE`**; ключ шарда — **RFC 1123 без `_`** (например `child-sw`). На staging закоммичен пример двух сот: [`deploy/terraform/staging/cell_instances.auto.tfvars`](deploy/terraform/staging/cell_instances.auto.tfvars); шаблон — [`cell_instances.auto.tfvars.example`](deploy/terraform/staging/cell_instances.auto.tfvars.example).
 - **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT **`/v1/session`**: опционально в JSON **оба** поля **`resolve_x`**, **`resolve_z`** (приоритет над БД и дефолтом gateway; только одно поле — **400**); иначе при DSN — **`mmo_player_last_cell`**, иначе дефолт `-resolve-x/z`; в токене claims **`mmo_has_resolve`**, **`mmo_rx`**, **`mmo_rz`**; **`/v1/ws`** — `ResolvePosition` по ним; старые JWT без `mmo_has_resolve` — дефолт gateway; **`mmo_session_issue`**, при закрытии WS — **`UpsertPlayerLastCell`** с теми же `(rx,rz)`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` … → симуляция `internal/cellsim` + ECS; смоук: [`scripts/ws-smoke`](scripts/ws-smoke) — **`-session-x/z`**, для второго игрока **`-second-session-x/z`** (staging-verify задаёт SW-точку второму игроку). Схема БД: **goose** в [`internal/db/migrations`](internal/db/migrations), [`internal/db`](internal/db).
-- **Grafana (staging):** дашборд **MMO Backend (staging)** — UID **`mmo-backend-overview`** (панели gateway / cell по **`pod`** для нескольких шардов, grid registry); папка алертов **MMO**, группа правил **`mmo-staging`**: rate RPC `code=error` у grid-registry, rate `apply_input` с `status=err` у cell и gateway (`namespace="mmo"` в запросах). **Gateway `/metrics`:** гистограммы **`mmo_gateway_registry_resolve_duration_seconds`**, **`mmo_gateway_cell_join_duration_seconds`** (`result`), **`mmo_gateway_cell_apply_input_duration_seconds`** (`result`) — панели p95 и др. в Grafana можно собрать через `histogram_quantile` по этим именам.
+- **Grafana (staging):** дашборд **MMO Backend (staging)** — UID **`mmo-backend-overview`** ([прямая ссылка](https://grafana.pass-k8s.ru/d/mmo-backend-overview): gateway / cell по **`pod`**, grid registry, панель **«Gateway: RPC latency p95 (resolve, join, apply_input)»** — `histogram_quantile(0.95, …)` по `_bucket` этих метрик); папка алертов **MMO**, группа правил **`mmo-staging`**: rate RPC `code=error` у grid-registry, rate `apply_input` с `status=err` у cell и gateway (`namespace="mmo"` в запросах). **Gateway `/metrics`:** гистограммы **`mmo_gateway_registry_resolve_duration_seconds`**, **`mmo_gateway_cell_join_duration_seconds`**, **`mmo_gateway_cell_apply_input_duration_seconds`** (у join и apply_input — лейбл **`result`**).
 - **Grid-manager (Registry):** gRPC **`ForwardCellUpdate`** — по `cell_id` из каталога проксирует `Cell.Update` на endpoint соты; CLI: `mmoctl forward-update …`. **`PlanSplit`** на соте (план четырёх детей); CLI: `mmoctl plansplit <host:port>`. Офлайн тот же план: **`mmoctl partition-plan`** (сверка с Terraform без вызова соты).
 - **Распил B2 (каталог):** `ResolveMostSpecific` выбирает соту с **максимальным `level`** среди содержащих точку; тест [`internal/discovery/split_resolve_test.go`](internal/discovery/split_resolve_test.go); в смоуке при наличии в registry **`cell_-1_-1_1`** проверяется `resolve -500 -500` → эта сота.
 - **Эпик B3 (cold-path, первый проход):** выполнен — общая геометрия сплита в [`internal/partition`](internal/partition) (`ChildSpecsForSplit`, паритет с `PlanSplit` в тестах), операторский [**runbook**](runbooks/cold-cell-split.md): план → `cell_instances` → выкат → resolve → реконнект клиентов (автосмены соты в gateway нет); вывод родителя из каталога — шаг по runbook (graceful shutdown + при необходимости убрать из tfvars). Без live-handoff NPC и без redirect в gateway.
@@ -40,7 +40,7 @@ flowchart LR
 
 1. **Postgres:** новые доменные таблицы; при необходимости отдельный Job для DDL. Выдача JWT уже учитывает **`mmo_player_last_cell`** (claims `mmo_*`). Далее — **Unity** или расширение **`ws-smoke`**.
 2. Дальше по продукту: исполняемый сплит/drain/live-migrate на соте или оркестрация из grid-manager (см. §0.4).
-3. Углубление observability: полнота метрик, Loki/Tempo, SLO по latency *(дашборд+алерты базово — в Grafana, см. снимок)*.
+3. Углубление observability: полнота метрик (в т.ч. cell/grid), Loki/Tempo, SLO/алерты по latency *(p95 gateway RPC — на дашборде, см. снимок)*.
 
 **Эпик B3 — cold-path (первый проход выполнен, март 2026):**
 
@@ -191,15 +191,16 @@ flowchart LR
 
 #### ☐ Мониторинг и observability
 - [x] **ServiceMonitor** в staging Terraform ([`servicemonitors.tf`](deploy/terraform/staging/servicemonitors.tf)) — scrape `/metrics` у gateway и при портах > 0 у cell-node / grid-manager *(нужен selector Prometheus под ваши labels)*
-- [x] **Grafana:** дашборд **MMO Backend (staging)** (`uid` **mmo-backend-overview**) — соты/игроки/input/registry; **alert rules** в папке MMO, группа **mmo-staging** (ошибки registry RPC и `apply_input` на cell/gateway)
-- [ ] Prometheus: полнота метрик по всем сценариям; расширение дашбордов (latency и др.) *(на gateway: histogram латентности `ResolvePosition` / `Join` / `ApplyInput` — [`cmd/gateway/metrics.go`](cmd/gateway/metrics.go))*
+- [x] **Grafana:** дашборд **MMO Backend (staging)** (`uid` **mmo-backend-overview**) — соты/игроки/input/registry, панель **p95 латентности** resolve/join/apply_input на gateway; **alert rules** в папке MMO, группа **mmo-staging** (ошибки registry RPC и `apply_input` на cell/gateway)
+- [x] **Gateway (WS path):** гистограммы латентности RPC — [`cmd/gateway/metrics.go`](cmd/gateway/metrics.go); визуализация p95 на дашборде (см. выше)
+- [ ] Prometheus / дашборды: метрики и latency для остальных путей (cell tick, grid-manager, полнота по сценариям)
 - [ ] Loki для логов (structured logging в JSON)
 - [ ] Tempo для трассировки (опционально)
-- [x] **Критерий (базово):** На дашборде видна активность сот, шлюза и registry; алерты по ошибкам заведены в Grafana
+- [x] **Критерий (базово):** На дашборде видна активность сот, шлюза и registry, латентность ключевых вызовов gateway; алерты по ошибкам заведены в Grafana
 
 #### Следующий шаг (кратко)
 
-Первый Postgres-клиент; клиент Unity или расширенный `ws-smoke`; по сотам — исполняемый сплит или оркестрация из grid-manager; углубление метрик и логов (см. чекбоксы выше).
+Первый Postgres-клиент; клиент Unity или расширенный `ws-smoke`; по сотам — исполняемый сплит или оркестрация из grid-manager; метрики latency вне gateway, Loki/логи (см. чекбоксы выше).
 
 ---
 

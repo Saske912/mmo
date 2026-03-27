@@ -27,6 +27,7 @@ import (
 
 	"mmo/internal/config"
 	"mmo/internal/db"
+	"mmo/internal/logging"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -34,6 +35,7 @@ var wsUpgrader = websocket.Upgrader{
 }
 
 func main() {
+	logging.SetupFromEnv()
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	registry := flag.String("registry", "127.0.0.1:9100", "grid-manager Registry host:port")
 	jwtSecret := flag.String("jwt-secret", "dev-insecure-change-me", "HMAC ключ для session JWT")
@@ -148,9 +150,10 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		PlayerID string   `json:"player_id"`
-		ResolveX *float64 `json:"resolve_x,omitempty"`
-		ResolveZ *float64 `json:"resolve_z,omitempty"`
+		PlayerID    string   `json:"player_id"`
+		DisplayName string   `json:"display_name,omitempty"`
+		ResolveX    *float64 `json:"resolve_x,omitempty"`
+		ResolveZ    *float64 `json:"resolve_z,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.PlayerID) == "" {
 		http.Error(w, `need {"player_id":"..."}`, http.StatusBadRequest)
@@ -200,6 +203,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		ictx, icancel := context.WithTimeout(r.Context(), 2*time.Second)
 		if ierr := db.RecordSessionIssue(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session audit: %v", ierr)
+		}
+		if ierr := db.UpsertPlayerProfile(ictx, g.db, body.PlayerID, body.DisplayName); ierr != nil {
+			log.Printf("session profile: %v", ierr)
 		}
 		icancel()
 	}

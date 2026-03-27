@@ -33,6 +33,7 @@ func main() {
 	secSZStr := flag.String("second-session-z", "", "для -second-player: resolve_z")
 	n := flag.Int("n", 5, "сколько кадров WorldChunk вывести и выйти")
 	inputs := flag.Int("inputs", 0, "после первого snapshot отправить столько ClientInput (вперёд, mask=1)")
+	displayName := flag.String("display-name", "", "опционально: display_name в POST /v1/session (пишется в mmo_player_profile при DATABASE_URL_RW)")
 	verbose := flag.Bool("verbose", false, "печать позиций из дельт")
 	flag.Parse()
 
@@ -46,7 +47,8 @@ func main() {
 		firstRx, firstRz = &rx, &rz
 	}
 
-	if err := runOnce(base, *player, *n, *inputs, *verbose, firstRx, firstRz); err != nil {
+	dn := displayText(*displayName)
+	if err := runOnce(base, *player, dn, *n, *inputs, *verbose, firstRx, firstRz); err != nil {
 		log.Fatal(err)
 	}
 	sp := strings.TrimSpace(*second)
@@ -60,10 +62,18 @@ func main() {
 			secRx, secRz = &srx, &srz
 		}
 		fmt.Printf("--- second player %q ---\n", sp)
-		if err := runOnce(base, sp, *n, *inputs, *verbose, secRx, secRz); err != nil {
+		if err := runOnce(base, sp, nil, *n, *inputs, *verbose, secRx, secRz); err != nil {
 			log.Fatal(err)
 		}
 	}
+}
+
+func displayText(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error) {
@@ -85,8 +95,8 @@ func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error
 	return x, z, true, nil
 }
 
-func runOnce(base, player string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
-	token, err := sessionToken(base, player, sessionRX, sessionRZ)
+func runOnce(base, player string, displayName *string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
+	token, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
 	if err != nil {
 		return err
 	}
@@ -148,8 +158,11 @@ func runOnce(base, player string, n, inputs int, verbose bool, sessionRX, sessio
 	return nil
 }
 
-func sessionToken(base, player string, resolveX, resolveZ *float64) (string, error) {
+func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (string, error) {
 	m := map[string]any{"player_id": player}
+	if displayName != nil && *displayName != "" {
+		m["display_name"] = *displayName
+	}
 	if resolveX != nil {
 		m["resolve_x"] = *resolveX
 		m["resolve_z"] = *resolveZ

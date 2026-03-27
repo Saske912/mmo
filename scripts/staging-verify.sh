@@ -71,6 +71,9 @@ go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list
 echo "== mmoctl forward-update noop (registry -> cell, id=${FIRST_CELL}) =="
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" noop
 
+echo "== mmoctl forward-update split-prepare (grid-manager -> cell Update) id=${FIRST_CELL} =="
+go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" split-prepare staging-verify
+
 echo "== B2: unit-тест каталога (родитель + SW-ребёнок, Resolve) =="
 go test ./internal/discovery -run TestResolveMostSpecific_childWinsInSWQuadrant -count=1
 

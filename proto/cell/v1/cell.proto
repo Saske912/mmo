@@ -50,11 +50,17 @@ message ResolvePositionResponse {
 // Пустое сообщение для варианта oneof (noop).
 message CellUpdateNoop {}
 
+// Запрос диагностики перед сплитом: сота не меняет мир, возвращает план детей и счётчики (grid-manager / оператор).
+message CellUpdateSplitPrepare {
+  string reason = 1;
+}
+
 message UpdateRequest {
   oneof payload {
     CellUpdateNoop noop = 1;
     // Целевой TPS игрового цикла соты (grid-manager / админка).
     int32 set_target_tps = 2;
+    CellUpdateSplitPrepare split_prepare = 3;
   }
 }
 

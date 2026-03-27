@@ -37,6 +37,22 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := UpsertPlayerProfile(ctx, pool, "profile-user", "Display One"); err != nil {
+		t.Fatal(err)
+	}
+	var dn string
+	err = pool.QueryRow(ctx, `SELECT display_name FROM mmo_player_profile WHERE player_id = $1`, "profile-user").Scan(&dn)
+	if err != nil || dn != "Display One" {
+		t.Fatalf("profile: %q err=%v", dn, err)
+	}
+	if err := UpsertPlayerProfile(ctx, pool, "profile-user", "Renamed"); err != nil {
+		t.Fatal(err)
+	}
+	err = pool.QueryRow(ctx, `SELECT display_name FROM mmo_player_profile WHERE player_id = $1`, "profile-user").Scan(&dn)
+	if err != nil || dn != "Renamed" {
+		t.Fatalf("profile after upsert: %q err=%v", dn, err)
+	}
+
 	if err := UpsertPlayerLastCell(ctx, pool, "test-last-cell", "cell_0_0_0", 10.5, -20.25); err != nil {
 		t.Fatal(err)
 	}

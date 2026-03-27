@@ -25,6 +25,8 @@ type Server struct {
 var errBadRequest = errors.New("bad request")
 
 func (s *Server) Register(ctx context.Context, req *cellv1.RegisterRequest) (*cellv1.RegisterResponse, error) {
+	start := time.Now()
+	defer func() { observeRPCDuration("Register", start) }()
 	if req == nil || req.Cell == nil {
 		incRPC("Register", errBadRequest)
 		return &cellv1.RegisterResponse{Ok: false, ErrorMessage: "empty request"}, nil
@@ -38,6 +40,8 @@ func (s *Server) Register(ctx context.Context, req *cellv1.RegisterRequest) (*ce
 }
 
 func (s *Server) ListCells(ctx context.Context, _ *cellv1.ListCellsRequest) (*cellv1.ListCellsResponse, error) {
+	start := time.Now()
+	defer func() { observeRPCDuration("ListCells", start) }()
 	cells, err := s.Store.List(ctx)
 	if err != nil {
 		incRPC("ListCells", err)
@@ -48,6 +52,8 @@ func (s *Server) ListCells(ctx context.Context, _ *cellv1.ListCellsRequest) (*ce
 }
 
 func (s *Server) ResolvePosition(ctx context.Context, req *cellv1.ResolvePositionRequest) (*cellv1.ResolvePositionResponse, error) {
+	start := time.Now()
+	defer func() { observeRPCDuration("ResolvePosition", start) }()
 	if req == nil {
 		incRPC("ResolvePosition", errBadRequest)
 		return nil, status.Error(codes.InvalidArgument, "empty request")
@@ -66,6 +72,8 @@ func (s *Server) ResolvePosition(ctx context.Context, req *cellv1.ResolvePositio
 }
 
 func (s *Server) ForwardCellUpdate(ctx context.Context, req *cellv1.ForwardCellUpdateRequest) (*cellv1.ForwardCellUpdateResponse, error) {
+	start := time.Now()
+	defer func() { observeRPCDuration("ForwardCellUpdate", start) }()
 	if req == nil || req.Update == nil {
 		e := status.Error(codes.InvalidArgument, "empty request or update")
 		incRPC("ForwardCellUpdate", e)

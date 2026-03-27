@@ -107,6 +107,25 @@ func TestUpdateSetTargetTps(t *testing.T) {
 	}
 }
 
+func TestUpdateSplitPrepare(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
+	srv := &Server{CellID: "cell_x", Sim: sim, Bounds: parent, Level: 1}
+	ctx := context.Background()
+
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SplitPrepare{
+			SplitPrepare: &cellv1.CellUpdateSplitPrepare{Reason: "test"},
+		},
+	})
+	if err != nil || res == nil || !res.Ok {
+		t.Fatalf("split_prepare: %+v err=%v", res, err)
+	}
+	if len(res.Message) < 10 {
+		t.Fatalf("short message: %q", res.Message)
+	}
+}
+
 func TestLeaveIdempotent(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	srv := &Server{CellID: "t02", Sim: sim}

@@ -10,10 +10,12 @@ import (
 	cellv1 "mmo/gen/cellv1"
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/registrysvc"
+	"mmo/internal/logging"
 	"mmo/internal/registry"
 )
 
 func main() {
+	logging.SetupFromEnv()
 	addr := flag.String("listen", "127.0.0.1:9100", "gRPC listen address")
 	metricsListen := flag.String("metrics-listen", "", "HTTP listen для /metrics (например 0.0.0.0:9091); пусто — выкл")
 	backend := flag.String("backend", "auto", "catalog backend: auto | memory | consul")

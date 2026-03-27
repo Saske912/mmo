@@ -84,6 +84,7 @@ func usage() {
   mmoctl [-registry host:port] resolve <x> <z>
   mmoctl [-registry host:port] forward-update <cell_id> noop
   mmoctl [-registry host:port] forward-update <cell_id> tps <int>
+  mmoctl [-registry host:port] forward-update <cell_id> split-prepare [reason]
   mmoctl plansplit <host:port>
   mmoctl ping <host:port>
   mmoctl join <host:port> <player_id>
@@ -326,7 +327,7 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
 	case "forward-update":
 		if len(rest) < 2 {
-			log.Fatal("forward-update: need <cell_id> noop | <cell_id> tps <int>")
+			log.Fatal("forward-update: need <cell_id> noop | tps <int> | split-prepare [reason]")
 		}
 		cellID := rest[0]
 		var upd *cellv1.UpdateRequest
@@ -342,8 +343,16 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 				log.Fatal(err)
 			}
 			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_SetTargetTps{SetTargetTps: int32(v)}}
+		case "split-prepare":
+			reason := "mmoctl"
+			if len(rest) >= 3 {
+				reason = rest[2]
+			}
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_SplitPrepare{
+				SplitPrepare: &cellv1.CellUpdateSplitPrepare{Reason: reason},
+			}}
 		default:
-			log.Fatalf("forward-update: unknown mode %q (use noop or tps)", rest[1])
+			log.Fatalf("forward-update: unknown mode %q (use noop, tps, or split-prepare)", rest[1])
 		}
 		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {

@@ -19,9 +19,11 @@ import (
 	"mmo/internal/config"
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/cellsvc"
+	"mmo/internal/logging"
 )
 
 func main() {
+	logging.SetupFromEnv()
 	listen := flag.String("listen", "127.0.0.1:0", "cell gRPC listen address (0 picks free port)")
 	grpcAdvertise := flag.String("grpc-advertise", "", "host:port для регистрации в Consul/memory (K8s DNS); иначе env MMO_CELL_GRPC_ADVERTISE / CELL_GRPC_ENDPOINT; иначе адрес listen")
 	registryAddr := flag.String("registry", "127.0.0.1:9100", "grid-manager Registry address (used if Consul is not configured)")

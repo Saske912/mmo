@@ -29,9 +29,19 @@ func wirePrometheus(addr string, cellSvc *cellsvc.Server, sim *cellsim.Runtime) 
 		Name:      "apply_input_total",
 		Help:      "ApplyInput RPC outcomes",
 	}, []string{"status"})
+	tickDur := promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "mmo",
+		Subsystem: "cell",
+		Name:      "tick_step_duration_seconds",
+		Help:      "ECS GameLoop Step wall time",
+		Buckets:   prometheus.DefBuckets,
+	})
 
 	sim.OnTick = func() {
 		ticks.Inc()
+		if sim.Loop != nil {
+			tickDur.Observe(sim.Loop.Stats.LastTickDur.Seconds())
+		}
 	}
 	cellSvc.SetApplyInputHook(func(ok bool) {
 		if ok {

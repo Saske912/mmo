@@ -2,6 +2,7 @@ package cellsvc
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -210,6 +211,33 @@ func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.U
 		s.Sim.Loop.TPS = float64(tps)
 		s.Sim.Mu.Unlock()
 		return &cellv1.UpdateResponse{Ok: true, Message: "ok"}, nil
+	case *cellv1.UpdateRequest_SplitPrepare:
+		if s.Bounds == nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "no bounds on cell server"}, nil
+		}
+		children := partition.ChildSpecsForSplit(s.Bounds, s.Level)
+		reason := ""
+		if p.SplitPrepare != nil {
+			reason = strings.TrimSpace(p.SplitPrepare.GetReason())
+		}
+		players := s.PlayerCount()
+		entities := 0
+		if s.Sim != nil && s.Sim.World != nil {
+			entities = s.Sim.World.EntityCount()
+		}
+		msg := fmt.Sprintf("split_prepare ok children=%d players=%d entities=%d",
+			len(children), players, entities)
+		if reason != "" {
+			msg += " reason=" + reason
+		}
+		msg += " child_ids="
+		for i, ch := range children {
+			if i > 0 {
+				msg += ","
+			}
+			msg += ch.GetId()
+		}
+		return &cellv1.UpdateResponse{Ok: true, Message: msg}, nil
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}

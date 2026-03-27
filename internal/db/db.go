@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -86,5 +87,26 @@ ON CONFLICT (player_id) DO UPDATE SET
 	resolve_z = EXCLUDED.resolve_z,
 	updated_at = now()`
 	_, err := pool.Exec(ctx, q, playerID, cellID, resolveX, resolveZ)
+	return err
+}
+
+const maxDisplayNameLen = 128
+
+// UpsertPlayerProfile сохраняет отображаемое имя игрока (пустое имя — no-op).
+func UpsertPlayerProfile(ctx context.Context, pool *pgxpool.Pool, playerID, displayName string) error {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		return nil
+	}
+	if len(displayName) > maxDisplayNameLen {
+		displayName = displayName[:maxDisplayNameLen]
+	}
+	const q = `
+INSERT INTO mmo_player_profile (player_id, display_name)
+VALUES ($1, $2)
+ON CONFLICT (player_id) DO UPDATE SET
+	display_name = EXCLUDED.display_name,
+	updated_at = now()`
+	_, err := pool.Exec(ctx, q, playerID, displayName)
 	return err
 }
