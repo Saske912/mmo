@@ -7,6 +7,9 @@
 #   ./scripts/deploy-staging.sh --no-commit
 #   ./scripts/deploy-staging.sh --no-cache -- "rebuild binaries"
 #
+# Тег образа пишется в deploy/terraform/staging/image.auto.tfvars (см. Makefile staging-image-tfvars),
+# чтобы tofu plan/apply без ручного TF_VAR_image_tag совпадали с последним деплоем.
+#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +27,7 @@ usage() {
 Опции:
   --no-commit     не делать git add/commit
   --no-cache      docker build --no-cache
-  --skip-test     не запускать go test ./...
+  --skip-test     не запускать go test ./... и tofu validate
   -h, --help      справка
 
 Сообщение коммита — последние аргументы или всё после « -- ».
@@ -69,6 +72,8 @@ fi
 if [ "$SKIP_TEST" = 0 ]; then
   echo "== go test ./... =="
   go test ./...
+  echo "== make staging-tofu-validate =="
+  make staging-tofu-validate
 fi
 
 if [ "$NO_COMMIT" = 0 ] && git rev-parse --git-dir >/dev/null 2>&1; then
@@ -86,19 +91,13 @@ fi
 echo "== make print-image-tag =="
 TAG="$(make -s print-image-tag)"
 echo "IMAGE_TAG=$TAG"
-# Один и тот же тег для push и tofu (без IMAGE_TAG= каждый make пересчитывает git и теоретически может разъехаться).
-echo "== make harbor-push =="
-make harbor-push IMAGE_TAG="$TAG"
 
-echo "== check manifest in Harbor (после login из harbor-push) =="
-HARBOR_REF="$(make -s print-harbor-image-ref IMAGE_TAG="$TAG")"
-if ! docker manifest inspect "$HARBOR_REF" >/dev/null 2>&1; then
-  echo "образ не читается из Harbor: $HARBOR_REF (проверь push, логин и право robot на pull/manifest)" >&2
-  exit 1
-fi
+echo "== make harbor-push (= docker build + image.auto.tfvars + harbor login/push) =="
+make harbor-push
 
-echo "== make tofu-apply =="
-make tofu-apply IMAGE_TAG="$TAG"
+echo "== make tofu-apply (= staging-tofu-validate + apply) =="
+make tofu-apply
 
 echo ""
-echo "Готово. Образ: harbor (тег $TAG). Проверка: bash scripts/staging-verify.sh"
+echo "Готово. Образ: harbor (тег $TAG, зафиксирован в deploy/terraform/staging/image.auto.tfvars)."
+echo "Проверка: bash scripts/staging-verify.sh"

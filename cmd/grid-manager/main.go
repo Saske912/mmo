@@ -15,9 +15,12 @@ import (
 
 func main() {
 	addr := flag.String("listen", "127.0.0.1:9100", "gRPC listen address")
+	metricsListen := flag.String("metrics-listen", "", "HTTP listen для /metrics (например 0.0.0.0:9091); пусто — выкл")
 	backend := flag.String("backend", "auto", "catalog backend: auto | memory | consul")
 	consulAddr := flag.String("consul-addr", "", "Consul HTTP address host:port (default: CONSUL_HTTP_ADDR)")
 	flag.Parse()
+
+	wireMetricsHTTP(*metricsListen)
 
 	store, err := openCatalog(*backend, *consulAddr)
 	if err != nil {

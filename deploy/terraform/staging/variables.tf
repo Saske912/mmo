@@ -68,6 +68,12 @@ variable "grid_grpc_port" {
   default = 9100
 }
 
+variable "grid_metrics_port" {
+  type        = number
+  description = "HTTP /metrics для grid-manager; 0 — не слушать."
+  default     = 9091
+}
+
 variable "cell_grpc_port" {
   type    = number
   default = 50051
@@ -108,6 +114,36 @@ variable "gateway_service_name" {
   default     = "mmo-gateway"
 }
 
+variable "gateway_ingress_enabled" {
+  type        = bool
+  description = "Создавать Ingress с TLS для публичного hostname gateway (сертификаты в certs/ модуля)."
+  default     = true
+}
+
+variable "gateway_ingress_host" {
+  type        = string
+  description = "FQDN для Ingress gateway (Host + TLS SNI)."
+  default     = "mmo.pass-k8s.ru"
+}
+
+variable "gateway_ingress_class_name" {
+  type        = string
+  description = "IngressClass (например nginx, traefik). Пустая строка — без поля (дефолт кластера)."
+  default     = "nginx"
+}
+
+variable "gateway_tls_fullchain_file" {
+  type        = string
+  description = "Путь к fullchain.pem относительно каталога модуля staging (TLS Secret)."
+  default     = "certs/fullchain.pem"
+}
+
+variable "gateway_tls_privkey_file" {
+  type        = string
+  description = "Путь к privkey.pem относительно каталога модуля staging."
+  default     = "certs/privkey.pem"
+}
+
 variable "gateway_jwt_secret" {
   type        = string
   description = "HMAC для JWT сессий; в K8s также в Opaque Secret (ключ GATEWAY_JWT_SECRET)."
@@ -127,4 +163,16 @@ variable "harbor_docker_password" {
   description = "Пароль Harbor для env секрета приложения и make harbor-push (если непусто — приоритет над outputs.mmo.harbor.docker_login_password)."
   default     = ""
   sensitive   = true
+}
+
+variable "service_monitor_enabled" {
+  type        = bool
+  description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."
+  default     = true
+}
+
+variable "prometheus_service_monitor_labels" {
+  type        = map(string)
+  description = "metadata.labels на ServiceMonitor (должны совпадать с serviceMonitorSelector у Prometheus CR; пустая map — без доп. labels)."
+  default     = {}
 }

@@ -1,0 +1,4 @@
+# Копия не нужна: при деплое создаётся image.auto.tfvars (в .gitignore).
+# Пример содержимого после ./scripts/deploy-staging.sh:
+#
+# image_tag = "3aec650-dirty"

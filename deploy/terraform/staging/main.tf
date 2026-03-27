@@ -28,6 +28,9 @@ locals {
 
   use_harbor_image = local.registry_host_normalized != ""
 
+  # На Harbor один тег может указывать на новый digest; IfNotPresent держит старый образ на ноде → несовпадение флагов/бинарника.
+  pull_policy = local.use_harbor_image ? "Always" : var.image_pull_policy
+
   image = trimspace(var.image_override) != "" ? trimspace(var.image_override) : (
     local.use_harbor_image ? "${local.registry_host_normalized}/${var.harbor_project}/${var.image_repository}:${var.image_tag}" : "${var.image_repository}:${var.image_tag}"
   )
@@ -101,17 +104,26 @@ resource "kubernetes_deployment" "grid_manager" {
         container {
           name              = "grid-manager"
           image             = local.image
-          image_pull_policy = var.image_pull_policy
+          image_pull_policy = local.pull_policy
 
           command = ["/grid-manager"]
-          args = [
-            "-listen", "0.0.0.0:${var.grid_grpc_port}",
-            "-backend", "auto",
-          ]
+          args = concat(
+            ["-listen", "0.0.0.0:${var.grid_grpc_port}", "-backend", "auto"],
+            var.grid_metrics_port > 0 ? ["-metrics-listen", "0.0.0.0:${var.grid_metrics_port}"] : [],
+          )
 
           port {
             name           = "grpc"
             container_port = var.grid_grpc_port
+          }
+
+          dynamic "port" {
+            for_each = var.grid_metrics_port > 0 ? [var.grid_metrics_port] : []
+            iterator = metrics
+            content {
+              name           = "metrics"
+              container_port = metrics.value
+            }
           }
 
           env_from {
@@ -154,7 +166,7 @@ resource "kubernetes_deployment" "cell_node" {
         container {
           name              = "cell-node"
           image             = local.image
-          image_pull_policy = var.image_pull_policy
+          image_pull_policy = local.pull_policy
 
           command = ["/cell-node"]
           args = concat(
@@ -196,6 +208,9 @@ resource "kubernetes_service" "grid_manager" {
   metadata {
     name      = var.grid_service_name
     namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "grid-manager"
+    }
   }
 
   spec {
@@ -208,6 +223,16 @@ resource "kubernetes_service" "grid_manager" {
       port        = var.grid_grpc_port
       target_port = var.grid_grpc_port
     }
+
+    dynamic "port" {
+      for_each = var.grid_metrics_port > 0 ? [var.grid_metrics_port] : []
+      iterator = metrics
+      content {
+        name        = "metrics"
+        port        = metrics.value
+        target_port = metrics.value
+      }
+    }
   }
 }
 
@@ -215,6 +240,9 @@ resource "kubernetes_service" "cell" {
   metadata {
     name      = var.cell_service_name
     namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "cell-node"
+    }
   }
 
   spec {
@@ -226,6 +254,16 @@ resource "kubernetes_service" "cell" {
       name        = "grpc"
       port        = var.cell_grpc_port
       target_port = var.cell_grpc_port
+    }
+
+    dynamic "port" {
+      for_each = var.cell_metrics_port > 0 ? [var.cell_metrics_port] : []
+      iterator = metrics
+      content {
+        name        = "metrics"
+        port        = metrics.value
+        target_port = metrics.value
+      }
     }
   }
 }
@@ -257,10 +295,9 @@ resource "kubernetes_deployment" "gateway" {
 
       spec {
         container {
-          name  = "gateway"
-          image = local.image
-          # Тег образа по коммиту переиспользуется при -dirty; Always подтягивает свежий push из Harbor.
-          image_pull_policy = "Always"
+          name              = "gateway"
+          image             = local.image
+          image_pull_policy = local.pull_policy
 
           command = ["/gateway"]
           args = [
@@ -290,6 +327,9 @@ resource "kubernetes_service" "gateway" {
   metadata {
     name      = var.gateway_service_name
     namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "gateway"
+    }
   }
 
   spec {
@@ -301,6 +341,67 @@ resource "kubernetes_service" "gateway" {
       name        = "http"
       port        = var.gateway_http_port
       target_port = var.gateway_http_port
+    }
+  }
+}
+
+# TLS из PEM в каталоге certs/ (Let's Encrypt / certbot; см. certs/README).
+resource "kubernetes_secret" "gateway_tls" {
+  count = var.gateway_ingress_enabled ? 1 : 0
+
+  metadata {
+    name      = "${var.gateway_service_name}-tls"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+
+  type = "kubernetes.io/tls"
+
+  data = {
+    "tls.crt" = file("${path.module}/${var.gateway_tls_fullchain_file}")
+    "tls.key" = file("${path.module}/${var.gateway_tls_privkey_file}")
+  }
+
+  wait_for_service_account_token = false
+}
+
+resource "kubernetes_ingress_v1" "gateway" {
+  count = var.gateway_ingress_enabled ? 1 : 0
+
+  metadata {
+    name      = "${var.gateway_service_name}-ingress"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+    annotations = {
+      # Долгоживущий WebSocket через NGINX Ingress Controller.
+      "nginx.ingress.kubernetes.io/proxy-read-timeout"  = "3600"
+      "nginx.ingress.kubernetes.io/proxy-send-timeout"    = "3600"
+      "nginx.ingress.kubernetes.io/proxy-connect-timeout" = "60"
+    }
+  }
+
+  spec {
+    ingress_class_name = trimspace(var.gateway_ingress_class_name) != "" ? var.gateway_ingress_class_name : null
+
+    tls {
+      hosts       = [var.gateway_ingress_host]
+      secret_name = kubernetes_secret.gateway_tls[0].metadata[0].name
+    }
+
+    rule {
+      host = var.gateway_ingress_host
+      http {
+        path {
+          path      = "/"
+          path_type = "Prefix"
+          backend {
+            service {
+              name = kubernetes_service.gateway.metadata[0].name
+              port {
+                number = var.gateway_http_port
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

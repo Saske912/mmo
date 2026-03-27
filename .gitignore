@@ -1,5 +1,7 @@
 /bin/
+deploy/terraform/staging/image.auto.tfvars
 deploy/terraform/staging/.terraform/
 deploy/terraform/staging/*.tfstate
 deploy/terraform/staging/*.tfstate.*
 deploy/terraform/staging/.terraform.lock.hcl
+certs/

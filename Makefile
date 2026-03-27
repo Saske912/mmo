@@ -1,6 +1,8 @@
-.PHONY: proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
+.PHONY: proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
 
 STAGING_DIR := deploy/terraform/staging
+# OpenTofu подхватывает *.auto.tfvars автоматически; приоритет выше, чем у TF_VAR_ — обновлять перед plan/apply.
+STAGING_IMAGE_TFVARS := $(STAGING_DIR)/image.auto.tfvars
 
 PROTOC ?= protoc
 
@@ -74,7 +76,18 @@ harbor-login:
 HARBOR_PROJECT ?= library
 IMAGE_REPOSITORY ?= mmo-backend
 
-harbor-push: docker-build harbor-login
+# Сохраняет image_tag для staging (чтобы tofu apply из каталога staging не тянул старый тег).
+staging-image-tfvars:
+	@{ \
+		echo '# Сгенерировано Makefile (harbor-push / tofu-apply); не править вручную.'; \
+		printf 'image_tag = "%s"\n' "$(IMAGE_TAG)"; \
+	} > "$(STAGING_IMAGE_TFVARS)"
+	@echo "== $(STAGING_IMAGE_TFVARS) image_tag=$(IMAGE_TAG) =="
+
+staging-tofu-validate:
+	cd $(STAGING_DIR) && tofu validate
+
+harbor-push: docker-build staging-image-tfvars harbor-login
 	@cd $(STAGING_DIR) && \
 		HOST=$$(tofu output -raw harbor_registry_hostname) && \
 		REF="$$HOST/$(HARBOR_PROJECT)/$(IMAGE_REPOSITORY):$(IMAGE_TAG)" && \
@@ -86,10 +99,10 @@ harbor-push: docker-build harbor-login
 tofu-init:
 	cd $(STAGING_DIR) && tofu init
 
-tofu-plan:
+tofu-plan: staging-image-tfvars
 	cd $(STAGING_DIR) && tofu plan
 
-tofu-apply:
+tofu-apply: staging-image-tfvars staging-tofu-validate
 	cd $(STAGING_DIR) && tofu apply -input=false -auto-approve
 
 # Локальный CI/CD: тест → (коммит при изменениях) → harbor-push → tofu-apply. См. scripts/deploy-staging.sh
