@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package mmo.cell.v1;
 
+import "game/v1/replication.proto";
+
 option go_package = "mmo/gen/cellv1;cellv1";
 
 // Границы соты в плоскости XZ (как в doc.md).
@@ -72,8 +74,21 @@ message JoinResponse {
   uint64 entity_id = 4;
 }
 
+message SubscribeDeltasRequest {
+  uint64 from_tick = 1;
+}
+
+// Кадр мира: снапшот или дельта (game.v1).
+message WorldChunk {
+  oneof kind {
+    mmo.game.v1.Snapshot snapshot = 1;
+    mmo.game.v1.Delta delta = 2;
+  }
+}
+
 // Cell — минимальный игровой узел соты (первая итерация).
 service Cell {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc Join(JoinRequest) returns (JoinResponse);
+  rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }

@@ -2,7 +2,9 @@ package cellsim
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"mmo/internal/ecs"
 )
@@ -11,6 +13,7 @@ const defaultTPS = 25
 
 // Runtime игровой цикл соты: World + фиксированный тик и базовые системы.
 type Runtime struct {
+	Mu    sync.RWMutex // Step и чтение мира из gRPC
 	World *ecs.World
 	Loop  *ecs.GameLoop
 
@@ -27,9 +30,22 @@ func NewRuntime() *Runtime {
 	return &Runtime{World: w, Loop: loop}
 }
 
-// Run блокирующий цикл до отмены ctx.
+// Run блокирующий цикл до отмены ctx (шаг под Mu, чтобы SubscribeDeltas без гонок).
 func (r *Runtime) Run(ctx context.Context) error {
-	return r.Loop.Run(ctx)
+	g := r.Loop
+	interval := time.Duration(float64(time.Second) / g.TPS)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			r.Mu.Lock()
+			g.Step()
+			r.Mu.Unlock()
+		}
+	}
 }
 
 // SpawnDemoNPCs добавляет n сущностей с позицией/скоростью/здоровьем (идемпотентно один раз).

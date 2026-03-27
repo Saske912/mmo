@@ -201,8 +201,9 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Cell_Ping_FullMethodName = "/mmo.cell.v1.Cell/Ping"
-	Cell_Join_FullMethodName = "/mmo.cell.v1.Cell/Join"
+	Cell_Ping_FullMethodName            = "/mmo.cell.v1.Cell/Ping"
+	Cell_Join_FullMethodName            = "/mmo.cell.v1.Cell/Join"
+	Cell_SubscribeDeltas_FullMethodName = "/mmo.cell.v1.Cell/SubscribeDeltas"
 )
 
 // CellClient is the client API for Cell service.
@@ -213,6 +214,7 @@ const (
 type CellClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
+	SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error)
 }
 
 type cellClient struct {
@@ -243,6 +245,25 @@ func (c *cellClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.Cal
 	return out, nil
 }
 
+func (c *cellClient) SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Cell_ServiceDesc.Streams[0], Cell_SubscribeDeltas_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SubscribeDeltasRequest, WorldChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Cell_SubscribeDeltasClient = grpc.ServerStreamingClient[WorldChunk]
+
 // CellServer is the server API for Cell service.
 // All implementations must embed UnimplementedCellServer
 // for forward compatibility.
@@ -251,6 +272,7 @@ func (c *cellClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.Cal
 type CellServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
+	SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error
 	mustEmbedUnimplementedCellServer()
 }
 
@@ -266,6 +288,9 @@ func (UnimplementedCellServer) Ping(context.Context, *PingRequest) (*PingRespons
 }
 func (UnimplementedCellServer) Join(context.Context, *JoinRequest) (*JoinResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Join not implemented")
+}
+func (UnimplementedCellServer) SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeDeltas not implemented")
 }
 func (UnimplementedCellServer) mustEmbedUnimplementedCellServer() {}
 func (UnimplementedCellServer) testEmbeddedByValue()              {}
@@ -324,6 +349,17 @@ func _Cell_Join_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_SubscribeDeltas_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeDeltasRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(CellServer).SubscribeDeltas(m, &grpc.GenericServerStream[SubscribeDeltasRequest, WorldChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Cell_SubscribeDeltasServer = grpc.ServerStreamingServer[WorldChunk]
+
 // Cell_ServiceDesc is the grpc.ServiceDesc for Cell service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -340,6 +376,12 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Cell_Join_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeDeltas",
+			Handler:       _Cell_SubscribeDeltas_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "cell/v1/cell.proto",
 }

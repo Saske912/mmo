@@ -9,6 +9,7 @@ package cellv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	gamev1 "mmo/gen/gamev1"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -647,11 +648,138 @@ func (x *JoinResponse) GetEntityId() uint64 {
 	return 0
 }
 
+type SubscribeDeltasRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromTick      uint64                 `protobuf:"varint,1,opt,name=from_tick,json=fromTick,proto3" json:"from_tick,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribeDeltasRequest) Reset() {
+	*x = SubscribeDeltasRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribeDeltasRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribeDeltasRequest) ProtoMessage() {}
+
+func (x *SubscribeDeltasRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribeDeltasRequest.ProtoReflect.Descriptor instead.
+func (*SubscribeDeltasRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SubscribeDeltasRequest) GetFromTick() uint64 {
+	if x != nil {
+		return x.FromTick
+	}
+	return 0
+}
+
+// Кадр мира: снапшот или дельта (game.v1).
+type WorldChunk struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*WorldChunk_Snapshot
+	//	*WorldChunk_Delta
+	Kind          isWorldChunk_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorldChunk) Reset() {
+	*x = WorldChunk{}
+	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorldChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorldChunk) ProtoMessage() {}
+
+func (x *WorldChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorldChunk.ProtoReflect.Descriptor instead.
+func (*WorldChunk) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WorldChunk) GetKind() isWorldChunk_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *WorldChunk) GetSnapshot() *gamev1.Snapshot {
+	if x != nil {
+		if x, ok := x.Kind.(*WorldChunk_Snapshot); ok {
+			return x.Snapshot
+		}
+	}
+	return nil
+}
+
+func (x *WorldChunk) GetDelta() *gamev1.Delta {
+	if x != nil {
+		if x, ok := x.Kind.(*WorldChunk_Delta); ok {
+			return x.Delta
+		}
+	}
+	return nil
+}
+
+type isWorldChunk_Kind interface {
+	isWorldChunk_Kind()
+}
+
+type WorldChunk_Snapshot struct {
+	Snapshot *gamev1.Snapshot `protobuf:"bytes,1,opt,name=snapshot,proto3,oneof"`
+}
+
+type WorldChunk_Delta struct {
+	Delta *gamev1.Delta `protobuf:"bytes,2,opt,name=delta,proto3,oneof"`
+}
+
+func (*WorldChunk_Snapshot) isWorldChunk_Kind() {}
+
+func (*WorldChunk_Delta) isWorldChunk_Kind() {}
+
 var File_cell_v1_cell_proto protoreflect.FileDescriptor
 
 const file_cell_v1_cell_proto_rawDesc = "" +
 	"\n" +
-	"\x12cell/v1/cell.proto\x12\vmmo.cell.v1\"\\\n" +
+	"\x12cell/v1/cell.proto\x12\vmmo.cell.v1\x1a\x19game/v1/replication.proto\"\\\n" +
 	"\x06Bounds\x12\x13\n" +
 	"\x05x_min\x18\x01 \x01(\x01R\x04xMin\x12\x13\n" +
 	"\x05x_max\x18\x02 \x01(\x01R\x04xMax\x12\x13\n" +
@@ -687,14 +815,22 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x17\n" +
 	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1b\n" +
-	"\tentity_id\x18\x04 \x01(\x04R\bentityId2\xfd\x01\n" +
+	"\tentity_id\x18\x04 \x01(\x04R\bentityId\"5\n" +
+	"\x16SubscribeDeltasRequest\x12\x1b\n" +
+	"\tfrom_tick\x18\x01 \x01(\x04R\bfromTick\"u\n" +
+	"\n" +
+	"WorldChunk\x123\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x15.mmo.game.v1.SnapshotH\x00R\bsnapshot\x12*\n" +
+	"\x05delta\x18\x02 \x01(\v2\x12.mmo.game.v1.DeltaH\x00R\x05deltaB\x06\n" +
+	"\x04kind2\xfd\x01\n" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
-	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\x80\x01\n" +
+	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\xd3\x01\n" +
 	"\x04Cell\x12;\n" +
 	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
-	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponseB\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
+	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12Q\n" +
+	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
 
 var (
 	file_cell_v1_cell_proto_rawDescOnce sync.Once
@@ -708,7 +844,7 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_cell_v1_cell_proto_goTypes = []any{
 	(*Bounds)(nil),                  // 0: mmo.cell.v1.Bounds
 	(*CellSpec)(nil),                // 1: mmo.cell.v1.CellSpec
@@ -722,27 +858,35 @@ var file_cell_v1_cell_proto_goTypes = []any{
 	(*PingResponse)(nil),            // 9: mmo.cell.v1.PingResponse
 	(*JoinRequest)(nil),             // 10: mmo.cell.v1.JoinRequest
 	(*JoinResponse)(nil),            // 11: mmo.cell.v1.JoinResponse
+	(*SubscribeDeltasRequest)(nil),  // 12: mmo.cell.v1.SubscribeDeltasRequest
+	(*WorldChunk)(nil),              // 13: mmo.cell.v1.WorldChunk
+	(*gamev1.Snapshot)(nil),         // 14: mmo.game.v1.Snapshot
+	(*gamev1.Delta)(nil),            // 15: mmo.game.v1.Delta
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
 	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
 	1,  // 1: mmo.cell.v1.RegisterRequest.cell:type_name -> mmo.cell.v1.CellSpec
 	1,  // 2: mmo.cell.v1.ListCellsResponse.cells:type_name -> mmo.cell.v1.CellSpec
 	1,  // 3: mmo.cell.v1.ResolvePositionResponse.cell:type_name -> mmo.cell.v1.CellSpec
-	2,  // 4: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
-	4,  // 5: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
-	6,  // 6: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
-	8,  // 7: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	10, // 8: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
-	3,  // 9: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5,  // 10: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7,  // 11: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	9,  // 12: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	11, // 13: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
-	9,  // [9:14] is the sub-list for method output_type
-	4,  // [4:9] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	14, // 4: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
+	15, // 5: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
+	2,  // 6: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
+	4,  // 7: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
+	6,  // 8: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
+	8,  // 9: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	10, // 10: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	12, // 11: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
+	3,  // 12: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 13: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 14: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	9,  // 15: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	11, // 16: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	13, // 17: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_cell_v1_cell_proto_init() }
@@ -750,13 +894,17 @@ func file_cell_v1_cell_proto_init() {
 	if File_cell_v1_cell_proto != nil {
 		return
 	}
+	file_cell_v1_cell_proto_msgTypes[13].OneofWrappers = []any{
+		(*WorldChunk_Snapshot)(nil),
+		(*WorldChunk_Delta)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -8,6 +8,8 @@ type World struct {
 	positions  map[Entity]Position
 	velocities map[Entity]Velocity
 	healths    map[Entity]Health
+
+	dirty map[Entity]struct{} // для репликации (позиция/здоровье менялись)
 }
 
 // NewWorld пустой мир.
@@ -34,6 +36,14 @@ func (w *World) DestroyEntity(e Entity) {
 	delete(w.positions, e)
 	delete(w.velocities, e)
 	delete(w.healths, e)
+	delete(w.dirty, e)
+}
+
+func (w *World) markDirty(e Entity) {
+	if w.dirty == nil {
+		w.dirty = make(map[Entity]struct{})
+	}
+	w.dirty[e] = struct{}{}
 }
 
 // Alive множество живых сущностей (копия ключей не делается — только для итерации из одного места).
@@ -43,6 +53,7 @@ func (w *World) Alive() map[Entity]struct{} {
 
 func (w *World) SetPosition(e Entity, p Position) {
 	w.positions[e] = p
+	w.markDirty(e)
 }
 
 func (w *World) Position(e Entity) (Position, bool) {
@@ -52,6 +63,7 @@ func (w *World) Position(e Entity) (Position, bool) {
 
 func (w *World) RemovePosition(e Entity) {
 	delete(w.positions, e)
+	delete(w.dirty, e)
 }
 
 func (w *World) SetVelocity(e Entity, v Velocity) {
@@ -69,6 +81,7 @@ func (w *World) RemoveVelocity(e Entity) {
 
 func (w *World) SetHealth(e Entity, h Health) {
 	w.healths[e] = h
+	w.markDirty(e)
 }
 
 func (w *World) Health(e Entity) (Health, bool) {
@@ -78,6 +91,20 @@ func (w *World) Health(e Entity) (Health, bool) {
 
 func (w *World) RemoveHealth(e Entity) {
 	delete(w.healths, e)
+	delete(w.dirty, e)
+}
+
+// TakeDirtyEntities возвращает сущности с несинхронизированными полями и очищает набор dirty.
+func (w *World) TakeDirtyEntities() []Entity {
+	if len(w.dirty) == 0 {
+		return nil
+	}
+	out := make([]Entity, 0, len(w.dirty))
+	for e := range w.dirty {
+		out = append(out, e)
+	}
+	w.dirty = make(map[Entity]struct{})
+	return out
 }
 
 // VisitMovement сущности с Position и Velocity.

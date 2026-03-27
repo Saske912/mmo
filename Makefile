@@ -12,14 +12,17 @@ DOCKER_IMAGE ?= mmo-backend:$(IMAGE_TAG)
 # Согласовать деплой staging с тем же тегом, что и docker build / harbor-push.
 export TF_VAR_image_tag := $(IMAGE_TAG)
 
+PROTO_FILES := proto/game/v1/replication.proto proto/cell/v1/cell.proto
+
 proto:
-	$(PROTOC) -I proto proto/cell/v1/cell.proto \
+	$(PROTOC) -I proto $(PROTO_FILES) \
 		--go_out=. --go_opt=module=mmo \
 		--go-grpc_out=. --go-grpc_opt=module=mmo
 
 build:
 	go build -o bin/grid-manager ./cmd/grid-manager
 	go build -o bin/cell-node ./cmd/cell-node
+	go build -o bin/gateway ./cmd/gateway
 	go build -o bin/mmoctl ./cmd/mmoctl
 
 test:

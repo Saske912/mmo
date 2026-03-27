@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package mmo.game.v1;
+
+option go_package = "mmo/gen/gamev1;gamev1";
+
+// Vec3f компактнее double для сети (чеклист: пакет < 1400 байт).
+message Vec3f {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+// ClientInput ввод с клиента (клавиши + прицел).
+message ClientInput {
+  uint32 seq = 1;
+  uint32 input_mask = 2;
+  float aim_yaw_deg = 3;
+}
+
+// EntityState запись для Snapshot / Delta.
+message EntityState {
+  uint64 entity_id = 1;
+  Vec3f position = 2;
+  uint32 flags = 3;
+  float health_pct = 4;
+}
+
+// Snapshot полное состояние видимых сущностей.
+message Snapshot {
+  uint64 tick = 1;
+  repeated EntityState entities = 2;
+}
+
+// Delta только изменившиеся сущности с прошлого кадра.
+message Delta {
+  uint64 tick = 1;
+  uint64 from_tick = 2;
+  repeated EntityState changed = 3;
+}
