@@ -2,14 +2,17 @@ package db
 
 import (
 	"context"
-	_ "embed"
+	"database/sql"
+	"embed"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
 
-//go:embed schema.sql
-var schemaSQL string
+//go:embed migrations/*.sql
+var migrationFS embed.FS
 
 // OpenPool создаёт пул подключений к Postgres (CNPG / локальный).
 func OpenPool(ctx context.Context, connString string) (*pgxpool.Pool, error) {
@@ -29,10 +32,25 @@ func OpenPool(ctx context.Context, connString string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// EnsureSchema создаёт таблицы приложения (idempotent).
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, schemaSQL)
-	return err
+// RunMigrations применяет встроенные SQL-миграции goose (Up до актуальной версии).
+func RunMigrations(ctx context.Context, connString string) error {
+	db, err := sql.Open("pgx", connString)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return err
+	}
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		return err
+	}
+	goose.SetBaseFS(migrationFS)
+	defer goose.SetBaseFS(nil)
+
+	return goose.UpContext(ctx, db, "migrations")
 }
 
 // RecordSessionIssue пишет факт выдачи сессии (best-effort в вызывающем коде).

@@ -11,16 +11,16 @@
 Этот раздел отражает **фактическое состояние репозитория MMO**, а не весь aspirational-чеклист ниже.
 
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
-- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz` и **`/readyz`** (readiness + Ping Postgres при **`DATABASE_URL_RW`**), ws-smoke). Опционально: **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`** для регрессии нескольких шардов.
+- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz` и **`/readyz`** (readiness + Ping Postgres при **`DATABASE_URL_RW`**), ws-smoke, опционально второй игрок **`-second-player`**). Опционально: **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`** для регрессии нескольких шардов.
 - **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Несколько сот: переменная **`cell_instances`** (map) — по одному Deployment + Service на шард, лейблы `cell_shard`, отдельный **`MMO_CELL_GRPC_ADVERTISE`**; ключ шарда — **RFC 1123 без `_`** (например `child-sw`). На staging закоммичен пример двух сот: [`deploy/terraform/staging/cell_instances.auto.tfvars`](deploy/terraform/staging/cell_instances.auto.tfvars); шаблон — [`cell_instances.auto.tfvars.example`](deploy/terraform/staging/cell_instances.auto.tfvars.example).
-- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session` + best-effort запись в Postgres **`mmo_session_issue`** при заданном `DATABASE_URL_RW`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` … → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway; **`GET /readyz`** — readiness (Ping БД, если DSN есть). Схема БД: [`internal/db/schema.sql`](internal/db/schema.sql), код пула — [`internal/db`](internal/db).
+- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session` + best-effort запись в Postgres **`mmo_session_issue`** при заданном `DATABASE_URL_RW`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` … → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway; **`GET /readyz`** — readiness (Ping БД, если DSN есть). Схема БД: миграции **goose** в [`internal/db/migrations`](internal/db/migrations), `RunMigrations` + пул — [`internal/db`](internal/db).
 - **Grafana (staging):** дашборд **MMO Backend (staging)** — UID **`mmo-backend-overview`** (панели gateway / cell по **`pod`** для нескольких шардов, grid registry); папка алертов **MMO**, группа правил **`mmo-staging`**: rate RPC `code=error` у grid-registry, rate `apply_input` с `status=err` у cell и gateway (`namespace="mmo"` в запросах).
 - **Grid-manager (Registry):** gRPC **`ForwardCellUpdate`** — по `cell_id` из каталога проксирует `Cell.Update` на endpoint соты; CLI: `mmoctl forward-update …`. **`PlanSplit`** на соте (план четырёх детей); CLI: `mmoctl plansplit <host:port>`. Офлайн тот же план: **`mmoctl partition-plan`** (сверка с Terraform без вызова соты).
 - **Распил B2 (каталог):** `ResolveMostSpecific` выбирает соту с **максимальным `level`** среди содержащих точку; тест [`internal/discovery/split_resolve_test.go`](internal/discovery/split_resolve_test.go); в смоуке при наличии в registry **`cell_-1_-1_1`** проверяется `resolve -500 -500` → эта сота.
 - **Эпик B3 (cold-path, первый проход):** выполнен — общая геометрия сплита в [`internal/partition`](internal/partition) (`ChildSpecsForSplit`, паритет с `PlanSplit` в тестах), операторский [**runbook**](runbooks/cold-cell-split.md): план → `cell_instances` → выкат → resolve → реконнект клиентов (автосмены соты в gateway нет); вывод родителя из каталога — шаг по runbook (graceful shutdown + при необходимости убрать из tfvars). Без live-handoff NPC и без redirect в gateway.
 - **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
-- **БД в кластере (операторы уже стоят):** **CloudNativePG** — namespace `postgresql`, CR `Cluster/postgresql` (2 инстанса, healthy); DSN в Secret `mmo-backend` как **`DATABASE_URL_RW`**. **Gateway** поднимает `pgxpool`, на старте `EnsureSchema`, аудит выдачи сессий в **`mmo_session_issue`**. **ScyllaDB** — в приложении MMO пока нет клиента *(инфра в namespace `scylla` — см. Phase 0)*.
+- **БД в кластере (операторы уже стоят):** **CloudNativePG** — namespace `postgresql`, CR `Cluster/postgresql` (2 инстанса, healthy); DSN в Secret `mmo-backend` как **`DATABASE_URL_RW`**. **Gateway** поднимает `pgxpool`, на старте **`RunMigrations`** (goose, встроенный embed SQL), аудит выдачи сессий в **`mmo_session_issue`**. **ScyllaDB** — в приложении MMO пока нет клиента *(инфра в namespace `scylla` — см. Phase 0)*.
 
 ```mermaid
 flowchart LR
@@ -38,7 +38,7 @@ flowchart LR
 
 **Следующий шаг (приоритет):**
 
-1. Расширение **Postgres** (goose/atlas, доменные таблицы), **Unity** или расширенный **`ws-smoke`** *(базовый клиент и аудит сессий в gateway — см. снимок)*.
+1. Расширение **Postgres** (доменные таблицы, при необходимости atlas/отдельный Job для DDL), **Unity** или дальнейшее расширение **`ws-smoke`** *(минимум goose + второй игрок в смоуке — см. снимок)*.
 2. Дальше по продукту: исполняемый сплит/drain/live-migrate на соте или оркестрация из grid-manager (см. §0.4).
 3. Углубление observability: полнота метрик, Loki/Tempo, SLO по latency *(дашборд+алерты базово — в Grafana, см. снимок)*.
 
@@ -91,10 +91,10 @@ flowchart LR
 - [ ] **Критерий:** Два сервиса обмениваются сообщениями через NATS *(частично: dev/smoke через `mmoctl`; JetStream и кластерные сценарии — нет)*
 
 #### ☐ Базы данных
-- [x] **PostgreSQL (CNPG)** в кластере: namespace `postgresql`, ресурс `clusters.postgresql.cnpg.io/postgresql`, сервис **`postgresql-rw`** (и `postgresql-ro` / pooler); изнутри кластера **`postgresql-rw.postgresql.svc.cluster.local:5432`**. Базовая схема и клиент: **`internal/db`**, gateway при **`DATABASE_URL_RW`**; таблица **`mmo_session_issue`** (аудит `/v1/session`). Полный пайплайн миграций (goose/atlas) — **[ ]** позже.
+- [x] **PostgreSQL (CNPG)** в кластере: namespace `postgresql`, ресурс `clusters.postgresql.cnpg.io/postgresql`, сервис **`postgresql-rw`** (и `postgresql-ro` / pooler); изнутри кластера **`postgresql-rw.postgresql.svc.cluster.local:5432`**. Клиент и миграции: **`internal/db`** (**goose**, embed `migrations/*.sql`), gateway при **`DATABASE_URL_RW`** вызывает **`RunMigrations`** и пишет в **`mmo_session_issue`**. Отдельный пайплайн только в CI / K8s Job без DDL из процесса gateway — **[ ]** по политике при росте команды.
 - [x] **ScyllaDB** в кластере: `scylla-operator`, `ScyllaCluster` в namespace **`scylla`** (manager — `scylla-manager`). CQL **9042** на клиентских svc (`scylla-client` и т.д.). Использование из Go — **[ ]** позже.
 - [x] **Redis** — namespace `redis`, cell-node: снепшот соты (`REDIS_ADDR` / пароль из Secret `mmo-backend`, ключ `mmo:cell:{id}:state`).
-- [x] **Критерий для MMO (частично):** клиент к Postgres и idempotent-схема для сессий в gateway; снепшоты соты — Redis; **Scylla** — позже.
+- [x] **Критерий для MMO (частично):** клиент к Postgres и версионированные миграции (goose) для сессий в gateway; снепшоты соты — Redis; **Scylla** — позже.
 
 ---
 

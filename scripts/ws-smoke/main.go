@@ -25,61 +25,75 @@ import (
 func main() {
 	gw := flag.String("gateway", "http://127.0.0.1:8080", "базовый URL gateway (http)")
 	player := flag.String("player", "ws-smoke", "player_id для Join")
+	second := flag.String("second-player", "", "если непусто — после первого прогона второй session+ws с этим player_id")
 	n := flag.Int("n", 5, "сколько кадров WorldChunk вывести и выйти")
 	inputs := flag.Int("inputs", 0, "после первого snapshot отправить столько ClientInput (вперёд, mask=1)")
 	verbose := flag.Bool("verbose", false, "печать позиций из дельт")
 	flag.Parse()
 
 	base := strings.TrimSuffix(*gw, "/")
-	token, err := sessionToken(base, *player)
-	if err != nil {
+	if err := runOnce(base, *player, *n, *inputs, *verbose); err != nil {
 		log.Fatal(err)
+	}
+	sp := strings.TrimSpace(*second)
+	if sp != "" {
+		fmt.Printf("--- second player %q ---\n", sp)
+		if err := runOnce(base, sp, *n, *inputs, *verbose); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func runOnce(base, player string, n, inputs int, verbose bool) error {
+	token, err := sessionToken(base, player)
+	if err != nil {
+		return err
 	}
 
 	wsURL, err := wsDialURL(base, token)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, _, err := d.Dial(wsURL, nil)
 	if err != nil {
-		log.Fatalf("ws dial: %v", err)
+		return fmt.Errorf("ws dial: %w", err)
 	}
 	defer conn.Close()
 
 	sentMove := false
-	for i := range *n {
+	for i := range n {
 		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			log.Fatalf("read %d: %v", i, err)
+			return fmt.Errorf("read %d: %w", i, err)
 		}
 		var chunk cellv1.WorldChunk
 		if err := proto.Unmarshal(data, &chunk); err != nil {
-			log.Fatalf("unmarshal %d: %v", i, err)
+			return fmt.Errorf("unmarshal %d: %w", i, err)
 		}
 		if s := chunk.GetSnapshot(); s != nil {
-			fmt.Printf("[%d] snapshot tick=%d entities=%d\n", i, s.Tick, len(s.Entities))
-			if !sentMove && *inputs > 0 {
-				for j := range *inputs {
+			fmt.Printf("[%s %d] snapshot tick=%d entities=%d\n", player, i, s.Tick, len(s.Entities))
+			if !sentMove && inputs > 0 {
+				for j := range inputs {
 					in := &gamev1.ClientInput{Seq: uint32(j + 1), InputMask: 1}
 					b, mErr := proto.Marshal(in)
 					if mErr != nil {
-						log.Fatal(mErr)
+						return mErr
 					}
 					if wErr := conn.WriteMessage(websocket.BinaryMessage, b); wErr != nil {
-						log.Fatalf("write input: %v", wErr)
+						return fmt.Errorf("write input: %w", wErr)
 					}
 				}
 				sentMove = true
-				fmt.Printf("sent %d ClientInput (forward)\n", *inputs)
+				fmt.Printf("[%s] sent %d ClientInput (forward)\n", player, inputs)
 			}
 			continue
 		}
 		if d := chunk.GetDelta(); d != nil {
-			fmt.Printf("[%d] delta tick=%d changed=%d\n", i, d.Tick, len(d.Changed))
-			if *verbose {
+			fmt.Printf("[%s %d] delta tick=%d changed=%d\n", player, i, d.Tick, len(d.Changed))
+			if verbose {
 				for _, e := range d.Changed {
 					if e.Position != nil {
 						fmt.Printf("    entity=%d pos=(%.2f,%.2f,%.2f)\n", e.EntityId, e.Position.X, e.Position.Y, e.Position.Z)
@@ -88,8 +102,9 @@ func main() {
 			}
 			continue
 		}
-		fmt.Printf("[%d] empty chunk\n", i)
+		fmt.Printf("[%s %d] empty chunk\n", player, i)
 	}
+	return nil
 }
 
 func sessionToken(base, player string) (string, error) {

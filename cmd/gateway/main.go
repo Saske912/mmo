@@ -55,11 +55,11 @@ func main() {
 			log.Fatalf("database pool: %v", err)
 		}
 		sctx, scancel := context.WithTimeout(context.Background(), 15*time.Second)
-		err = db.EnsureSchema(sctx, p)
+		err = db.RunMigrations(sctx, cfg.DatabaseURLRW)
 		scancel()
 		if err != nil {
 			p.Close()
-			log.Fatalf("database schema: %v", err)
+			log.Fatalf("database migrations: %v", err)
 		}
 		pgPool = p
 		defer pgPool.Close()
