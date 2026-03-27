@@ -30,6 +30,23 @@ type Catalog interface {
 }
 
 // PickBestCell возвращает соту с максимальным level среди содержащих точку (как registry.Memory).
+// FindCellByID ищет соту по CellSpec.id (сканирование каталога через List).
+func FindCellByID(ctx context.Context, c Catalog, id string) (*cellv1.CellSpec, bool, error) {
+	if id == "" {
+		return nil, false, nil
+	}
+	cells, err := c.List(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, s := range cells {
+		if s != nil && s.Id == id {
+			return cloneSpec(s), true, nil
+		}
+	}
+	return nil, false, nil
+}
+
 func PickBestCell(cells []*cellv1.CellSpec, x, z float64) (*cellv1.CellSpec, bool) {
 	var best *cellv1.CellSpec
 	for _, c := range cells {

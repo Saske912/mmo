@@ -77,6 +77,8 @@ func usage() {
   mmoctl nats sub  [-url u] [-wait n] [-timeout d] <subject>
   mmoctl [-registry host:port] list
   mmoctl [-registry host:port] resolve <x> <z>
+  mmoctl [-registry host:port] forward-update <cell_id> noop
+  mmoctl [-registry host:port] forward-update <cell_id> tps <int>
   mmoctl ping <host:port>
   mmoctl join <host:port> <player_id>
 `)
@@ -224,6 +226,38 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 		b := c.Bounds
 		fmt.Printf("%s level=%d endpoint=%s bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
+	case "forward-update":
+		if len(rest) < 2 {
+			log.Fatal("forward-update: need <cell_id> noop | <cell_id> tps <int>")
+		}
+		cellID := rest[0]
+		var upd *cellv1.UpdateRequest
+		switch rest[1] {
+		case "noop":
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_Noop{Noop: &cellv1.CellUpdateNoop{}}}
+		case "tps":
+			if len(rest) != 3 {
+				log.Fatal("forward-update: tps needs integer")
+			}
+			v, err := strconv.ParseInt(rest[2], 10, 32)
+			if err != nil {
+				log.Fatal(err)
+			}
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_SetTargetTps{SetTargetTps: int32(v)}}
+		default:
+			log.Fatalf("forward-update: unknown mode %q (use noop or tps)", rest[1])
+		}
+		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewRegistryClient(conn)
+		resp, err := cl.ForwardCellUpdate(ctx, &cellv1.ForwardCellUpdateRequest{CellId: cellID, Update: upd})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ok=%v %s\n", resp.Ok, resp.Message)
 	case "ping":
 		if len(rest) != 1 {
 			log.Fatal("ping: need host:port")

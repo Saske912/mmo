@@ -1,4 +1,4 @@
-Отлично! Сделаю подробный **чеклист** по этапам разработки и деплоя MMO с рекурсивным масштабированием. Каждый пункт — это конкретное действие с критерием готовности.
+Чеклист по этапам разработки и деплоя MMO (roadmap + критерии готовности). Актуальное окружение — в разделе «Снимок состояния».
 
 ---
 
@@ -12,10 +12,11 @@
 
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
 - **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, cell ping, gateway `/healthz`, ws-smoke).
-- **Kubernetes:** рабочий кластер (в т.ч. Talos); приложение в namespace **`mmo`** — это не то же самое, что примеры `mmo-backend` / `monitoring` / `state` в пункте 0.1 ниже (см. `deploy/terraform/staging/main.tf`).
+- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Чеклист ниже может содержать исторические формулировки из шаблона — ориентир на этот снимок и Terraform.
 - **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `Update`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
 - **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
+- **БД в кластере (операторы уже стоят):** **CloudNativePG** — namespace `postgresql`, CR `Cluster/postgresql` (2 инстанса, healthy); из подов: сервис записи **`postgresql-rw.postgresql.svc:5432`**, наружу при необходимости — **`postgresql-lb`** (LoadBalancer). **ScyllaDB** — operator/manager в `scylla-operator` / `scylla-manager`, кластер **`ScyllaCluster/scylla`** в namespace `scylla` (datacenter `staging-dc`, CQL смотреть на svc вроде `scylla-client.scylla.svc`, порт **9042**). В приложении MMO к ним пока нет подключённого кода — только инфраструктура.
 
 ```mermaid
 flowchart LR
@@ -44,11 +45,10 @@ flowchart LR
 ### 0.1 Инфраструктура и оркестрация
 
 #### ☐ Настройка Kubernetes кластера
-- [ ] Установлен minikube/k3s для разработки
-- [x] Настроен production-кластер (или облачный managed k8s) — staging (в т.ч. Talos)
-- [x] kubectl работает с правильным контекстом
-- [ ] Установлен Helm 3.x
-- [ ] Настроены namespace: `mmo-backend`, `monitoring`, `state` *(в репозитории используется **`mmo`** для приложения — см. Terraform staging)*
+- [x] Кластер **Talos** Kubernetes для staging/прода; приложение выкатывается OpenTofu из `deploy/terraform/staging/`
+- [x] `kubectl` с нужным контекстом
+- [ ] Доп. компоненты вне репо (NATS, БД, мониторинг) — по вашему инфра-пайплайну; **Helm** только если он у вас принят для этих чартов
+- [x] Namespace приложения **`mmo`** (см. Terraform); имена вроде `mmo-backend` / `monitoring` из шаблонов ниже — не путать с реальным `mmo`
 
 #### ☐ Custom Controller для управления сотами
 - [ ] Создан CRD `Cell` (apiVersion: `mmo.io/v1`)
@@ -67,19 +67,17 @@ flowchart LR
 - [x] **Критерий:** `consul catalog services` показывает активные соты (проверяется через `staging-verify` / health API `mmo-cell`)
 
 #### ☐ Message Bus
-- [ ] Установлен NATS JetStream через Helm (из вашего инфра-стека)
+- [ ] NATS JetStream в кластере *(если нужен полноценный брокер; деплой — как принято у вас: манифесты, Helm и т.д.)*
 - [x] Созданы топики: `cell.events`, `cell.migration`, `grid.commands` *(как константы субъектов в `internal/bus/nats/subjects.go`; не обязательно заведены на брокере)*
 - [x] Реализован publisher в Go *(утилита `mmoctl nats`, клиент core в `internal/bus/nats`)*
 - [ ] Реализован subscriber с reconnect logic *(полноценная подписка в сервисах — позже)*
 - [ ] **Критерий:** Два сервиса обмениваются сообщениями через NATS *(частично: dev/smoke через `mmoctl`; JetStream и кластерные сценарии — нет)*
 
 #### ☐ Базы данных
-- [ ] PostgreSQL установлен (из вашего инфра-стека)
-- [ ] ScyllaDB установлен (если используется)
-- [ ] Redis Cluster установлен (из вашего инфра-стека)
-- [ ] Созданы миграции для PostgreSQL (таблицы players, inventory)
-- [ ] Настроены keyspaces/tables в ScyllaDB
-- [ ] **Критерий:** `psql` подключается, `redis-cli ping` работает
+- [x] **PostgreSQL (CNPG)** в кластере: namespace `postgresql`, ресурс `clusters.postgresql.cnpg.io/postgresql`, сервис **`postgresql-rw`** (и `postgresql-ro` / pooler); изнутри кластера подключение к **`postgresql-rw.postgresql.svc.cluster.local:5432`**. Схемы/миграции под MMO — **[ ]** сделать, когда подключите сервисы.
+- [x] **ScyllaDB** в кластере: `scylla-operator`, `ScyllaCluster` в namespace **`scylla`** (manager — `scylla-manager`). CQL **9042** на клиентских svc (`scylla-client` и т.д.). Использование из Go — **[ ]** позже.
+- [x] **Redis** — namespace `redis`, cell-node: снепшот соты (`REDIS_ADDR` / пароль из Secret `mmo-backend`, ключ `mmo:cell:{id}:state`).
+- [ ] **Критерий для MMO:** миграции и клиентский код к Postgres/Scylla; для снепшотов соты достаточно настроенного Redis в env (`mmo-backend`).
 
 ---
 
@@ -157,10 +155,10 @@ flowchart LR
 ### 0.4 Интеграция и первая сота
 
 #### ☐ Первая сота (Cell Service)
-- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`
-- [ ] Реализованы gRPC: `Update`, `Split` *(нет в `proto/cell/v1/cell.proto`)*
+- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop / `set_target_tps`)*
+- [ ] Реализован gRPC `Split` и полноценный командный слой через `Update`
 - [x] Интегрированы ECS + сетевой стрим репликации *(AOI в игровом цикле cell-node не задействован)*
-- [ ] Graceful shutdown: сохранение снепшота в Redis/Scylla
+- [x] Graceful shutdown: сохранение снепшота в **Redis** (`CellPersist`; игроки не персистятся); Scylla — вне текущего скоупа
 - [x] Регистрация в Consul при старте
 - [x] **Критерий:** Один под запущен, игрок может подключиться *(staging + ws-smoke)*
 
@@ -180,7 +178,7 @@ flowchart LR
 
 #### Следующий шаг (кратко)
 
-RPC `Update` / игровой командный слой, сплит сот, персист снепшотов; дашборды Grafana и scrape Prometheus в кластере; клиент Unity или расширенный `ws-smoke`.
+Сплит сот и расширение `Update` от grid-manager; scrape Prometheus / Grafana; клиент Unity или расширенный `ws-smoke`.
 
 ---
 

@@ -47,11 +47,39 @@ message ResolvePositionResponse {
   bool found = 2;
 }
 
+// Пустое сообщение для варианта oneof (noop).
+message CellUpdateNoop {}
+
+message UpdateRequest {
+  oneof payload {
+    CellUpdateNoop noop = 1;
+    // Целевой TPS игрового цикла соты (grid-manager / админка).
+    int32 set_target_tps = 2;
+  }
+}
+
+message UpdateResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+// Прокси команды Update на соту по logical id (grid-manager → cell-node).
+message ForwardCellUpdateRequest {
+  string cell_id = 1;
+  UpdateRequest update = 2;
+}
+
+message ForwardCellUpdateResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
 // Registry — сервис обнаружения сот (заготовка Grid Manager / Consul-роли).
 service Registry {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc ListCells(ListCellsRequest) returns (ListCellsResponse);
   rpc ResolvePosition(ResolvePositionRequest) returns (ResolvePositionResponse);
+  rpc ForwardCellUpdate(ForwardCellUpdateRequest) returns (ForwardCellUpdateResponse);
 }
 
 message PingRequest {
@@ -93,22 +121,6 @@ message LeaveRequest {
 }
 
 message LeaveResponse {
-  bool ok = 1;
-  string message = 2;
-}
-
-// Пустое сообщение для варианта oneof (noop).
-message CellUpdateNoop {}
-
-message UpdateRequest {
-  oneof payload {
-    CellUpdateNoop noop = 1;
-    // Целевой TPS игрового цикла соты (grid-manager / админка).
-    int32 set_target_tps = 2;
-  }
-}
-
-message UpdateResponse {
   bool ok = 1;
   string message = 2;
 }
