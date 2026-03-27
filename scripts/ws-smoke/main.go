@@ -19,12 +19,15 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	cellv1 "mmo/gen/cellv1"
+	gamev1 "mmo/gen/gamev1"
 )
 
 func main() {
 	gw := flag.String("gateway", "http://127.0.0.1:8080", "базовый URL gateway (http)")
 	player := flag.String("player", "ws-smoke", "player_id для Join")
 	n := flag.Int("n", 5, "сколько кадров WorldChunk вывести и выйти")
+	inputs := flag.Int("inputs", 0, "после первого snapshot отправить столько ClientInput (вперёд, mask=1)")
+	verbose := flag.Bool("verbose", false, "печать позиций из дельт")
 	flag.Parse()
 
 	base := strings.TrimSuffix(*gw, "/")
@@ -45,8 +48,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	sentMove := false
 	for i := range *n {
+		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			log.Fatalf("read %d: %v", i, err)
@@ -57,10 +61,31 @@ func main() {
 		}
 		if s := chunk.GetSnapshot(); s != nil {
 			fmt.Printf("[%d] snapshot tick=%d entities=%d\n", i, s.Tick, len(s.Entities))
+			if !sentMove && *inputs > 0 {
+				for j := range *inputs {
+					in := &gamev1.ClientInput{Seq: uint32(j + 1), InputMask: 1}
+					b, mErr := proto.Marshal(in)
+					if mErr != nil {
+						log.Fatal(mErr)
+					}
+					if wErr := conn.WriteMessage(websocket.BinaryMessage, b); wErr != nil {
+						log.Fatalf("write input: %v", wErr)
+					}
+				}
+				sentMove = true
+				fmt.Printf("sent %d ClientInput (forward)\n", *inputs)
+			}
 			continue
 		}
 		if d := chunk.GetDelta(); d != nil {
 			fmt.Printf("[%d] delta tick=%d changed=%d\n", i, d.Tick, len(d.Changed))
+			if *verbose {
+				for _, e := range d.Changed {
+					if e.Position != nil {
+						fmt.Printf("    entity=%d pos=(%.2f,%.2f,%.2f)\n", e.EntityId, e.Position.X, e.Position.Y, e.Position.Z)
+					}
+				}
+			}
 			continue
 		}
 		fmt.Printf("[%d] empty chunk\n", i)

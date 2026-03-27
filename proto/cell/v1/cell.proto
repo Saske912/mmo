@@ -78,6 +78,25 @@ message SubscribeDeltasRequest {
   uint64 from_tick = 1;
 }
 
+message ApplyInputRequest {
+  string player_id = 1;
+  mmo.game.v1.ClientInput input = 2;
+}
+
+message ApplyInputResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message LeaveRequest {
+  string player_id = 1;
+}
+
+message LeaveResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
 // Кадр мира: снапшот или дельта (game.v1).
 message WorldChunk {
   oneof kind {
@@ -90,5 +109,7 @@ message WorldChunk {
 service Cell {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc Join(JoinRequest) returns (JoinResponse);
+  rpc Leave(LeaveRequest) returns (LeaveResponse);
+  rpc ApplyInput(ApplyInputRequest) returns (ApplyInputResponse);
   rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }

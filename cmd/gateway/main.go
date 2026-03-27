@@ -14,6 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -52,6 +53,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/session", g.session)
 	mux.HandleFunc("/v1/ws", g.ws)
 
@@ -174,10 +176,21 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer cellCC.Close()
 	cell := cellv1.NewCellClient(cellCC)
 
-	if _, err := cell.Join(ctx, &cellv1.JoinRequest{PlayerId: playerID}); err != nil {
-		log.Printf("join: %v", err)
+	jres, err := cell.Join(ctx, &cellv1.JoinRequest{PlayerId: playerID})
+	if err != nil || jres == nil || !jres.Ok {
+		log.Printf("join: %v res=%+v", err, jres)
 		return
 	}
+	log.Printf("ws join player=%s entity_id=%d", playerID, jres.EntityId)
+	gatewayWsSessions.Inc()
+
+	defer func() {
+		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer lcancel()
+		if _, lerr := cell.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID}); lerr != nil {
+			log.Printf("leave: %v", lerr)
+		}
+	}()
 
 	sub, err := cell.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{})
 	if err != nil {
@@ -200,7 +213,17 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		if err := proto.Unmarshal(data, &in); err != nil {
 			continue
 		}
-		_ = in.Seq
+		aCtx, acancel := context.WithTimeout(ctx, 2*time.Second)
+		ares, aerr := cell.ApplyInput(aCtx, &cellv1.ApplyInputRequest{PlayerId: playerID, Input: &in})
+		acancel()
+		if aerr != nil || ares == nil || !ares.Ok {
+			gatewayApplyInput.WithLabelValues("err").Inc()
+			if aerr != nil {
+				log.Printf("apply_input: %v", aerr)
+			}
+			continue
+		}
+		gatewayApplyInput.WithLabelValues("ok").Inc()
 	}
 }
 

@@ -32,6 +32,7 @@ func main() {
 	zmin := flag.Float64("zmin", -1000, "bounds z_min")
 	zmax := flag.Float64("zmax", 1000, "bounds z_max")
 	demoNPCs := flag.Int("demo-npcs", 0, "если > 0 — заспавнить столько демо-NPC в ECS (один раз)")
+	metricsListen := flag.String("metrics-listen", "", "HTTP listen для /metrics (например 0.0.0.0:9090); пусто — выкл")
 	flag.Parse()
 
 	if *cellID == "" {
@@ -70,8 +71,11 @@ func main() {
 		log.Printf("ECS demo: spawned %d NPCs", *demoNPCs)
 	}
 
+	cellSvc := &cellsvc.Server{CellID: *cellID, Sim: sim}
+	wirePrometheus(*metricsListen, cellSvc, sim)
+
 	srv := grpc.NewServer()
-	cellv1.RegisterCellServer(srv, &cellsvc.Server{CellID: *cellID, Sim: sim})
+	cellv1.RegisterCellServer(srv, cellSvc)
 
 	errServe := make(chan error, 1)
 	go func() { errServe <- srv.Serve(lis) }()

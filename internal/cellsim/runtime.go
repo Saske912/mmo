@@ -18,6 +18,8 @@ type Runtime struct {
 	Loop  *ecs.GameLoop
 
 	npcStarted atomic.Bool
+	// OnTick вызывается после каждого Step (удобно для метрик); держится коротким.
+	OnTick func()
 }
 
 // NewRuntime создаёт мир с Movement и HealthRegen.
@@ -43,6 +45,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 		case <-t.C:
 			r.Mu.Lock()
 			g.Step()
+			if r.OnTick != nil {
+				r.OnTick()
+			}
 			r.Mu.Unlock()
 		}
 	}

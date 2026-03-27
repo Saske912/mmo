@@ -73,6 +73,12 @@ variable "cell_grpc_port" {
   default = 50051
 }
 
+variable "cell_metrics_port" {
+  type        = number
+  description = "HTTP /metrics для cell-node; 0 — не слушать метрики."
+  default     = 9090
+}
+
 variable "cell_id" {
   type        = string
   description = "Идентификатор первой соты в staging."

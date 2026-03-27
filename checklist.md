@@ -6,16 +6,48 @@
 
 ---
 
+## Снимок состояния (март 2026)
+
+Этот раздел отражает **фактическое состояние репозитория MMO**, а не весь aspirational-чеклист ниже.
+
+- **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
+- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, cell ping, gateway `/healthz`, ws-smoke).
+- **Kubernetes:** рабочий кластер (в т.ч. Talos); приложение в namespace **`mmo`** — это не то же самое, что примеры `mmo-backend` / `monitoring` / `state` в пункте 0.1 ниже (см. `deploy/terraform/staging/main.tf`).
+- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
+- **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
+
+```mermaid
+flowchart LR
+  client[Client]
+  gw[gateway]
+  gm[grid_manager]
+  consul[Consul]
+  cell[cell_node]
+  client --> gw
+  gw --> gm
+  gm --> consul
+  gw --> cell
+  cell --> consul
+```
+
+**Следующий шаг (приоритет):**
+
+1. gRPC `Update` / команды, сплит соты; персист снепшота при shutdown.
+2. ServiceMonitor / scrape Prometheus в кластере, дашборды Grafana.
+3. Клиент Unity или расширенный отладочный клиент (интерполяция, UI).
+
+---
+
 ## Phase 0: Фундамент (2-3 месяца)
 
 ### 0.1 Инфраструктура и оркестрация
 
 #### ☐ Настройка Kubernetes кластера
 - [ ] Установлен minikube/k3s для разработки
-- [ ] Настроен production-кластер (или облачный managed k8s)
-- [ ] kubectl работает с правильным контекстом
+- [x] Настроен production-кластер (или облачный managed k8s) — staging (в т.ч. Talos)
+- [x] kubectl работает с правильным контекстом
 - [ ] Установлен Helm 3.x
-- [ ] Настроены namespace: `mmo-backend`, `monitoring`, `state`
+- [ ] Настроены namespace: `mmo-backend`, `monitoring`, `state` *(в репозитории используется **`mmo`** для приложения — см. Terraform staging)*
 
 #### ☐ Custom Controller для управления сотами
 - [ ] Создан CRD `Cell` (apiVersion: `mmo.io/v1`)
@@ -26,19 +58,19 @@
 - [ ] **Критерий:** `kubectl apply -f cell.yaml` создает Pod
 
 #### ☐ Service Discovery
-- [ ] Установлен Consul (или etcd) в кластер
-- [ ] Настроен DNS-записи для Consul
-- [ ] Клиентская библиотека для Go (consul/api)
-- [ ] Соты регистрируются при старте с метаданными (bounds, level)
-- [ ] Соты deregister при graceful shutdown
-- [ ] **Критерий:** `consul catalog services` показывает активные соты
+- [x] Установлен Consul (или etcd) в кластер
+- [x] Настроен DNS-записи для Consul (внутрикластерный DNS, например `mmo-consul-server.consul.svc`)
+- [x] Клиентская библиотека для Go (consul/api)
+- [x] Соты регистрируются при старте с метаданными (bounds, level)
+- [x] Соты deregister при graceful shutdown
+- [x] **Критерий:** `consul catalog services` показывает активные соты (проверяется через `staging-verify` / health API `mmo-cell`)
 
 #### ☐ Message Bus
 - [ ] Установлен NATS JetStream через Helm (из вашего инфра-стека)
-- [ ] Созданы топики: `cell.events`, `cell.migration`, `grid.commands`
-- [ ] Реализован publisher в Go
-- [ ] Реализован subscriber с reconnect logic
-- [ ] **Критерий:** Два сервиса обмениваются сообщениями через NATS
+- [x] Созданы топики: `cell.events`, `cell.migration`, `grid.commands` *(как константы субъектов в `internal/bus/nats/subjects.go`; не обязательно заведены на брокере)*
+- [x] Реализован publisher в Go *(утилита `mmoctl nats`, клиент core в `internal/bus/nats`)*
+- [ ] Реализован subscriber с reconnect logic *(полноценная подписка в сервисах — позже)*
+- [ ] **Критерий:** Два сервиса обмениваются сообщениями через NATS *(частично: dev/smoke через `mmoctl`; JetStream и кластерные сценарии — нет)*
 
 #### ☐ Базы данных
 - [ ] PostgreSQL установлен (из вашего инфра-стека)
@@ -53,32 +85,32 @@
 ### 0.2 Ядро симуляции
 
 #### ☐ ECS Framework
-- [ ] Реализованы базовые интерфейсы: `Entity`, `Component`, `System`
-- [ ] Создан `World` как контейнер для сущностей
-- [ ] Реализован `Query` для фильтрации компонентов
-- [ ] Написаны тесты для ECS операций (создание, удаление, поиск)
-- [ ] **Критерий:** Тесты проходят, нет утечек памяти
+- [x] Реализованы базовые интерфейсы: `Entity`, `Component`, `System`
+- [x] Создан `World` как контейнер для сущностей
+- [x] Реализован `Query` для фильтрации компонентов
+- [x] Написаны тесты для ECS операций (создание, удаление, поиск)
+- [x] **Критерий:** Тесты проходят, нет утечек памяти
 
 #### ☐ Тик-цикл
-- [ ] Реализован `GameLoop` с фиксированным шагом (20-30 TPS)
-- [ ] Добавлен `deltaTime` для систем
+- [x] Реализован `GameLoop` с фиксированным шагом (20-30 TPS) — сота: 25 TPS в `internal/cellsim`
+- [x] Добавлен `deltaTime` для систем (`FixedDT` / аргумент `dt` в `System.Update`)
 - [ ] Реализована пауза/возобновление
-- [ ] Метрики: время тика, количество обработанных сущностей
-- [ ] **Критерий:** 60 секунд работы без накопления задержки
+- [x] Метрики: время тика, количество обработанных сущностей (`internal/ecs/loop.go` — `LoopStats`)
+- [ ] **Критерий:** 60 секунд работы без накопления задержки *(не оформлено отдельным бенчмарком)*
 
 #### ☐ Компоненты и системы (базовые)
-- [ ] Компонент `Position` (x, y, z)
-- [ ] Компонент `Velocity` (vx, vy, vz)
-- [ ] Система `MovementSystem` (обновляет позицию по скорости)
-- [ ] Компонент `Health` (hp, max_hp)
-- [ ] Система `HealthRegenSystem` (восстановление HP)
-- [ ] **Критерий:** 100 NPC движутся в разных направлениях
+- [x] Компонент `Position` (x, y, z)
+- [x] Компонент `Velocity` (vx, vy, vz)
+- [x] Система `MovementSystem` (обновляет позицию по скорости)
+- [x] Компонент `Health` (hp, max_hp)
+- [x] Система `HealthRegenSystem` (восстановление HP)
+- [x] **Критерий:** много NPC с движением — через `cell-node --demo-npcs N` (`internal/cellsim`); без флага — минимум один мир/демо
 
 #### ☐ Пространственное индексирование (AOI)
-- [ ] Реализована сетка (grid) с ячейками 50x50
-- [ ] Функция получения соседних ячеек для радиуса видимости
-- [ ] Компонент `SpatialHash` обновляется при движении
-- [ ] **Критерий:** Запрос AOI для игрока возвращает только сущности в радиусе
+- [x] Реализована сетка (grid) с ячейками 50x50 (`internal/ecs/aoi`, размер ячейки настраивается, по умолчанию 50)
+- [x] Функция получения соседних ячеек для радиуса видимости (`QueryRadius`, `NeighborCellKeys`)
+- [ ] Компонент `SpatialHash` обновляется при движении *(есть `SpatialGrid` вне ECS-мира; интеграция с `MovementSystem`/`World` — позже)*
+- [ ] **Критерий:** Запрос AOI для игрока в прод-пути репликации *(юнит-тесты сетки есть; не подключено к стримингу)*
 
 #### ☐ Базовая физика
 - [ ] Проверка коллизий AABB (Axis-Aligned Bounding Box)
@@ -91,24 +123,26 @@
 ### 0.3 Сетевой слой
 
 #### ☐ Протокол и сериализация
-- [ ] Определены Protobuf сообщения: `ClientInput`, `Snapshot`, `Delta`
-- [ ] Сгенерированы Go и C# код из .proto
-- [ ] Реализована бинарная сериализация
-- [ ] **Критерий:** Размер пакета < 1400 байт
+- [x] Определены Protobuf сообщения: `ClientInput`, `Snapshot`, `Delta`
+- [x] Сгенерированы Go код из `.proto` *(C# в этом репозитории не ведётся)*
+- [ ] Сгенерированы C# код из `.proto`
+- [x] Реализована бинарная сериализация (protobuf)
+- [ ] **Критерий:** Размер пакета < 1400 байт *(не проверялся как SLO)*
 
 #### ☐ Gateway сервис
-- [ ] Реализован HTTP endpoint для аутентификации (JWT)
-- [ ] WebSocket/UDP листенер для клиентов
-- [ ] Прокси-роутинг: клиент → правильная сота
-- [ ] Rate limiting (100 req/sec на клиента)
-- [ ] **Критерий:** Клиент подключается, получает токен, переключается на сотовое соединение
+- [x] Реализован HTTP endpoint для аутентификации (JWT)
+- [x] WebSocket/UDP листенер для клиентов *(WebSocket; UDP — нет)*
+- [x] Прокси-роутинг: клиент → правильная сота *(resolve + gRPC к cell после upgrade)*
+- [x] Проброс бинарного `ClientInput` по WebSocket → gRPC `ApplyInput` на соту; при закрытии сокета — `Leave`
+- [x] Rate limiting (100 req/sec на клиента)
+- [x] **Критерий:** Клиент подключается, получает токен, получает бинарный стрим с соты *(см. `ws-smoke`; отдельное «чисто сотовое» UDP-соединение — нет)*
 
 #### ☐ Репликация
-- [ ] Система `NetworkReplicationSystem` собирает изменения за тик
-- [ ] Формирование дельт (только измененные компоненты)
-- [ ] Приоритизация: игроки > NPC > предметы
+- [ ] Система `NetworkReplicationSystem` как отдельная ECS-система
+- [x] Сбор изменений за тик (`TakeDirtyEntities`) и формирование дельт (только изменённые сущности) — `internal/replic`, `internal/grpc/cellsvc`
+- [ ] Приоритизация: игроки > NPC > предметы *(частично: флаг игрока в `EntityState.flags`)*
 - [ ] Адаптивная частота (близкие объекты чаще)
-- [ ] **Критерий:** Клиент получает дельты и корректно отображает
+- [x] **Критерий:** Клиент получает дельты и корректно отображает *( smoke: снапшот + дельты по WS)*
 
 #### ☐ Клиент-отладчик
 - [ ] Unity проект с базовым рендерингом (кубы вместо моделей)
@@ -122,25 +156,30 @@
 ### 0.4 Интеграция и первая сота
 
 #### ☐ Первая сота (Cell Service)
-- [ ] Реализован gRPC сервер: `Join`, `Leave`, `Update`, `Split`
-- [ ] Интегрированы ECS + Network + AOI
+- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`
+- [ ] Реализованы gRPC: `Update`, `Split` *(нет в `proto/cell/v1/cell.proto`)*
+- [x] Интегрированы ECS + сетевой стрим репликации *(AOI в игровом цикле cell-node не задействован)*
 - [ ] Graceful shutdown: сохранение снепшота в Redis/Scylla
-- [ ] Регистрация в Consul при старте
-- [ ] **Критерий:** Один под запущен, игрок может подключиться
+- [x] Регистрация в Consul при старте
+- [x] **Критерий:** Один под запущен, игрок может подключиться *(staging + ws-smoke)*
 
 #### ☐ Grid Manager (базовый)
 - [ ] Мониторинг метрик через Prometheus (players, entities, cpu)
 - [ ] Анализ порогов (hardcoded для начала)
-- [ ] gRPC клиент для коммуникации с сотами
+- [ ] gRPC клиент для коммуникации с сотами *(сервис — сервер Registry; вызовы в сторону cell — через gateway/клиентов)*
 - [ ] Логирование всех операций
-- [ ] **Критерий:** Grid Manager видит одну соту в Consul
+- [x] **Критерий:** Grid Manager видит одну соту в Consul (`ListCells` / `ResolvePosition` над каталогом)
 
 #### ☐ Мониторинг и observability
-- [ ] Prometheus метрики для всех Go сервисов
+- [ ] Prometheus метрики для всех Go сервисов *(частично: `GET /metrics` на **gateway** и опционально **cell-node** `-metrics-listen`, см. Terraform `cell_metrics_port`)*
 - [ ] Grafana дашборды: количество игроков, активных сот, latency
 - [ ] Loki для логов (structured logging в JSON)
 - [ ] Tempo для трассировки (опционально)
 - [ ] **Критерий:** На дашборде видна активность
+
+#### Следующий шаг (кратко)
+
+RPC `Update` / игровой командный слой, сплит сот, персист снепшотов; дашборды Grafana и scrape Prometheus в кластере; клиент Unity или расширенный `ws-smoke`.
 
 ---
 

@@ -692,6 +692,206 @@ func (x *SubscribeDeltasRequest) GetFromTick() uint64 {
 	return 0
 }
 
+type ApplyInputRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId      string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	Input         *gamev1.ClientInput    `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyInputRequest) Reset() {
+	*x = ApplyInputRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyInputRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyInputRequest) ProtoMessage() {}
+
+func (x *ApplyInputRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyInputRequest.ProtoReflect.Descriptor instead.
+func (*ApplyInputRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ApplyInputRequest) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+func (x *ApplyInputRequest) GetInput() *gamev1.ClientInput {
+	if x != nil {
+		return x.Input
+	}
+	return nil
+}
+
+type ApplyInputResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyInputResponse) Reset() {
+	*x = ApplyInputResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyInputResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyInputResponse) ProtoMessage() {}
+
+func (x *ApplyInputResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyInputResponse.ProtoReflect.Descriptor instead.
+func (*ApplyInputResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ApplyInputResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *ApplyInputResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type LeaveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId      string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaveRequest) Reset() {
+	*x = LeaveRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaveRequest) ProtoMessage() {}
+
+func (x *LeaveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaveRequest.ProtoReflect.Descriptor instead.
+func (*LeaveRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *LeaveRequest) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+type LeaveResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaveResponse) Reset() {
+	*x = LeaveResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaveResponse) ProtoMessage() {}
+
+func (x *LeaveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaveResponse.ProtoReflect.Descriptor instead.
+func (*LeaveResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *LeaveResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *LeaveResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // Кадр мира: снапшот или дельта (game.v1).
 type WorldChunk struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -706,7 +906,7 @@ type WorldChunk struct {
 
 func (x *WorldChunk) Reset() {
 	*x = WorldChunk{}
-	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -718,7 +918,7 @@ func (x *WorldChunk) String() string {
 func (*WorldChunk) ProtoMessage() {}
 
 func (x *WorldChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[13]
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -731,7 +931,7 @@ func (x *WorldChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldChunk.ProtoReflect.Descriptor instead.
 func (*WorldChunk) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{13}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WorldChunk) GetKind() isWorldChunk_Kind {
@@ -817,7 +1017,18 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1b\n" +
 	"\tentity_id\x18\x04 \x01(\x04R\bentityId\"5\n" +
 	"\x16SubscribeDeltasRequest\x12\x1b\n" +
-	"\tfrom_tick\x18\x01 \x01(\x04R\bfromTick\"u\n" +
+	"\tfrom_tick\x18\x01 \x01(\x04R\bfromTick\"`\n" +
+	"\x11ApplyInputRequest\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12.\n" +
+	"\x05input\x18\x02 \x01(\v2\x18.mmo.game.v1.ClientInputR\x05input\">\n" +
+	"\x12ApplyInputResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"+\n" +
+	"\fLeaveRequest\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"9\n" +
+	"\rLeaveResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"u\n" +
 	"\n" +
 	"WorldChunk\x123\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x15.mmo.game.v1.SnapshotH\x00R\bsnapshot\x12*\n" +
@@ -826,10 +1037,13 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
-	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\xd3\x01\n" +
+	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse2\xe2\x02\n" +
 	"\x04Cell\x12;\n" +
 	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
-	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12Q\n" +
+	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12>\n" +
+	"\x05Leave\x12\x19.mmo.cell.v1.LeaveRequest\x1a\x1a.mmo.cell.v1.LeaveResponse\x12M\n" +
+	"\n" +
+	"ApplyInput\x12\x1e.mmo.cell.v1.ApplyInputRequest\x1a\x1f.mmo.cell.v1.ApplyInputResponse\x12Q\n" +
 	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
 
 var (
@@ -844,7 +1058,7 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_cell_v1_cell_proto_goTypes = []any{
 	(*Bounds)(nil),                  // 0: mmo.cell.v1.Bounds
 	(*CellSpec)(nil),                // 1: mmo.cell.v1.CellSpec
@@ -859,34 +1073,44 @@ var file_cell_v1_cell_proto_goTypes = []any{
 	(*JoinRequest)(nil),             // 10: mmo.cell.v1.JoinRequest
 	(*JoinResponse)(nil),            // 11: mmo.cell.v1.JoinResponse
 	(*SubscribeDeltasRequest)(nil),  // 12: mmo.cell.v1.SubscribeDeltasRequest
-	(*WorldChunk)(nil),              // 13: mmo.cell.v1.WorldChunk
-	(*gamev1.Snapshot)(nil),         // 14: mmo.game.v1.Snapshot
-	(*gamev1.Delta)(nil),            // 15: mmo.game.v1.Delta
+	(*ApplyInputRequest)(nil),       // 13: mmo.cell.v1.ApplyInputRequest
+	(*ApplyInputResponse)(nil),      // 14: mmo.cell.v1.ApplyInputResponse
+	(*LeaveRequest)(nil),            // 15: mmo.cell.v1.LeaveRequest
+	(*LeaveResponse)(nil),           // 16: mmo.cell.v1.LeaveResponse
+	(*WorldChunk)(nil),              // 17: mmo.cell.v1.WorldChunk
+	(*gamev1.ClientInput)(nil),      // 18: mmo.game.v1.ClientInput
+	(*gamev1.Snapshot)(nil),         // 19: mmo.game.v1.Snapshot
+	(*gamev1.Delta)(nil),            // 20: mmo.game.v1.Delta
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
 	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
 	1,  // 1: mmo.cell.v1.RegisterRequest.cell:type_name -> mmo.cell.v1.CellSpec
 	1,  // 2: mmo.cell.v1.ListCellsResponse.cells:type_name -> mmo.cell.v1.CellSpec
 	1,  // 3: mmo.cell.v1.ResolvePositionResponse.cell:type_name -> mmo.cell.v1.CellSpec
-	14, // 4: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
-	15, // 5: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
-	2,  // 6: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
-	4,  // 7: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
-	6,  // 8: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
-	8,  // 9: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	10, // 10: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
-	12, // 11: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
-	3,  // 12: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5,  // 13: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7,  // 14: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	9,  // 15: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	11, // 16: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
-	13, // 17: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	18, // 4: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
+	19, // 5: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
+	20, // 6: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
+	2,  // 7: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
+	4,  // 8: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
+	6,  // 9: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
+	8,  // 10: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	10, // 11: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	15, // 12: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
+	13, // 13: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
+	12, // 14: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
+	3,  // 15: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 16: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 17: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	9,  // 18: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	11, // 19: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	16, // 20: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
+	14, // 21: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
+	17, // 22: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_cell_v1_cell_proto_init() }
@@ -894,7 +1118,7 @@ func file_cell_v1_cell_proto_init() {
 	if File_cell_v1_cell_proto != nil {
 		return
 	}
-	file_cell_v1_cell_proto_msgTypes[13].OneofWrappers = []any{
+	file_cell_v1_cell_proto_msgTypes[17].OneofWrappers = []any{
 		(*WorldChunk_Snapshot)(nil),
 		(*WorldChunk_Delta)(nil),
 	}
@@ -904,7 +1128,7 @@ func file_cell_v1_cell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

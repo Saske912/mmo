@@ -203,6 +203,8 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 const (
 	Cell_Ping_FullMethodName            = "/mmo.cell.v1.Cell/Ping"
 	Cell_Join_FullMethodName            = "/mmo.cell.v1.Cell/Join"
+	Cell_Leave_FullMethodName           = "/mmo.cell.v1.Cell/Leave"
+	Cell_ApplyInput_FullMethodName      = "/mmo.cell.v1.Cell/ApplyInput"
 	Cell_SubscribeDeltas_FullMethodName = "/mmo.cell.v1.Cell/SubscribeDeltas"
 )
 
@@ -214,6 +216,8 @@ const (
 type CellClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
+	Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*LeaveResponse, error)
+	ApplyInput(ctx context.Context, in *ApplyInputRequest, opts ...grpc.CallOption) (*ApplyInputResponse, error)
 	SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error)
 }
 
@@ -239,6 +243,26 @@ func (c *cellClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.Cal
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(JoinResponse)
 	err := c.cc.Invoke(ctx, Cell_Join_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cellClient) Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*LeaveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaveResponse)
+	err := c.cc.Invoke(ctx, Cell_Leave_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cellClient) ApplyInput(ctx context.Context, in *ApplyInputRequest, opts ...grpc.CallOption) (*ApplyInputResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyInputResponse)
+	err := c.cc.Invoke(ctx, Cell_ApplyInput_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +296,8 @@ type Cell_SubscribeDeltasClient = grpc.ServerStreamingClient[WorldChunk]
 type CellServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
+	Leave(context.Context, *LeaveRequest) (*LeaveResponse, error)
+	ApplyInput(context.Context, *ApplyInputRequest) (*ApplyInputResponse, error)
 	SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error
 	mustEmbedUnimplementedCellServer()
 }
@@ -288,6 +314,12 @@ func (UnimplementedCellServer) Ping(context.Context, *PingRequest) (*PingRespons
 }
 func (UnimplementedCellServer) Join(context.Context, *JoinRequest) (*JoinResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Join not implemented")
+}
+func (UnimplementedCellServer) Leave(context.Context, *LeaveRequest) (*LeaveResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Leave not implemented")
+}
+func (UnimplementedCellServer) ApplyInput(context.Context, *ApplyInputRequest) (*ApplyInputResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyInput not implemented")
 }
 func (UnimplementedCellServer) SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeDeltas not implemented")
@@ -349,6 +381,42 @@ func _Cell_Join_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_Leave_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).Leave(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_Leave_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).Leave(ctx, req.(*LeaveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Cell_ApplyInput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyInputRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).ApplyInput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_ApplyInput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).ApplyInput(ctx, req.(*ApplyInputRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Cell_SubscribeDeltas_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeDeltasRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -374,6 +442,14 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Join",
 			Handler:    _Cell_Join_Handler,
+		},
+		{
+			MethodName: "Leave",
+			Handler:    _Cell_Leave_Handler,
+		},
+		{
+			MethodName: "ApplyInput",
+			Handler:    _Cell_ApplyInput_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

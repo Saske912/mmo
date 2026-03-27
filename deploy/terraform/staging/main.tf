@@ -157,14 +157,23 @@ resource "kubernetes_deployment" "cell_node" {
           image_pull_policy = var.image_pull_policy
 
           command = ["/cell-node"]
-          args = [
-            "-listen", "0.0.0.0:${var.cell_grpc_port}",
-            "-id", var.cell_id,
-          ]
+          args = concat(
+            ["-listen", "0.0.0.0:${var.cell_grpc_port}", "-id", var.cell_id],
+            var.cell_metrics_port > 0 ? ["-metrics-listen", "0.0.0.0:${var.cell_metrics_port}"] : [],
+          )
 
           port {
             name           = "grpc"
             container_port = var.cell_grpc_port
+          }
+
+          dynamic "port" {
+            for_each = var.cell_metrics_port > 0 ? [var.cell_metrics_port] : []
+            iterator = metrics
+            content {
+              name           = "metrics"
+              container_port = metrics.value
+            }
           }
 
           env_from {
