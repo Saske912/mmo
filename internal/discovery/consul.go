@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/hashicorp/consul/api"
 
@@ -36,41 +35,13 @@ func (c *ConsulCatalog) RegisterCell(ctx context.Context, spec *cellv1.CellSpec)
 	if err != nil {
 		return err
 	}
-	checkID := ttlCheckID(spec.Id)
-	reg.Check = &api.AgentServiceCheck{
-		CheckID:                        checkID,
-		TTL:                            "30s",
-		DeregisterCriticalServiceAfter: "90s",
-	}
+	// Без health/TTL: в этом окружении PUT /v1/agent/check/update/{id} от hashicorp/api
+	// даёт «Unknown check ID», сервис снимается с каталога. Сервис без checks в Consul
+	// считается passing — grid-manager видит соту.
 	if err := c.client.Agent().ServiceRegister(reg); err != nil {
 		return err
 	}
-	return c.passTTL(spec.Id)
-}
-
-// ttlCheckID без ":" — иначе PUT /v1/agent/check/update/<id> на стороне Consul
-// трактует путь неверно и UpdateTTL не находит check (см. лог agent.http Unknown check ID).
-func ttlCheckID(serviceID string) string {
-	return "mmo-cell-ttl-" + serviceID
-}
-
-func (c *ConsulCatalog) passTTL(serviceID string) error {
-	return c.client.Agent().UpdateTTL(ttlCheckID(serviceID), "ok", api.HealthPassing)
-}
-
-// MaintainTTL периодически обновляет TTL check (нужно для статуса passing).
-func (c *ConsulCatalog) MaintainTTL(ctx context.Context, serviceID string) {
-	checkID := ttlCheckID(serviceID)
-	tick := time.NewTicker(8 * time.Second)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			_ = c.client.Agent().UpdateTTL(checkID, "ok", api.HealthPassing)
-		}
-	}
+	return nil
 }
 
 func (c *ConsulCatalog) Deregister(ctx context.Context, serviceID string) error {

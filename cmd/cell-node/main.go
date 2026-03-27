@@ -93,7 +93,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("consul register: %v", err)
 		}
-		go consulCat.MaintainTTL(ctx, *cellID)
 		log.Printf("cell %q registered in Consul (http=%s), advertise gRPC %s (listen %s)", *cellID, caddr, endpoint, listenAddr)
 	}
 
