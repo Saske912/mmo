@@ -88,7 +88,7 @@ if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
   fi
   echo "B2 staging: resolve SW-квадранта в дочернюю соту — OK"
 else
-  echo "B2 staging: одна сота в каталоге; полный кластерный тест добавьте child_sw в cell_instances (см. deploy/terraform/staging/cell_instances.auto.tfvars.example)"
+  echo "B2 staging: одна сота в каталоге; полный кластерный тест добавьте шард child-sw в cell_instances (см. deploy/terraform/staging/cell_instances.auto.tfvars.example)"
 fi
 
 if [ -n "${STAGING_VERIFY_EXPECT_CELL_IDS:-}" ]; then

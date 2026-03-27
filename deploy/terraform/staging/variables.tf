@@ -95,7 +95,7 @@ variable "cell_instances" {
     zmax  = number
   }))
   description = <<EOT
-Соты cell-node: ключ Terraform (например primary, child_sw) — попадает в label cell_shard и в имя Service для не-primary.
+Соты cell-node: ключ Terraform (например primary, child-sw) — RFC 1123, без подчёркиваний; label cell_shard и имя Service для не-primary.
 Ключ primary сохраняет имя Deployment cell-node и Service равным var.cell_service_name (обратная совместимость).
 EOT
   default = {

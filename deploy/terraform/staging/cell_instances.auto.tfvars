@@ -9,7 +9,7 @@ cell_instances = {
     zmin  = -1000
     zmax  = 1000
   }
-  child_sw = {
+  "child-sw" = {
     id    = "cell_-1_-1_1"
     level = 1
     xmin  = -1000
