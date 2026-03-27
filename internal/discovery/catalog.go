@@ -12,12 +12,13 @@ const ServiceNameMMOCell = "mmo-cell"
 
 // Meta keys для Consul ServiceRegistration.Meta (строки).
 const (
-	MetaLevel  = "level"
-	MetaXMin   = "x_min"
-	MetaXMax   = "x_max"
-	MetaZMin   = "z_min"
-	MetaZMax   = "z_max"
-	MetaStatus = "status"
+	MetaLevel         = "level"
+	MetaXMin          = "x_min"
+	MetaXMax          = "x_max"
+	MetaZMin          = "z_min"
+	MetaZMax          = "z_max"
+	MetaStatus        = "status"
+	MetaCellLogicalID = "mmo_cell_id" // логический id соты; AgentService.ID в K8s = этот + "-" + HOSTNAME
 )
 
 // Catalog — обнаружение сот (память или Consul).

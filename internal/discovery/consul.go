@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/hashicorp/consul/api"
 
@@ -35,13 +37,26 @@ func (c *ConsulCatalog) RegisterCell(ctx context.Context, spec *cellv1.CellSpec)
 	if err != nil {
 		return err
 	}
-	// Без health/TTL: в этом окружении PUT /v1/agent/check/update/{id} от hashicorp/api
-	// даёт «Unknown check ID», сервис снимается с каталога. Сервис без checks в Consul
-	// считается passing — grid-manager видит соту.
+	// Уникальный Agent ID на инстанс: при rollout старый pod делает Deregister и не снимает
+	// регистрацию нового (раньше все использовали один и тот же id соты).
+	reg.ID = ConsulServiceInstanceID(spec.Id)
+	// Без health/TTL: в этом окружении UpdateTTL по HTTP не находит check; сервис без checks
+	// считается passing.
 	if err := c.client.Agent().ServiceRegister(reg); err != nil {
 		return err
 	}
 	return nil
+}
+
+// ConsulServiceInstanceID — id сервиса на локальном Consul-агенте. В Kubernetes HOSTNAME = имя pod.
+func ConsulServiceInstanceID(logicalCellID string) string {
+	if logicalCellID == "" {
+		return ""
+	}
+	if h := strings.TrimSpace(os.Getenv("HOSTNAME")); h != "" {
+		return logicalCellID + "-" + h
+	}
+	return logicalCellID
 }
 
 func (c *ConsulCatalog) Deregister(ctx context.Context, serviceID string) error {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/hashicorp/consul/api"
 
@@ -28,12 +29,13 @@ func cellSpecToAgentRegistration(spec *cellv1.CellSpec) (*api.AgentServiceRegist
 	}
 
 	meta := map[string]string{
-		MetaLevel:  strconv.Itoa(int(spec.Level)),
-		MetaXMin:   formatFloat(b.XMin),
-		MetaXMax:   formatFloat(b.XMax),
-		MetaZMin:   formatFloat(b.ZMin),
-		MetaZMax:   formatFloat(b.ZMax),
-		MetaStatus: "active",
+		MetaCellLogicalID: spec.Id,
+		MetaLevel:         strconv.Itoa(int(spec.Level)),
+		MetaXMin:          formatFloat(b.XMin),
+		MetaXMax:          formatFloat(b.XMax),
+		MetaZMin:          formatFloat(b.ZMin),
+		MetaZMax:          formatFloat(b.ZMax),
+		MetaStatus:        "active",
 	}
 
 	return &api.AgentServiceRegistration{
@@ -42,7 +44,6 @@ func cellSpecToAgentRegistration(spec *cellv1.CellSpec) (*api.AgentServiceRegist
 		Address: host,
 		Port:    port,
 		Meta:    meta,
-		// Check задаётся в ConsulCatalog.RegisterCell (TTL, обновляет cell-node).
 	}, nil
 }
 
@@ -59,8 +60,12 @@ func agentServiceToCellSpec(s *api.AgentService) (*cellv1.CellSpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	logical := strings.TrimSpace(s.Meta[MetaCellLogicalID])
+	if logical == "" {
+		logical = s.ID
+	}
 	spec := &cellv1.CellSpec{
-		Id:           s.ID,
+		Id:           logical,
 		Level:        level,
 		Bounds:       bounds,
 		GrpcEndpoint: endpoint,

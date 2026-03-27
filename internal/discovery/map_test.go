@@ -40,6 +40,33 @@ func TestAgentServiceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAgentServiceLogicalIDFromMeta(t *testing.T) {
+	spec := &cellv1.CellSpec{
+		Id:           "cell_0_0_0",
+		Level:        0,
+		GrpcEndpoint: "cell.example:50051",
+		Bounds:       &cellv1.Bounds{XMin: -1, XMax: 1, ZMin: -1, ZMax: 1},
+	}
+	reg, err := cellSpecToAgentRegistration(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.ID = "cell_0_0_0-my-pod"
+	got, err := agentServiceToCellSpec(&api.AgentService{
+		ID:      reg.ID,
+		Service: reg.Name,
+		Address: reg.Address,
+		Port:    reg.Port,
+		Meta:    reg.Meta,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Id != "cell_0_0_0" {
+		t.Fatalf("logical id: got %q", got.Id)
+	}
+}
+
 func TestPickBestCell(t *testing.T) {
 	parent := &cellv1.CellSpec{
 		Id: "p", Level: 0,

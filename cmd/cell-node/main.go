@@ -124,7 +124,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	if consulCat != nil {
-		if err := consulCat.Deregister(shutdownCtx, *cellID); err != nil {
+		if err := consulCat.Deregister(shutdownCtx, discovery.ConsulServiceInstanceID(*cellID)); err != nil {
 			log.Printf("consul deregister: %v", err)
 		}
 	}
@@ -143,4 +143,3 @@ func grpcEndpointForRegistry(flagAdvertise, listenAddr string) string {
 	}
 	return listenAddr
 }
-
