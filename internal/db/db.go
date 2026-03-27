@@ -59,3 +59,17 @@ func RecordSessionIssue(ctx context.Context, pool *pgxpool.Pool, playerID string
 	_, err := pool.Exec(ctx, q, playerID)
 	return err
 }
+
+// UpsertPlayerLastCell сохраняет последнюю соту и точку resolve gateway при отключении клиента (on conflict по player_id).
+func UpsertPlayerLastCell(ctx context.Context, pool *pgxpool.Pool, playerID, cellID string, resolveX, resolveZ float64) error {
+	const q = `
+INSERT INTO mmo_player_last_cell (player_id, cell_id, resolve_x, resolve_z)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (player_id) DO UPDATE SET
+	cell_id = EXCLUDED.cell_id,
+	resolve_x = EXCLUDED.resolve_x,
+	resolve_z = EXCLUDED.resolve_z,
+	updated_at = now()`
+	_, err := pool.Exec(ctx, q, playerID, cellID, resolveX, resolveZ)
+	return err
+}

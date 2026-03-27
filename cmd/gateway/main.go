@@ -211,6 +211,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ep := res.Cell.GrpcEndpoint
+	cellID := res.Cell.GetId()
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -238,6 +239,13 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	gatewayWsSessions.Inc()
 
 	defer func() {
+		if g.db != nil && cellID != "" {
+			uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, cellID, g.resolveX, g.resolveZ); uerr != nil {
+				log.Printf("last_cell persist: %v", uerr)
+			}
+			ucancel()
+		}
 		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer lcancel()
 		if _, lerr := cell.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID}); lerr != nil {
