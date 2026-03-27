@@ -96,6 +96,14 @@ type gateway struct {
 	db           *pgxpool.Pool
 }
 
+// sessionClaims: координаты resolve для WebSocket (новые токены); без mmo_has_resolve — как старые JWT, берём дефолт gateway.
+type sessionClaims struct {
+	jwt.RegisteredClaims
+	MmoHasResolve bool    `json:"mmo_has_resolve,omitempty"`
+	MmoRX         float64 `json:"mmo_rx,omitempty"`
+	MmoRZ         float64 `json:"mmo_rz,omitempty"`
+}
+
 var sessionLimiters sync.Map // IP -> *rate.Limiter
 
 func limiterForIP(ip string) *rate.Limiter {
@@ -145,10 +153,25 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `need {"player_id":"..."}`, http.StatusBadRequest)
 		return
 	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   body.PlayerID,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(8 * time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	rx, rz := g.resolveX, g.resolveZ
+	if g.db != nil {
+		lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if lx, lz, ok, lerr := db.GetPlayerLastCellCoords(lctx, g.db, body.PlayerID); lerr != nil {
+			log.Printf("session last_cell: %v", lerr)
+		} else if ok {
+			rx, rz = lx, lz
+		}
+		lcancel()
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, sessionClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   body.PlayerID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(8 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		MmoHasResolve: true,
+		MmoRX:         rx,
+		MmoRZ:         rz,
 	})
 	signed, err := tok.SignedString(g.jwtSecret)
 	if err != nil {
@@ -174,19 +197,19 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			tokenStr = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		}
 	}
-	tok, err := jwt.ParseWithClaims(tokenStr, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 		return g.jwtSecret, nil
 	})
-	if err != nil || !tok.Valid {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	claims, ok := tok.Claims.(*jwt.RegisteredClaims)
-	if !ok || claims.Subject == "" {
+	if err != nil || !tok.Valid || claims.Subject == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	playerID := claims.Subject
+	rx, rz := g.resolveX, g.resolveZ
+	if claims.MmoHasResolve {
+		rx, rz = claims.MmoRX, claims.MmoRZ
+	}
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -199,14 +222,14 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	defer regCC.Close()
 	reg := cellv1.NewRegistryClient(regCC)
-	res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: g.resolveX, Z: g.resolveZ})
+	res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: rx, Z: rz})
 	if err != nil {
 		log.Printf("resolve: %v", err)
 		http.Error(w, "registry resolve failed", http.StatusBadGateway)
 		return
 	}
 	if !res.Found || res.Cell == nil || res.Cell.GrpcEndpoint == "" {
-		log.Printf("no cell for (%.f, %.f)", g.resolveX, g.resolveZ)
+		log.Printf("no cell for (%.f, %.f)", rx, rz)
 		http.Error(w, "no cell for resolve position", http.StatusServiceUnavailable)
 		return
 	}
@@ -241,7 +264,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if g.db != nil && cellID != "" {
 			uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, cellID, g.resolveX, g.resolveZ); uerr != nil {
+			if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, cellID, rx, rz); uerr != nil {
 				log.Printf("last_cell persist: %v", uerr)
 			}
 			ucancel()

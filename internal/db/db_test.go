@@ -40,6 +40,15 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	if err := UpsertPlayerLastCell(ctx, pool, "test-last-cell", "cell_0_0_0", 10.5, -20.25); err != nil {
 		t.Fatal(err)
 	}
+	lx, lz, lok, lerr := GetPlayerLastCellCoords(ctx, pool, "test-last-cell")
+	if lerr != nil || !lok || lx != 10.5 || lz != -20.25 {
+		t.Fatalf("GetPlayerLastCellCoords: %v ok=%v (%v,%v)", lerr, lok, lx, lz)
+	}
+	_, _, hasRow, lerr := GetPlayerLastCellCoords(ctx, pool, "no-such-player-coords")
+	if lerr != nil || hasRow {
+		t.Fatalf("GetPlayerLastCellCoords missing: err=%v ok=%v", lerr, hasRow)
+	}
+
 	var gotCell string
 	var rx, rz float64
 	err = pool.QueryRow(ctx,

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -58,6 +60,19 @@ func RecordSessionIssue(ctx context.Context, pool *pgxpool.Pool, playerID string
 	const q = `INSERT INTO mmo_session_issue (player_id) VALUES ($1)`
 	_, err := pool.Exec(ctx, q, playerID)
 	return err
+}
+
+// GetPlayerLastCellCoords возвращает сохранённые координаты resolve для игрока; ok=false если строки нет.
+func GetPlayerLastCellCoords(ctx context.Context, pool *pgxpool.Pool, playerID string) (rx, rz float64, ok bool, err error) {
+	const q = `SELECT resolve_x, resolve_z FROM mmo_player_last_cell WHERE player_id = $1`
+	err = pool.QueryRow(ctx, q, playerID).Scan(&rx, &rz)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, err
+	}
+	return rx, rz, true, nil
 }
 
 // UpsertPlayerLastCell сохраняет последнюю соту и точку resolve gateway при отключении клиента (on conflict по player_id).
