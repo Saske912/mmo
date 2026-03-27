@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
 	"mmo/internal/cellsim"
@@ -134,6 +135,15 @@ func TestPlanSplit_level0(t *testing.T) {
 	resp, err := srv.PlanSplit(ctx, &cellv1.PlanSplitRequest{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	wantSpecs := partition.ChildSpecsForSplit(parent, 0)
+	if len(wantSpecs) != len(resp.Children) {
+		t.Fatalf("partition vs PlanSplit len: %d %d", len(wantSpecs), len(resp.Children))
+	}
+	for i, w := range wantSpecs {
+		if !proto.Equal(w, resp.Children[i]) {
+			t.Fatalf("child[%d]: PlanSplit %+v partition %+v", i, resp.Children[i], w)
+		}
 	}
 	if len(resp.Children) != 4 {
 		t.Fatalf("children: %d", len(resp.Children))

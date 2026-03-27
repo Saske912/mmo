@@ -61,3 +61,24 @@ func Contains(b *cellv1.Bounds, x, z float64) bool {
 	}
 	return x >= b.XMin && x <= b.XMax && z >= b.ZMin && z <= b.ZMax
 }
+
+// ChildSpecsForSplit строит четыре дочерние спецификации так же, как gRPC PlanSplit на cell-node
+// (порядок совпадает с SplitFour и индексацией qx,qz в ChildID).
+func ChildSpecsForSplit(parent *cellv1.Bounds, parentLevel int32) []*cellv1.PlanSplitResponseChild {
+	if parent == nil {
+		return nil
+	}
+	childBounds := SplitFour(parent)
+	nextLevel := int(parentLevel) + 1
+	out := make([]*cellv1.PlanSplitResponseChild, 0, 4)
+	for i := range 4 {
+		qx, qz := i%2, i/2
+		b := childBounds[i]
+		out = append(out, &cellv1.PlanSplitResponseChild{
+			Id:     ChildID(qx, qz, nextLevel),
+			Bounds: b,
+			Level:  int32(nextLevel),
+		})
+	}
+	return out
+}

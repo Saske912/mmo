@@ -219,20 +219,7 @@ func (s *Server) PlanSplit(_ context.Context, _ *cellv1.PlanSplitRequest) (*cell
 	if s.Bounds == nil {
 		return nil, status.Error(codes.FailedPrecondition, "no bounds on cell server")
 	}
-	childBounds := partition.SplitFour(s.Bounds)
-	nextLevel := int(s.Level) + 1
-	out := make([]*cellv1.PlanSplitResponseChild, 0, 4)
-	for i := range 4 {
-		qx, qz := i%2, i/2
-		b := childBounds[i]
-		child := &cellv1.PlanSplitResponseChild{
-			Id:     partition.ChildID(qx, qz, nextLevel),
-			Bounds: b,
-			Level:  int32(nextLevel),
-		}
-		out = append(out, child)
-	}
-	return &cellv1.PlanSplitResponse{Children: out}, nil
+	return &cellv1.PlanSplitResponse{Children: partition.ChildSpecsForSplit(s.Bounds, s.Level)}, nil
 }
 
 func (s *Server) Ping(_ context.Context, req *cellv1.PingRequest) (*cellv1.PingResponse, error) {

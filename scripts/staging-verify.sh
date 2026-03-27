@@ -2,6 +2,10 @@
 # Проверка staging: поды, grid-manager + cell через port-forward, gateway через Ingress (HTTPS).
 # Требуется kubectl. Переопределить URL: GATEWAY_PUBLIC_URL=https://другой.host
 # Если TLS ещё не доверен: STAGING_VERIFY_TLS_INSECURE=1
+#
+# Опционально (после cold-split / нескольких шардов):
+#   STAGING_VERIFY_EXPECT_CELL_IDS="cell_0_0_0,cell_-1_-1_1" — все эти id должны быть в list
+#   STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1;500,-500,cell_1_-1_1" — точка x,z → ожидаемый id
 set -euo pipefail
 
 NS="${K8S_NAMESPACE:-mmo}"
@@ -85,6 +89,46 @@ if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
   echo "B2 staging: resolve SW-квадранта в дочернюю соту — OK"
 else
   echo "B2 staging: одна сота в каталоге; полный кластерный тест добавьте child_sw в cell_instances (см. deploy/terraform/staging/cell_instances.auto.tfvars.example)"
+fi
+
+if [ -n "${STAGING_VERIFY_EXPECT_CELL_IDS:-}" ]; then
+  echo "== STAGING_VERIFY_EXPECT_CELL_IDS (все id в list) =="
+  while IFS= read -r raw_id; do
+    [ -z "$raw_id" ] && continue
+    exp_id="$(echo "$raw_id" | tr -d '[:space:]')"
+    [ -z "$exp_id" ] && continue
+    if ! echo "$LIST_OUT" | grep -qE "^${exp_id}[[:space:]]"; then
+      echo "ожидался cell id в каталоге: ${exp_id}" >&2
+      echo "$LIST_OUT" >&2
+      exit 1
+    fi
+  done <<< "$(echo "$STAGING_VERIFY_EXPECT_CELL_IDS" | tr ',' '\n')"
+  echo "OK: все ожидаемые cell id из STAGING_VERIFY_EXPECT_CELL_IDS присутствуют"
+fi
+
+if [ -n "${STAGING_VERIFY_RESOLVE_CHECKS:-}" ]; then
+  echo "== STAGING_VERIFY_RESOLVE_CHECKS =="
+  TMP_RV="${STAGING_VERIFY_RESOLVE_CHECKS//;/$'\n'}"
+  while IFS= read -r triple; do
+    [ -z "$triple" ] && continue
+    triple="$(echo "$triple" | tr -d '[:space:]')"
+    [ -z "$triple" ] && continue
+    rx="${triple%%,*}"
+    rest="${triple#*,}"
+    rz="${rest%%,*}"
+    want_id="${rest#*,}"
+    if [ "$rx" = "$triple" ] || [ "$rest" = "$rz" ] || [ -z "$want_id" ]; then
+      echo "неверная запись (нужно x,z,expected_id): $triple" >&2
+      exit 1
+    fi
+    rline="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve "$rx" "$rz")"
+    echo "resolve ($rx,$rz) -> $rline"
+    if ! echo "$rline" | grep -qE "^${want_id}[[:space:]]"; then
+      echo "resolve ($rx,$rz): ожидался id ${want_id}" >&2
+      exit 1
+    fi
+  done <<< "$TMP_RV"
+  echo "OK: все STAGING_VERIFY_RESOLVE_CHECKS прошли"
 fi
 
 echo "== mmoctl ping (cell localhost:${CELL_PORT}) =="

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	cellv1 "mmo/gen/cellv1"
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/config"
+	"mmo/internal/partition"
 )
 
 func main() {
@@ -34,6 +36,8 @@ func main() {
 	switch cmd {
 	case "infra-print":
 		printInfra()
+	case "partition-plan":
+		runPartitionPlan(args[1:])
 	case "nats":
 		if len(args) < 2 {
 			log.Fatal("nats: need subcommand pub|sub")
@@ -73,6 +77,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   mmoctl infra-print
+  mmoctl partition-plan [-id s] [-level n] -xmin f -xmax f -zmin f -zmax f [-format text|json] [-tfvars-skeleton]
   mmoctl nats pub  [-url u] <subject> <body>
   mmoctl nats sub  [-url u] [-wait n] [-timeout d] <subject>
   mmoctl [-registry host:port] list
@@ -84,6 +89,98 @@ func usage() {
   mmoctl join <host:port> <player_id>
 `)
 	os.Exit(2)
+}
+
+func runPartitionPlan(args []string) {
+	fs := flag.NewFlagSet("partition-plan", flag.ExitOnError)
+	id := fs.String("id", "", "parent cell id (для подписи в выводе)")
+	level := fs.Int("level", 0, "parent subdivision level")
+	xmin := fs.Float64("xmin", 0, "parent bounds")
+	xmax := fs.Float64("xmax", 0, "")
+	zmin := fs.Float64("zmin", 0, "")
+	zmax := fs.Float64("zmax", 0, "")
+	format := fs.String("format", "text", "text или json")
+	tfvarsSkel := fs.Bool("tfvars-skeleton", false, "добавить каркас HCL для детей в cell_instances")
+	_ = fs.Parse(args)
+
+	if *xmin >= *xmax || *zmin >= *zmax {
+		log.Fatal("partition-plan: нужны xmin < xmax и zmin < zmax")
+	}
+	b := &cellv1.Bounds{XMin: *xmin, XMax: *xmax, ZMin: *zmin, ZMax: *zmax}
+	children := partition.ChildSpecsForSplit(b, int32(*level))
+	if len(children) != 4 {
+		log.Fatal("partition-plan: внутренняя ошибка — не 4 ребёнка")
+	}
+
+	switch strings.ToLower(strings.TrimSpace(*format)) {
+	case "json":
+		type boundsJSON struct {
+			XMin float64 `json:"x_min"`
+			XMax float64 `json:"x_max"`
+			ZMin float64 `json:"z_min"`
+			ZMax float64 `json:"z_max"`
+		}
+		type childJSON struct {
+			ID     string     `json:"id"`
+			Level  int32      `json:"level"`
+			Bounds boundsJSON `json:"bounds"`
+		}
+		chOut := make([]childJSON, 0, len(children))
+		for _, ch := range children {
+			cb := ch.GetBounds()
+			cj := childJSON{ID: ch.Id, Level: ch.Level}
+			if cb != nil {
+				cj.Bounds = boundsJSON{XMin: cb.XMin, XMax: cb.XMax, ZMin: cb.ZMin, ZMax: cb.ZMax}
+			}
+			chOut = append(chOut, cj)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		parent := struct {
+			ParentID string        `json:"parent_id"`
+			Level    int           `json:"level"`
+			Bounds   boundsJSON    `json:"bounds"`
+			Children []childJSON   `json:"children"`
+		}{
+			ParentID: strings.TrimSpace(*id),
+			Level:    *level,
+			Bounds:   boundsJSON{XMin: b.XMin, XMax: b.XMax, ZMin: b.ZMin, ZMax: b.ZMax},
+			Children: chOut,
+		}
+		if err := enc.Encode(parent); err != nil {
+			log.Fatal(err)
+		}
+	default:
+		if strings.TrimSpace(*id) != "" {
+			fmt.Printf("parent_id=%s level=%d bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
+				*id, *level, b.XMin, b.XMax, b.ZMin, b.ZMax)
+		}
+		for _, ch := range children {
+			cb := ch.GetBounds()
+			if cb == nil {
+				fmt.Printf("%s level=%d bounds=<nil>\n", ch.Id, ch.Level)
+				continue
+			}
+			fmt.Printf("%s level=%d bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
+				ch.Id, ch.Level, cb.XMin, cb.XMax, cb.ZMin, cb.ZMax)
+		}
+	}
+
+	if *tfvarsSkel {
+		fmt.Fprintf(os.Stdout, "\n# Каркас для cell_instances (дополните ключи, grpc_advertise, ресурсы):\n")
+		for i, ch := range children {
+			cb := ch.GetBounds()
+			key := fmt.Sprintf("child_%d", i)
+			fmt.Fprintf(os.Stdout, "  %s = { # %s\n", key, ch.Id)
+			fmt.Fprintf(os.Stdout, "    id    = %q\n", ch.Id)
+			fmt.Fprintf(os.Stdout, "    level = %d\n", ch.Level)
+			fmt.Fprintf(os.Stdout, "    xmin  = %g\n", cb.XMin)
+			fmt.Fprintf(os.Stdout, "    xmax  = %g\n", cb.XMax)
+			fmt.Fprintf(os.Stdout, "    zmin  = %g\n", cb.ZMin)
+			fmt.Fprintf(os.Stdout, "    zmax  = %g\n", cb.ZMax)
+			fmt.Fprintf(os.Stdout, "  }\n")
+		}
+	}
 }
 
 func printInfra() {
