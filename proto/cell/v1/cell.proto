@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package mmo.cell.v1;
+
+option go_package = "mmo/gen/cellv1;cellv1";
+
+// Границы соты в плоскости XZ (как в doc.md).
+message Bounds {
+  double x_min = 1;
+  double x_max = 2;
+  double z_min = 3;
+  double z_max = 4;
+}
+
+message CellSpec {
+  string id = 1;
+  int32 level = 2;
+  Bounds bounds = 3;
+  // gRPC адрес узла соты, куда клиент/шлюз подключаются напрямую.
+  string grpc_endpoint = 4;
+}
+
+message RegisterRequest {
+  CellSpec cell = 1;
+}
+
+message RegisterResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
+message ListCellsRequest {}
+
+message ListCellsResponse {
+  repeated CellSpec cells = 1;
+}
+
+message ResolvePositionRequest {
+  double x = 1;
+  double z = 2;
+}
+
+message ResolvePositionResponse {
+  CellSpec cell = 1;
+  bool found = 2;
+}
+
+// Registry — сервис обнаружения сот (заготовка Grid Manager / Consul-роли).
+service Registry {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc ListCells(ListCellsRequest) returns (ListCellsResponse);
+  rpc ResolvePosition(ResolvePositionRequest) returns (ResolvePositionResponse);
+}
+
+message PingRequest {
+  string client_id = 1;
+}
+
+message PingResponse {
+  string cell_id = 1;
+  int64 server_time_unix_ms = 2;
+}
+
+// Cell — минимальный игровой узел соты (первая итерация).
+service Cell {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
