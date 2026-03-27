@@ -1,7 +1,19 @@
+# Сборка (Makefile build → bin/)
 /bin/
-deploy/terraform/staging/image.auto.tfvars
+*.exe
+*.test
+*.out
+
+# Terraform staging: локальный state, провайдеры, сгенерированный тег образа
 deploy/terraform/staging/.terraform/
 deploy/terraform/staging/*.tfstate
 deploy/terraform/staging/*.tfstate.*
 deploy/terraform/staging/.terraform.lock.hcl
+deploy/terraform/staging/image.auto.tfvars
+
+# TLS и секреты (PEM в staging — только на машине / в CI secrets)
+deploy/terraform/staging/certs/
 certs/
+
+# ОС / IDE
+.DS_Store
