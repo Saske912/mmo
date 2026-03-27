@@ -90,6 +90,25 @@ variable "grid_service_name" {
   default = "mmo-grid-manager"
 }
 
+variable "gateway_http_port" {
+  type        = number
+  description = "HTTP/WebSocket порт gateway в поде и Service."
+  default     = 8080
+}
+
+variable "gateway_service_name" {
+  type        = string
+  description = "Имя Service для game gateway."
+  default     = "mmo-gateway"
+}
+
+variable "gateway_jwt_secret" {
+  type        = string
+  description = "HMAC для JWT сессий; в K8s также в Opaque Secret (ключ GATEWAY_JWT_SECRET)."
+  default     = "staging-gateway-jwt-change-me"
+  sensitive   = true
+}
+
 variable "harbor_docker_username" {
   type        = string
   description = "Логин Harbor для env секрета приложения и make harbor-login (если непусто — приоритет над outputs.mmo.harbor.docker_login_username)."

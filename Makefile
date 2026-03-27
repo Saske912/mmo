@@ -1,4 +1,4 @@
-.PHONY: proto build test print-image-tag consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply
+.PHONY: proto build test print-image-tag consul-smoke infra-smoke staging-verify docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
 
 STAGING_DIR := deploy/terraform/staging
 
@@ -43,8 +43,11 @@ infra-smoke:
 staging-verify:
 	bash scripts/staging-verify.sh
 
+# Пример принудительной пересборки бинарей: DOCKER_BUILD_OPTS=--no-cache make harbor-push
+DOCKER_BUILD_OPTS ?=
+
 docker-build:
-	docker build --build-arg GIT_REVISION=$(IMAGE_TAG) -t $(DOCKER_IMAGE) .
+	docker build $(DOCKER_BUILD_OPTS) --build-arg GIT_REVISION=$(IMAGE_TAG) -t $(DOCKER_IMAGE) .
 
 # kind load docker-image $(DOCKER_IMAGE)
 kind-load:
@@ -82,3 +85,7 @@ tofu-plan:
 
 tofu-apply:
 	cd $(STAGING_DIR) && tofu apply -input=false -auto-approve
+
+# Локальный CI/CD: тест → (коммит при изменениях) → harbor-push → tofu-apply. См. scripts/deploy-staging.sh
+deploy-staging:
+	bash scripts/deploy-staging.sh $(DEPLOY_STAGING_ARGS)

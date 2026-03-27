@@ -10,6 +10,11 @@ output "cell_grpc_advertise" {
   value = local.cell_grpc_advertise
 }
 
+output "gateway_http" {
+  description = "Внутренний URL gateway (ClusterIP) для port-forward или сервис-mesh."
+  value       = "http://${var.gateway_service_name}.${var.namespace}.svc.cluster.local:${var.gateway_http_port}"
+}
+
 output "image_tag" {
   description = "var.image_tag (синхрон с локальным IMAGE_TAG при make tofu-apply / harbor-push)."
   value       = var.image_tag

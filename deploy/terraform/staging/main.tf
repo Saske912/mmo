@@ -48,6 +48,7 @@ locals {
     HARBOR_REGISTRY  = local.registry_host_raw
     HARBOR_USER      = local.harbor_user
     HARBOR_PASSWORD  = local.harbor_pass
+    GATEWAY_JWT_SECRET = var.gateway_jwt_secret
   }
 
   # Совпадает с metadata.name у kubernetes_namespace (var.namespace).
@@ -216,6 +217,84 @@ resource "kubernetes_service" "cell" {
       name        = "grpc"
       port        = var.cell_grpc_port
       target_port = var.cell_grpc_port
+    }
+  }
+}
+
+resource "kubernetes_deployment" "gateway" {
+  metadata {
+    name      = "gateway"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "gateway"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "gateway"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app = "gateway"
+        }
+      }
+
+      spec {
+        container {
+          name  = "gateway"
+          image = local.image
+          # Тег образа по коммиту переиспользуется при -dirty; Always подтягивает свежий push из Harbor.
+          image_pull_policy = "Always"
+
+          command = ["/gateway"]
+          # Прямой gRPC на соту: в текущем staging каталог Consul с mmo-consul-ui может не отдавать
+          # здоровые сервисы в API (ResolvePosition пустой); для одной соты в кластере надёжнее DNS Service.
+          args = [
+            "-listen", "0.0.0.0:${var.gateway_http_port}",
+            "-registry", "${var.grid_service_name}.${var.namespace}.svc.cluster.local:${var.grid_grpc_port}",
+            "-resolve-x", "0",
+            "-resolve-z", "0",
+            "-cell-grpc", "${var.cell_service_name}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}",
+          ]
+
+          port {
+            name           = "http"
+            container_port = var.gateway_http_port
+          }
+
+          env_from {
+            secret_ref {
+              name = kubernetes_secret.mmo_backend.metadata[0].name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "gateway" {
+  metadata {
+    name      = var.gateway_service_name
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+
+  spec {
+    selector = {
+      app = "gateway"
+    }
+
+    port {
+      name        = "http"
+      port        = var.gateway_http_port
+      target_port = var.gateway_http_port
     }
   }
 }
