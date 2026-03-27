@@ -67,8 +67,25 @@ go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list
 echo "== mmoctl forward-update noop (registry -> cell, id=${FIRST_CELL}) =="
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" noop
 
-echo "== mmoctl resolve (-500,-500) — при дочерней соте в каталоге выигрывает больший level =="
-go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500 -500
+echo "== B2: unit-тест каталога (родитель + SW-ребёнок, Resolve) =="
+go test ./internal/discovery -run TestResolveMostSpecific_childWinsInSWQuadrant -count=1
+
+echo "== mmoctl resolve (-500,-500) =="
+LIST_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list)"
+RESOLVE_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500 -500)"
+echo "$RESOLVE_OUT"
+# Если в кластере зарегистрирована дочерняя сота из PlanSplit (пример cell_instances.auto.tfvars.example), точка (-500,-500) должна резолвиться в неё, а не в родителя level=0.
+if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
+  if ! echo "$RESOLVE_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
+    echo "B2 staging: в каталоге есть cell_-1_-1_1, но resolve (-500,-500) не вернул её" >&2
+    echo "list:" >&2
+    echo "$LIST_OUT" >&2
+    exit 1
+  fi
+  echo "B2 staging: resolve SW-квадранта в дочернюю соту — OK"
+else
+  echo "B2 staging: одна сота в каталоге; полный кластерный тест добавьте child_sw в cell_instances (см. deploy/terraform/staging/cell_instances.auto.tfvars.example)"
+fi
 
 echo "== mmoctl ping (cell localhost:${CELL_PORT}) =="
 go run ./cmd/mmoctl ping "127.0.0.1:${CELL_PORT}"

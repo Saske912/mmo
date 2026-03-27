@@ -1,4 +1,5 @@
 # Пример второй соты (квадрант SW после PlanSplit для cell_0_0_0 [-1000,1000]²): раскомментируйте и сольите с вашим *.auto.tfvars.
+# После tofu apply scripts/staging-verify.sh проверит: при наличии cell_-1_-1_1 в list, resolve -500 -500 обязан вернуть эту соту.
 #
 # cell_instances = {
 #   primary = {
