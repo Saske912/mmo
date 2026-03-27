@@ -1,4 +1,4 @@
-.PHONY: proto build test consul-smoke
+.PHONY: proto build test consul-smoke infra-smoke
 
 PROTOC ?= protoc
 
@@ -18,3 +18,7 @@ test:
 # Нужен живой Consul (см. scripts/consul-smoke.sh).
 consul-smoke:
 	bash scripts/consul-smoke.sh
+
+# Consul + NATS (см. scripts/infra-smoke.sh).
+infra-smoke:
+	bash scripts/infra-smoke.sh

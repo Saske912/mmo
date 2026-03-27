@@ -1,4 +1,5 @@
 # Пример: игровой MMO-бэкенд (отдельный стек) читает outputs.staging.mmo.
+# Переменные секрета ниже совпадают с загрузкой из окружения в internal/config (FromEnv).
 # Перед apply staging с Harbor: ./scripts/download-staging-charts.sh && ./scripts/upload-charts-to-harbor.sh nats consul
 # NATS: https://artifacthub.io/packages/helm/nats/nats | Consul: https://artifacthub.io/packages/helm/hashicorp/consul
 

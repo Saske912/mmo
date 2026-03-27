@@ -5,30 +5,176 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	cellv1 "mmo/gen/cellv1"
+	natsbus "mmo/internal/bus/nats"
+	"mmo/internal/config"
 )
 
 func main() {
 	regAddr := flag.String("registry", "127.0.0.1:9100", "Registry address")
+	natsURLOverride := flag.String("nats-url", "", "override NATS_URL")
+
+	log.SetFlags(0)
 	flag.Parse()
-	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: mmoctl [-registry host:port] <list|resolve x z|ping endpoint>")
-		os.Exit(2)
+
+	args := flag.Args()
+	if len(args) < 1 {
+		usage()
 	}
 
-	cmd := flag.Arg(0)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	cmd := args[0]
+	switch cmd {
+	case "infra-print":
+		printInfra()
+	case "nats":
+		if len(args) < 2 {
+			log.Fatal("nats: need subcommand pub|sub")
+		}
+		sub := args[1]
+		fs := flag.NewFlagSet("nats "+sub, flag.ExitOnError)
+		urlFlag := fs.String("url", "", "NATS URL (default: NATS_URL / config from env)")
+		switch sub {
+		case "pub":
+			_ = fs.Parse(args[2:])
+			pos := fs.Args()
+			if len(pos) < 2 {
+				log.Fatal("nats pub: need <subject> <body>")
+			}
+			nurl := firstNonEmpty(*urlFlag, *natsURLOverride, config.FromEnv().NATSURL)
+			runNATSPub(nurl, pos[0], []byte(pos[1]))
+		case "sub":
+			wait := fs.Int("wait", 1, "messages to receive")
+			timeout := fs.Duration("timeout", 5*time.Second, "per-message wait")
+			_ = fs.Parse(args[2:])
+			pos := fs.Args()
+			if len(pos) < 1 {
+				log.Fatal("nats sub: need <subject>")
+			}
+			nurl := firstNonEmpty(*urlFlag, *natsURLOverride, config.FromEnv().NATSURL)
+			runNATSSub(nurl, pos[0], *wait, *timeout)
+		default:
+			log.Fatalf("nats: unknown %q", sub)
+		}
+	default:
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		runRegistryOrPing(ctx, cmd, args[1:], *regAddr)
+	}
+}
 
+func usage() {
+	fmt.Fprint(os.Stderr, `usage:
+  mmoctl infra-print
+  mmoctl nats pub  [-url u] <subject> <body>
+  mmoctl nats sub  [-url u] [-wait n] [-timeout d] <subject>
+  mmoctl [-registry host:port] list
+  mmoctl [-registry host:port] resolve <x> <z>
+  mmoctl ping <host:port>
+`)
+	os.Exit(2)
+}
+
+func printInfra() {
+	c := config.FromEnv()
+	fmt.Printf("CONSUL_HTTP_ADDR=%s\n", valOrUnset(c.ConsulHTTPAddr))
+	fmt.Printf("CONSUL_DNS_ADDR=%s\n", valOrUnset(c.ConsulDNSAddr))
+	fmt.Printf("CONSUL_HTTP_TOKEN=%s\n", maskSecret(c.ConsulHTTPToken))
+	fmt.Printf("NATS_URL=%s\n", maskNATSURL(c.NATSURL))
+	fmt.Printf("DATABASE_URL_RW=%s\n", maskDSN(c.DatabaseURLRW))
+	fmt.Printf("REDIS_ADDR=%s\n", valOrUnset(c.RedisAddr))
+	fmt.Printf("REDIS_PASSWORD=%s\n", maskSecret(c.RedisPassword))
+}
+
+func valOrUnset(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	return s
+}
+
+func maskSecret(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	return "***"
+}
+
+func maskDSN(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	return fmt.Sprintf("(set, %d bytes)", len(s))
+}
+
+func maskNATSURL(raw string) string {
+	if raw == "" {
+		return "(unset)"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	user := u.User.Username()
+	_, hasPass := u.User.Password()
+	if !hasPass {
+		return raw
+	}
+	u2 := *u
+	u2.User = url.UserPassword(user, "***")
+	return u2.String()
+}
+
+func runNATSPub(nurl, subject string, body []byte) {
+	c, err := natsbus.Connect(nurl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.Publish(subject, body); err != nil {
+		log.Fatal(err)
+	}
+	if err := c.FlushTimeout(2 * time.Second); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("published to %s (%d bytes)\n", subject, len(body))
+}
+
+func runNATSSub(nurl, subject string, wait int, timeout time.Duration) {
+	c, err := natsbus.Connect(nurl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+	sub, err := c.Conn().SubscribeSync(subject)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	ctx := context.Background()
+	for i := 0; i < wait; i++ {
+		ctxMsg, cancel := context.WithTimeout(ctx, timeout)
+		msg, err := sub.NextMsgWithContext(ctxMsg)
+		cancel()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("[%d] %s\n", i+1, string(msg.Data))
+	}
+}
+
+func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr string) {
 	switch cmd {
 	case "list":
-		conn, err := grpc.NewClient(*regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -44,18 +190,18 @@ func main() {
 				c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
 		}
 	case "resolve":
-		if flag.NArg() != 3 {
+		if len(rest) != 2 {
 			log.Fatal("resolve: need x z")
 		}
-		x, err := strconv.ParseFloat(flag.Arg(1), 64)
+		x, err := strconv.ParseFloat(rest[0], 64)
 		if err != nil {
 			log.Fatal(err)
 		}
-		z, err := strconv.ParseFloat(flag.Arg(2), 64)
+		z, err := strconv.ParseFloat(rest[1], 64)
 		if err != nil {
 			log.Fatal(err)
 		}
-		conn, err := grpc.NewClient(*regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -74,10 +220,10 @@ func main() {
 		fmt.Printf("%s level=%d endpoint=%s bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
 	case "ping":
-		if flag.NArg() != 2 {
+		if len(rest) != 1 {
 			log.Fatal("ping: need host:port")
 		}
-		ep := flag.Arg(1)
+		ep := rest[0]
 		conn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Fatal(err)
@@ -92,4 +238,13 @@ func main() {
 	default:
 		log.Fatalf("unknown command %q", cmd)
 	}
+}
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
 }

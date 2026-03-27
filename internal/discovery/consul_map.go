@@ -42,7 +42,7 @@ func cellSpecToAgentRegistration(spec *cellv1.CellSpec) (*api.AgentServiceRegist
 		Address: host,
 		Port:    port,
 		Meta:    meta,
-		// Check задаётся в ConsulCatalog.RegisterCell (TCP на gRPC порт).
+		// Check задаётся в ConsulCatalog.RegisterCell (TTL, обновляет cell-node).
 	}, nil
 }
 
