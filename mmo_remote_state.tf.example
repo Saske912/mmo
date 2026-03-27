@@ -1,6 +1,6 @@
 # Пример: игровой MMO-бэкенд (отдельный стек) читает outputs.staging.mmo.
-# Перед apply staging с Harbor: ./scripts/download-staging-charts.sh && ./scripts/upload-charts-to-harbor.sh nats
-# Чарт: https://artifacthub.io/packages/helm/nats/nats (репозиторий nats-io)
+# Перед apply staging с Harbor: ./scripts/download-staging-charts.sh && ./scripts/upload-charts-to-harbor.sh nats consul
+# NATS: https://artifacthub.io/packages/helm/nats/nats | Consul: https://artifacthub.io/packages/helm/hashicorp/consul
 
 data "terraform_remote_state" "staging" {
   backend = "kubernetes"
@@ -19,6 +19,8 @@ locals {
   pg_mmo = try(local.mmo.pgsql, null)
   redis  = try(local.mmo.redis, null)
   nats   = try(local.mmo.nats, null)
+  consul = try(local.mmo.consul, null)
+  # Готовые строки адресов: redis.redis_addr, nats.client_addr, consul.dns_addr / http_addr, scylla.cql_addr, meta.base_url
 }
 
 # Пример: проброс в Deployment / Helm (пароли — set_sensitive)
@@ -30,9 +32,12 @@ locals {
 #   }
 #   data = {
 #     DATABASE_URL_RW = try(local.pg_mmo.url_rw, "")
-#     REDIS_ADDR      = try("${local.redis.host}:${local.redis.port}", "")
+#     REDIS_ADDR      = try(local.redis.redis_addr, "")
 #     REDIS_PASSWORD  = try(local.redis.password, "")
 #     NATS_URL        = try(local.nats.urls, "")
+#     CONSUL_HTTP_ADDR  = try(local.consul.http_api_base_url, "")
+#     CONSUL_DNS_ADDR   = try(local.consul.dns_addr, "")
+#     LOKI_PUSH_URL   = try(local.mmo.monitoring.loki.push_url, "")
 #     TEMPO_OTLP_GRPC = try(local.mmo.monitoring.tempo.otlp_grpc, "")
 #   }
 #   type = "Opaque"
@@ -65,48 +70,3 @@ locals {
 #     value = local.nats.password
 #   }
 # }
-
-описание внешнего output 
-
-output "mmo" {
-  description = "MMO-стек: pgsql (БД mmo), Scylla, Redis, NATS, Loki/Tempo — для remote state игрового бэкенда. Пример: examples/mmo_remote_state.tf.example"
-  value = {
-    pgsql = local.mmo_db_config
-    scylla = var.scylla_enabled ? {
-      host                = module.scylla[0].cql_client_host
-      port_cql            = module.scylla[0].cql_port
-      username            = null
-      password            = null
-      authentication_note = module.scylla[0].authentication_note
-    } : null
-    redis = var.redis_enabled ? {
-      host     = module.redis[0].host_master
-      port     = module.redis[0].port
-      password = var.redis_password != "" ? var.redis_password : random_password.redis_password[0].result
-    } : null
-    nats = var.nats_enabled ? {
-      host             = module.nats[0].client_host
-      port             = module.nats[0].client_port
-      username         = module.nats[0].auth_username
-      password         = module.nats[0].auth_password
-      urls             = module.nats[0].nats_urls
-      monitor_http_url = module.nats[0].monitor_http_url
-    } : null
-    monitoring = {
-      loki = var.loki_enabled ? {
-        push_url     = module.loki[0].remote_write_url
-        internal_url = module.loki[0].loki_service_url
-        ingress_url  = module.loki[0].loki_url
-        namespace    = module.loki[0].namespace
-      } : null
-      tempo = var.tempo_enabled ? {
-        http_url      = module.tempo[0].tempo_http_url
-        http_internal = module.tempo[0].tempo_http_url_internal
-        otlp_grpc     = module.tempo[0].tempo_otlp_grpc_endpoint
-        otlp_http     = module.tempo[0].tempo_otlp_http_endpoint
-        namespace     = module.tempo[0].namespace
-      } : null
-    }
-  }
-  sensitive = true
-}

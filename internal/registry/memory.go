@@ -62,6 +62,17 @@ func (m *Memory) ResolveMostSpecific(_ context.Context, x, z float64) (*cellv1.C
 	return cloneSpec(best), true
 }
 
+// Deregister удаляет соту по id (для graceful shutdown и gRPC Register отката).
+func (m *Memory) Deregister(_ context.Context, id string) error {
+	if id == "" {
+		return errInvalidSpec
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.cells, id)
+	return nil
+}
+
 func cloneSpec(s *cellv1.CellSpec) *cellv1.CellSpec {
 	if s == nil {
 		return nil

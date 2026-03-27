@@ -2,29 +2,74 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net"
 
 	"google.golang.org/grpc"
 	cellv1 "mmo/gen/cellv1"
+	"mmo/internal/discovery"
 	"mmo/internal/grpc/registrysvc"
 	"mmo/internal/registry"
 )
 
 func main() {
 	addr := flag.String("listen", "127.0.0.1:9100", "gRPC listen address")
+	backend := flag.String("backend", "auto", "catalog backend: auto | memory | consul")
+	consulAddr := flag.String("consul-addr", "", "Consul HTTP address host:port (default: CONSUL_HTTP_ADDR)")
 	flag.Parse()
 
-	mem := registry.NewMemory()
+	store, err := openCatalog(*backend, *consulAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	srv := grpc.NewServer()
-	cellv1.RegisterRegistryServer(srv, &registrysvc.Server{Mem: mem})
+	cellv1.RegisterRegistryServer(srv, &registrysvc.Server{Store: store})
 
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	log.Printf("grid-manager registry listening on %s", lis.Addr())
+	log.Printf("grid-manager registry listening on %s (backend=%s)", lis.Addr(), catalogDesc(store))
 	if err := srv.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)
+	}
+}
+
+func openCatalog(backend, consulAddrFlag string) (discovery.Catalog, error) {
+	addr := consulAddrFlag
+	if addr == "" {
+		addr = discovery.ConsulAddrFromEnv()
+	}
+
+	switch backend {
+	case "memory":
+		return discovery.NewMemoryCatalog(registry.NewMemory()), nil
+	case "consul":
+		if addr == "" {
+			return nil, fmt.Errorf("consul backend requires -consul-addr or CONSUL_HTTP_ADDR")
+		}
+		return discovery.NewConsulCatalog(addr, discovery.ConsulTokenFromEnv())
+	case "auto":
+		if addr != "" {
+			log.Printf("using Consul catalog at %s", addr)
+			return discovery.NewConsulCatalog(addr, discovery.ConsulTokenFromEnv())
+		}
+		log.Printf("using in-memory catalog (set CONSUL_HTTP_ADDR for Consul)")
+		return discovery.NewMemoryCatalog(registry.NewMemory()), nil
+	default:
+		return nil, fmt.Errorf("backend must be auto, memory, or consul")
+	}
+}
+
+func catalogDesc(store discovery.Catalog) string {
+	switch store.(type) {
+	case *discovery.ConsulCatalog:
+		return "consul"
+	case *discovery.MemoryCatalog:
+		return "memory"
+	default:
+		return "unknown"
 	}
 }

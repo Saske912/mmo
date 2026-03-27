@@ -1,4 +1,4 @@
-.PHONY: proto build test
+.PHONY: proto build test consul-smoke
 
 PROTOC ?= protoc
 
@@ -14,3 +14,7 @@ build:
 
 test:
 	go test ./...
+
+# Нужен живой Consul (см. scripts/consul-smoke.sh).
+consul-smoke:
+	bash scripts/consul-smoke.sh

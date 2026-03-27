@@ -26,3 +26,19 @@ func TestResolveMostSpecific_PrefersDeeperLevel(t *testing.T) {
 		t.Fatalf("expected child c, got %+v ok=%v", got, ok)
 	}
 }
+
+func TestDeregister(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	_ = m.Register(ctx, &cellv1.CellSpec{
+		Id: "x", Level: 0,
+		Bounds: &cellv1.Bounds{XMin: 0, XMax: 1, ZMin: 0, ZMax: 1},
+	})
+	if err := m.Deregister(ctx, "x"); err != nil {
+		t.Fatal(err)
+	}
+	_, ok := m.ResolveMostSpecific(ctx, 0.5, 0.5)
+	if ok {
+		t.Fatal("expected no cell after deregister")
+	}
+}
