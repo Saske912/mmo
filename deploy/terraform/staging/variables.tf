@@ -190,6 +190,18 @@ variable "mmo_structured_logs" {
   default     = true
 }
 
+variable "mmo_loki_log_labels" {
+  type = map(string)
+  description = <<EOT
+Дополнительные Pod labels при mmo_structured_logs=true: задайте ключи, по которым ваш кластерный сборщик логов (Grafana Alloy, Promtail, агент k8s-monitoring) отбирает потоки из namespace приложения.
+EOT
+  default = {
+    "mmo.log/format"     = "json"
+    "mmo.log/stdout"     = "true"
+    "mmo.log/deployment" = "mmo-backend"
+  }
+}
+
 variable "service_monitor_enabled" {
   type        = bool
   description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."

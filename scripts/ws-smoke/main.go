@@ -96,12 +96,15 @@ func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error
 }
 
 func runOnce(base, player string, displayName *string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
-	token, hasSt, lvl, xpv, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
+	token, hasSt, lvl, xpv, hasWal, gold, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
 	if err != nil {
 		return err
 	}
 	if hasSt {
 		fmt.Printf("[%s] session stats: level=%d xp=%d\n", player, lvl, xpv)
+	}
+	if hasWal {
+		fmt.Printf("[%s] session wallet: gold=%d\n", player, gold)
 	}
 
 	wsURL, err := wsDialURL(base, token)
@@ -161,7 +164,7 @@ func runOnce(base, player string, displayName *string, n, inputs int, verbose bo
 	return nil
 }
 
-func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (token string, hasStats bool, level int, xp int64, err error) {
+func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (token string, hasStats bool, level int, xp int64, hasWallet bool, gold int64, err error) {
 	m := map[string]any{"player_id": player}
 	if displayName != nil && *displayName != "" {
 		m["display_name"] = *displayName
@@ -172,15 +175,15 @@ func sessionToken(base, player string, displayName *string, resolveX, resolveZ *
 	}
 	body, err := json.Marshal(m)
 	if err != nil {
-		return "", false, 0, 0, err
+		return "", false, 0, 0, false, 0, err
 	}
 	resp, err := http.Post(base+"/v1/session", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return "", false, 0, 0, err
+		return "", false, 0, 0, false, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false, 0, 0, fmt.Errorf("session: %s", resp.Status)
+		return "", false, 0, 0, false, 0, fmt.Errorf("session: %s", resp.Status)
 	}
 	var out struct {
 		Token string `json:"token"`
@@ -188,17 +191,26 @@ func sessionToken(base, player string, displayName *string, resolveX, resolveZ *
 			Level int   `json:"level"`
 			XP    int64 `json:"xp"`
 		} `json:"stats"`
+		Wallet *struct {
+			Gold int64 `json:"gold"`
+		} `json:"wallet"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", false, 0, 0, err
+		return "", false, 0, 0, false, 0, err
 	}
 	if out.Token == "" {
-		return "", false, 0, 0, fmt.Errorf("session: empty token")
+		return "", false, 0, 0, false, 0, fmt.Errorf("session: empty token")
 	}
 	if out.Stats != nil {
-		return out.Token, true, out.Stats.Level, out.Stats.XP, nil
+		if out.Wallet != nil {
+			return out.Token, true, out.Stats.Level, out.Stats.XP, true, out.Wallet.Gold, nil
+		}
+		return out.Token, true, out.Stats.Level, out.Stats.XP, false, 0, nil
 	}
-	return out.Token, false, 0, 0, nil
+	if out.Wallet != nil {
+		return out.Token, false, 0, 0, true, out.Wallet.Gold, nil
+	}
+	return out.Token, false, 0, 0, false, 0, nil
 }
 
 func wsDialURL(httpBase, token string) (string, error) {

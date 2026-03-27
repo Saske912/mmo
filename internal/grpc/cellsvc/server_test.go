@@ -143,6 +143,30 @@ func TestUpdateSetSplitDrain(t *testing.T) {
 	}
 }
 
+func TestListMigrationCandidates(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "mig1", Sim: sim}
+	ctx := context.Background()
+	resp, err := srv.ListMigrationCandidates(ctx, &cellv1.ListMigrationCandidatesRequest{Reason: "test"})
+	if err != nil || len(resp.Candidates) != 0 {
+		t.Fatalf("empty world: %+v err=%v", resp, err)
+	}
+	if _, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "p_mig"}); err != nil {
+		t.Fatal(err)
+	}
+	resp2, err := srv.ListMigrationCandidates(ctx, &cellv1.ListMigrationCandidatesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp2.Candidates) != 1 {
+		t.Fatalf("want 1 candidate, got %d", len(resp2.Candidates))
+	}
+	c := resp2.Candidates[0]
+	if !c.IsPlayer || c.EntityId == 0 || c.Position == nil {
+		t.Fatalf("unexpected candidate: %+v", c)
+	}
+}
+
 func TestUpdateSplitPrepare(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}

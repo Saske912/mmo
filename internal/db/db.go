@@ -132,3 +132,25 @@ func GetPlayerStats(ctx context.Context, pool *pgxpool.Pool, playerID string) (l
 	}
 	return level, xp, true, nil
 }
+
+// EnsurePlayerWallet создаёт строку кошелька игрока при первой сессии (идемпотентно).
+func EnsurePlayerWallet(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	const q = `
+INSERT INTO mmo_player_wallet (player_id) VALUES ($1)
+ON CONFLICT (player_id) DO NOTHING`
+	_, err := pool.Exec(ctx, q, playerID)
+	return err
+}
+
+// GetPlayerWallet возвращает gold; ok=false если строки ещё нет (после Ensure — всегда ok).
+func GetPlayerWallet(ctx context.Context, pool *pgxpool.Pool, playerID string) (gold int64, ok bool, err error) {
+	const q = `SELECT gold FROM mmo_player_wallet WHERE player_id = $1`
+	err = pool.QueryRow(ctx, q, playerID).Scan(&gold)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return gold, true, nil
+}

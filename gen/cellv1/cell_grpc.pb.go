@@ -239,13 +239,14 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Cell_Ping_FullMethodName            = "/mmo.cell.v1.Cell/Ping"
-	Cell_Join_FullMethodName            = "/mmo.cell.v1.Cell/Join"
-	Cell_Leave_FullMethodName           = "/mmo.cell.v1.Cell/Leave"
-	Cell_ApplyInput_FullMethodName      = "/mmo.cell.v1.Cell/ApplyInput"
-	Cell_Update_FullMethodName          = "/mmo.cell.v1.Cell/Update"
-	Cell_PlanSplit_FullMethodName       = "/mmo.cell.v1.Cell/PlanSplit"
-	Cell_SubscribeDeltas_FullMethodName = "/mmo.cell.v1.Cell/SubscribeDeltas"
+	Cell_Ping_FullMethodName                    = "/mmo.cell.v1.Cell/Ping"
+	Cell_Join_FullMethodName                    = "/mmo.cell.v1.Cell/Join"
+	Cell_Leave_FullMethodName                   = "/mmo.cell.v1.Cell/Leave"
+	Cell_ApplyInput_FullMethodName              = "/mmo.cell.v1.Cell/ApplyInput"
+	Cell_Update_FullMethodName                  = "/mmo.cell.v1.Cell/Update"
+	Cell_PlanSplit_FullMethodName               = "/mmo.cell.v1.Cell/PlanSplit"
+	Cell_ListMigrationCandidates_FullMethodName = "/mmo.cell.v1.Cell/ListMigrationCandidates"
+	Cell_SubscribeDeltas_FullMethodName         = "/mmo.cell.v1.Cell/SubscribeDeltas"
 )
 
 // CellClient is the client API for Cell service.
@@ -260,6 +261,7 @@ type CellClient interface {
 	ApplyInput(ctx context.Context, in *ApplyInputRequest, opts ...grpc.CallOption) (*ApplyInputResponse, error)
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
 	PlanSplit(ctx context.Context, in *PlanSplitRequest, opts ...grpc.CallOption) (*PlanSplitResponse, error)
+	ListMigrationCandidates(ctx context.Context, in *ListMigrationCandidatesRequest, opts ...grpc.CallOption) (*ListMigrationCandidatesResponse, error)
 	SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error)
 }
 
@@ -331,6 +333,16 @@ func (c *cellClient) PlanSplit(ctx context.Context, in *PlanSplitRequest, opts .
 	return out, nil
 }
 
+func (c *cellClient) ListMigrationCandidates(ctx context.Context, in *ListMigrationCandidatesRequest, opts ...grpc.CallOption) (*ListMigrationCandidatesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMigrationCandidatesResponse)
+	err := c.cc.Invoke(ctx, Cell_ListMigrationCandidates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *cellClient) SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &Cell_ServiceDesc.Streams[0], Cell_SubscribeDeltas_FullMethodName, cOpts...)
@@ -362,6 +374,7 @@ type CellServer interface {
 	ApplyInput(context.Context, *ApplyInputRequest) (*ApplyInputResponse, error)
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
 	PlanSplit(context.Context, *PlanSplitRequest) (*PlanSplitResponse, error)
+	ListMigrationCandidates(context.Context, *ListMigrationCandidatesRequest) (*ListMigrationCandidatesResponse, error)
 	SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error
 	mustEmbedUnimplementedCellServer()
 }
@@ -390,6 +403,9 @@ func (UnimplementedCellServer) Update(context.Context, *UpdateRequest) (*UpdateR
 }
 func (UnimplementedCellServer) PlanSplit(context.Context, *PlanSplitRequest) (*PlanSplitResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanSplit not implemented")
+}
+func (UnimplementedCellServer) ListMigrationCandidates(context.Context, *ListMigrationCandidatesRequest) (*ListMigrationCandidatesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMigrationCandidates not implemented")
 }
 func (UnimplementedCellServer) SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeDeltas not implemented")
@@ -523,6 +539,24 @@ func _Cell_PlanSplit_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_ListMigrationCandidates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMigrationCandidatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).ListMigrationCandidates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_ListMigrationCandidates_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).ListMigrationCandidates(ctx, req.(*ListMigrationCandidatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Cell_SubscribeDeltas_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeDeltasRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -564,6 +598,10 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PlanSplit",
 			Handler:    _Cell_PlanSplit_Handler,
+		},
+		{
+			MethodName: "ListMigrationCandidates",
+			Handler:    _Cell_ListMigrationCandidates_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

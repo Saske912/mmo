@@ -71,6 +71,23 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatalf("GetPlayerStats missing: err=%v ok=%v", err, okMiss)
 	}
 
+	if err := EnsurePlayerWallet(ctx, pool, "wallet-user"); err != nil {
+		t.Fatal(err)
+	}
+	var gld int64
+	err = pool.QueryRow(ctx, `SELECT gold FROM mmo_player_wallet WHERE player_id = $1`, "wallet-user").Scan(&gld)
+	if err != nil || gld != 0 {
+		t.Fatalf("wallet row: gold=%d err=%v", gld, err)
+	}
+	g2, okW, err := GetPlayerWallet(ctx, pool, "wallet-user")
+	if err != nil || !okW || g2 != 0 {
+		t.Fatalf("GetPlayerWallet: %v ok=%v %d", err, okW, g2)
+	}
+	_, okWMiss, err := GetPlayerWallet(ctx, pool, "no-wallet-row-xyz")
+	if err != nil || okWMiss {
+		t.Fatalf("GetPlayerWallet missing: err=%v ok=%v", err, okWMiss)
+	}
+
 	if err := UpsertPlayerLastCell(ctx, pool, "test-last-cell", "cell_0_0_0", 10.5, -20.25); err != nil {
 		t.Fatal(err)
 	}

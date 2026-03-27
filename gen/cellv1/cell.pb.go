@@ -1524,6 +1524,155 @@ func (*WorldChunk_Snapshot) isWorldChunk_Kind() {}
 
 func (*WorldChunk_Delta) isWorldChunk_Kind() {}
 
+// Кандидаты для live-миграции / handoff между сотами (оператор, grid-manager).
+type ListMigrationCandidatesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMigrationCandidatesRequest) Reset() {
+	*x = ListMigrationCandidatesRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMigrationCandidatesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMigrationCandidatesRequest) ProtoMessage() {}
+
+func (x *ListMigrationCandidatesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMigrationCandidatesRequest.ProtoReflect.Descriptor instead.
+func (*ListMigrationCandidatesRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListMigrationCandidatesRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type MigrationCandidate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityId      uint64                 `protobuf:"varint,1,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Position      *gamev1.Vec3F          `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	IsPlayer      bool                   `protobuf:"varint,3,opt,name=is_player,json=isPlayer,proto3" json:"is_player,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MigrationCandidate) Reset() {
+	*x = MigrationCandidate{}
+	mi := &file_cell_v1_cell_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MigrationCandidate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MigrationCandidate) ProtoMessage() {}
+
+func (x *MigrationCandidate) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MigrationCandidate.ProtoReflect.Descriptor instead.
+func (*MigrationCandidate) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *MigrationCandidate) GetEntityId() uint64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *MigrationCandidate) GetPosition() *gamev1.Vec3F {
+	if x != nil {
+		return x.Position
+	}
+	return nil
+}
+
+func (x *MigrationCandidate) GetIsPlayer() bool {
+	if x != nil {
+		return x.IsPlayer
+	}
+	return false
+}
+
+type ListMigrationCandidatesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Candidates    []*MigrationCandidate  `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMigrationCandidatesResponse) Reset() {
+	*x = ListMigrationCandidatesResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMigrationCandidatesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMigrationCandidatesResponse) ProtoMessage() {}
+
+func (x *ListMigrationCandidatesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMigrationCandidatesResponse.ProtoReflect.Descriptor instead.
+func (*ListMigrationCandidatesResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ListMigrationCandidatesResponse) GetCandidates() []*MigrationCandidate {
+	if x != nil {
+		return x.Candidates
+	}
+	return nil
+}
+
 var File_cell_v1_cell_proto protoreflect.FileDescriptor
 
 const file_cell_v1_cell_proto_rawDesc = "" +
@@ -1610,12 +1759,22 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"WorldChunk\x123\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x15.mmo.game.v1.SnapshotH\x00R\bsnapshot\x12*\n" +
 	"\x05delta\x18\x02 \x01(\v2\x12.mmo.game.v1.DeltaH\x00R\x05deltaB\x06\n" +
-	"\x04kind2\xe1\x02\n" +
+	"\x04kind\"8\n" +
+	"\x1eListMigrationCandidatesRequest\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"~\n" +
+	"\x12MigrationCandidate\x12\x1b\n" +
+	"\tentity_id\x18\x01 \x01(\x04R\bentityId\x12.\n" +
+	"\bposition\x18\x02 \x01(\v2\x12.mmo.game.v1.Vec3fR\bposition\x12\x1b\n" +
+	"\tis_player\x18\x03 \x01(\bR\bisPlayer\"b\n" +
+	"\x1fListMigrationCandidatesResponse\x12?\n" +
+	"\n" +
+	"candidates\x18\x01 \x03(\v2\x1f.mmo.cell.v1.MigrationCandidateR\n" +
+	"candidates2\xe1\x02\n" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
 	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse\x12b\n" +
-	"\x11ForwardCellUpdate\x12%.mmo.cell.v1.ForwardCellUpdateRequest\x1a&.mmo.cell.v1.ForwardCellUpdateResponse2\xf1\x03\n" +
+	"\x11ForwardCellUpdate\x12%.mmo.cell.v1.ForwardCellUpdateRequest\x1a&.mmo.cell.v1.ForwardCellUpdateResponse2\xe7\x04\n" +
 	"\x04Cell\x12;\n" +
 	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
 	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12>\n" +
@@ -1623,7 +1782,8 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\n" +
 	"ApplyInput\x12\x1e.mmo.cell.v1.ApplyInputRequest\x1a\x1f.mmo.cell.v1.ApplyInputResponse\x12A\n" +
 	"\x06Update\x12\x1a.mmo.cell.v1.UpdateRequest\x1a\x1b.mmo.cell.v1.UpdateResponse\x12J\n" +
-	"\tPlanSplit\x12\x1d.mmo.cell.v1.PlanSplitRequest\x1a\x1e.mmo.cell.v1.PlanSplitResponse\x12Q\n" +
+	"\tPlanSplit\x12\x1d.mmo.cell.v1.PlanSplitRequest\x1a\x1e.mmo.cell.v1.PlanSplitResponse\x12t\n" +
+	"\x17ListMigrationCandidates\x12+.mmo.cell.v1.ListMigrationCandidatesRequest\x1a,.mmo.cell.v1.ListMigrationCandidatesResponse\x12Q\n" +
 	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
 
 var (
@@ -1638,39 +1798,43 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_cell_v1_cell_proto_goTypes = []any{
-	(*Bounds)(nil),                    // 0: mmo.cell.v1.Bounds
-	(*CellSpec)(nil),                  // 1: mmo.cell.v1.CellSpec
-	(*RegisterRequest)(nil),           // 2: mmo.cell.v1.RegisterRequest
-	(*RegisterResponse)(nil),          // 3: mmo.cell.v1.RegisterResponse
-	(*ListCellsRequest)(nil),          // 4: mmo.cell.v1.ListCellsRequest
-	(*ListCellsResponse)(nil),         // 5: mmo.cell.v1.ListCellsResponse
-	(*ResolvePositionRequest)(nil),    // 6: mmo.cell.v1.ResolvePositionRequest
-	(*ResolvePositionResponse)(nil),   // 7: mmo.cell.v1.ResolvePositionResponse
-	(*CellUpdateNoop)(nil),            // 8: mmo.cell.v1.CellUpdateNoop
-	(*CellUpdateSplitPrepare)(nil),    // 9: mmo.cell.v1.CellUpdateSplitPrepare
-	(*CellUpdateSetSplitDrain)(nil),   // 10: mmo.cell.v1.CellUpdateSetSplitDrain
-	(*UpdateRequest)(nil),             // 11: mmo.cell.v1.UpdateRequest
-	(*UpdateResponse)(nil),            // 12: mmo.cell.v1.UpdateResponse
-	(*ForwardCellUpdateRequest)(nil),  // 13: mmo.cell.v1.ForwardCellUpdateRequest
-	(*ForwardCellUpdateResponse)(nil), // 14: mmo.cell.v1.ForwardCellUpdateResponse
-	(*PingRequest)(nil),               // 15: mmo.cell.v1.PingRequest
-	(*PingResponse)(nil),              // 16: mmo.cell.v1.PingResponse
-	(*JoinRequest)(nil),               // 17: mmo.cell.v1.JoinRequest
-	(*JoinResponse)(nil),              // 18: mmo.cell.v1.JoinResponse
-	(*SubscribeDeltasRequest)(nil),    // 19: mmo.cell.v1.SubscribeDeltasRequest
-	(*ApplyInputRequest)(nil),         // 20: mmo.cell.v1.ApplyInputRequest
-	(*ApplyInputResponse)(nil),        // 21: mmo.cell.v1.ApplyInputResponse
-	(*LeaveRequest)(nil),              // 22: mmo.cell.v1.LeaveRequest
-	(*LeaveResponse)(nil),             // 23: mmo.cell.v1.LeaveResponse
-	(*PlanSplitResponseChild)(nil),    // 24: mmo.cell.v1.PlanSplitResponseChild
-	(*PlanSplitRequest)(nil),          // 25: mmo.cell.v1.PlanSplitRequest
-	(*PlanSplitResponse)(nil),         // 26: mmo.cell.v1.PlanSplitResponse
-	(*WorldChunk)(nil),                // 27: mmo.cell.v1.WorldChunk
-	(*gamev1.ClientInput)(nil),        // 28: mmo.game.v1.ClientInput
-	(*gamev1.Snapshot)(nil),           // 29: mmo.game.v1.Snapshot
-	(*gamev1.Delta)(nil),              // 30: mmo.game.v1.Delta
+	(*Bounds)(nil),                          // 0: mmo.cell.v1.Bounds
+	(*CellSpec)(nil),                        // 1: mmo.cell.v1.CellSpec
+	(*RegisterRequest)(nil),                 // 2: mmo.cell.v1.RegisterRequest
+	(*RegisterResponse)(nil),                // 3: mmo.cell.v1.RegisterResponse
+	(*ListCellsRequest)(nil),                // 4: mmo.cell.v1.ListCellsRequest
+	(*ListCellsResponse)(nil),               // 5: mmo.cell.v1.ListCellsResponse
+	(*ResolvePositionRequest)(nil),          // 6: mmo.cell.v1.ResolvePositionRequest
+	(*ResolvePositionResponse)(nil),         // 7: mmo.cell.v1.ResolvePositionResponse
+	(*CellUpdateNoop)(nil),                  // 8: mmo.cell.v1.CellUpdateNoop
+	(*CellUpdateSplitPrepare)(nil),          // 9: mmo.cell.v1.CellUpdateSplitPrepare
+	(*CellUpdateSetSplitDrain)(nil),         // 10: mmo.cell.v1.CellUpdateSetSplitDrain
+	(*UpdateRequest)(nil),                   // 11: mmo.cell.v1.UpdateRequest
+	(*UpdateResponse)(nil),                  // 12: mmo.cell.v1.UpdateResponse
+	(*ForwardCellUpdateRequest)(nil),        // 13: mmo.cell.v1.ForwardCellUpdateRequest
+	(*ForwardCellUpdateResponse)(nil),       // 14: mmo.cell.v1.ForwardCellUpdateResponse
+	(*PingRequest)(nil),                     // 15: mmo.cell.v1.PingRequest
+	(*PingResponse)(nil),                    // 16: mmo.cell.v1.PingResponse
+	(*JoinRequest)(nil),                     // 17: mmo.cell.v1.JoinRequest
+	(*JoinResponse)(nil),                    // 18: mmo.cell.v1.JoinResponse
+	(*SubscribeDeltasRequest)(nil),          // 19: mmo.cell.v1.SubscribeDeltasRequest
+	(*ApplyInputRequest)(nil),               // 20: mmo.cell.v1.ApplyInputRequest
+	(*ApplyInputResponse)(nil),              // 21: mmo.cell.v1.ApplyInputResponse
+	(*LeaveRequest)(nil),                    // 22: mmo.cell.v1.LeaveRequest
+	(*LeaveResponse)(nil),                   // 23: mmo.cell.v1.LeaveResponse
+	(*PlanSplitResponseChild)(nil),          // 24: mmo.cell.v1.PlanSplitResponseChild
+	(*PlanSplitRequest)(nil),                // 25: mmo.cell.v1.PlanSplitRequest
+	(*PlanSplitResponse)(nil),               // 26: mmo.cell.v1.PlanSplitResponse
+	(*WorldChunk)(nil),                      // 27: mmo.cell.v1.WorldChunk
+	(*ListMigrationCandidatesRequest)(nil),  // 28: mmo.cell.v1.ListMigrationCandidatesRequest
+	(*MigrationCandidate)(nil),              // 29: mmo.cell.v1.MigrationCandidate
+	(*ListMigrationCandidatesResponse)(nil), // 30: mmo.cell.v1.ListMigrationCandidatesResponse
+	(*gamev1.ClientInput)(nil),              // 31: mmo.game.v1.ClientInput
+	(*gamev1.Snapshot)(nil),                 // 32: mmo.game.v1.Snapshot
+	(*gamev1.Delta)(nil),                    // 33: mmo.game.v1.Delta
+	(*gamev1.Vec3F)(nil),                    // 34: mmo.game.v1.Vec3f
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
 	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
@@ -1681,38 +1845,42 @@ var file_cell_v1_cell_proto_depIdxs = []int32{
 	9,  // 5: mmo.cell.v1.UpdateRequest.split_prepare:type_name -> mmo.cell.v1.CellUpdateSplitPrepare
 	10, // 6: mmo.cell.v1.UpdateRequest.set_split_drain:type_name -> mmo.cell.v1.CellUpdateSetSplitDrain
 	11, // 7: mmo.cell.v1.ForwardCellUpdateRequest.update:type_name -> mmo.cell.v1.UpdateRequest
-	28, // 8: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
+	31, // 8: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
 	0,  // 9: mmo.cell.v1.PlanSplitResponseChild.bounds:type_name -> mmo.cell.v1.Bounds
 	24, // 10: mmo.cell.v1.PlanSplitResponse.children:type_name -> mmo.cell.v1.PlanSplitResponseChild
-	29, // 11: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
-	30, // 12: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
-	2,  // 13: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
-	4,  // 14: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
-	6,  // 15: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
-	13, // 16: mmo.cell.v1.Registry.ForwardCellUpdate:input_type -> mmo.cell.v1.ForwardCellUpdateRequest
-	15, // 17: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	17, // 18: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
-	22, // 19: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
-	20, // 20: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
-	11, // 21: mmo.cell.v1.Cell.Update:input_type -> mmo.cell.v1.UpdateRequest
-	25, // 22: mmo.cell.v1.Cell.PlanSplit:input_type -> mmo.cell.v1.PlanSplitRequest
-	19, // 23: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
-	3,  // 24: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5,  // 25: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7,  // 26: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	14, // 27: mmo.cell.v1.Registry.ForwardCellUpdate:output_type -> mmo.cell.v1.ForwardCellUpdateResponse
-	16, // 28: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	18, // 29: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
-	23, // 30: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
-	21, // 31: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
-	12, // 32: mmo.cell.v1.Cell.Update:output_type -> mmo.cell.v1.UpdateResponse
-	26, // 33: mmo.cell.v1.Cell.PlanSplit:output_type -> mmo.cell.v1.PlanSplitResponse
-	27, // 34: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
-	24, // [24:35] is the sub-list for method output_type
-	13, // [13:24] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	32, // 11: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
+	33, // 12: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
+	34, // 13: mmo.cell.v1.MigrationCandidate.position:type_name -> mmo.game.v1.Vec3f
+	29, // 14: mmo.cell.v1.ListMigrationCandidatesResponse.candidates:type_name -> mmo.cell.v1.MigrationCandidate
+	2,  // 15: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
+	4,  // 16: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
+	6,  // 17: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
+	13, // 18: mmo.cell.v1.Registry.ForwardCellUpdate:input_type -> mmo.cell.v1.ForwardCellUpdateRequest
+	15, // 19: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	17, // 20: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	22, // 21: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
+	20, // 22: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
+	11, // 23: mmo.cell.v1.Cell.Update:input_type -> mmo.cell.v1.UpdateRequest
+	25, // 24: mmo.cell.v1.Cell.PlanSplit:input_type -> mmo.cell.v1.PlanSplitRequest
+	28, // 25: mmo.cell.v1.Cell.ListMigrationCandidates:input_type -> mmo.cell.v1.ListMigrationCandidatesRequest
+	19, // 26: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
+	3,  // 27: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 28: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 29: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	14, // 30: mmo.cell.v1.Registry.ForwardCellUpdate:output_type -> mmo.cell.v1.ForwardCellUpdateResponse
+	16, // 31: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	18, // 32: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	23, // 33: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
+	21, // 34: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
+	12, // 35: mmo.cell.v1.Cell.Update:output_type -> mmo.cell.v1.UpdateResponse
+	26, // 36: mmo.cell.v1.Cell.PlanSplit:output_type -> mmo.cell.v1.PlanSplitResponse
+	30, // 37: mmo.cell.v1.Cell.ListMigrationCandidates:output_type -> mmo.cell.v1.ListMigrationCandidatesResponse
+	27, // 38: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
+	27, // [27:39] is the sub-list for method output_type
+	15, // [15:27] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_cell_v1_cell_proto_init() }
@@ -1736,7 +1904,7 @@ func file_cell_v1_cell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

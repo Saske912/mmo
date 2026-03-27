@@ -210,6 +210,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsurePlayerStats(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session stats ensure: %v", ierr)
 		}
+		if ierr := db.EnsurePlayerWallet(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session wallet ensure: %v", ierr)
+		}
 		icancel()
 	}
 
@@ -217,12 +220,18 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 	if g.db != nil {
 		sctx, scancel := context.WithTimeout(r.Context(), 2*time.Second)
 		lvl, xpv, ok, serr := db.GetPlayerStats(sctx, g.db, body.PlayerID)
-		scancel()
 		if serr != nil {
 			log.Printf("session stats read: %v", serr)
 		} else if ok {
 			out["stats"] = map[string]any{"level": lvl, "xp": xpv}
 		}
+		gold, wok, werr := db.GetPlayerWallet(sctx, g.db, body.PlayerID)
+		if werr != nil {
+			log.Printf("session wallet read: %v", werr)
+		} else if wok {
+			out["wallet"] = map[string]any{"gold": gold}
+		}
+		scancel()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

@@ -87,6 +87,7 @@ func usage() {
   mmoctl [-registry host:port] forward-update <cell_id> split-prepare [reason]
   mmoctl [-registry host:port] forward-update <cell_id> split-drain <true|false>
   mmoctl plansplit <host:port>
+  mmoctl migration-candidates <host:port> [reason]
   mmoctl ping <host:port>
   mmoctl join <host:port> <player_id>
 `)
@@ -406,6 +407,35 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			fmt.Printf("%s level=%d bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
 				ch.Id, ch.Level, b.XMin, b.XMax, b.ZMin, b.ZMax)
 		}
+	case "migration-candidates":
+		if len(rest) < 1 {
+			log.Fatal("migration-candidates: need host:port")
+		}
+		ep := rest[0]
+		reason := "mmoctl"
+		if len(rest) >= 2 {
+			reason = rest[1]
+		}
+		conn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewCellClient(conn)
+		resp, err := cl.ListMigrationCandidates(ctx, &cellv1.ListMigrationCandidatesRequest{Reason: reason})
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, c := range resp.Candidates {
+			pos := c.GetPosition()
+			if pos == nil {
+				fmt.Printf("entity=%d is_player=%v position=<nil>\n", c.EntityId, c.IsPlayer)
+				continue
+			}
+			fmt.Printf("entity=%d is_player=%v pos=(%.3f,%.3f,%.3f)\n",
+				c.EntityId, c.IsPlayer, pos.X, pos.Y, pos.Z)
+		}
+		fmt.Printf("total=%d\n", len(resp.Candidates))
 	case "ping":
 		if len(rest) != 1 {
 			log.Fatal("ping: need host:port")

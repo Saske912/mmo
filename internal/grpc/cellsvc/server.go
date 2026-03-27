@@ -267,6 +267,36 @@ func (s *Server) PlanSplit(_ context.Context, _ *cellv1.PlanSplitRequest) (*cell
 	return &cellv1.PlanSplitResponse{Children: partition.ChildSpecsForSplit(s.Bounds, s.Level)}, nil
 }
 
+// ListMigrationCandidates перечисляет живые сущности с позицией для планирования переноса между сотами.
+func (s *Server) ListMigrationCandidates(_ context.Context, _ *cellv1.ListMigrationCandidatesRequest) (*cellv1.ListMigrationCandidatesResponse, error) {
+	if s.Sim == nil || s.Sim.World == nil {
+		return &cellv1.ListMigrationCandidatesResponse{}, nil
+	}
+	s.Sim.Mu.Lock()
+	entities := make([]ecs.Entity, 0, len(s.Sim.World.Alive()))
+	positions := make([]ecs.Position, 0, len(s.Sim.World.Alive()))
+	for e := range s.Sim.World.Alive() {
+		p, ok := s.Sim.World.Position(e)
+		if !ok {
+			continue
+		}
+		entities = append(entities, e)
+		positions = append(positions, p)
+	}
+	s.Sim.Mu.Unlock()
+
+	out := make([]*cellv1.MigrationCandidate, 0, len(entities))
+	for i, e := range entities {
+		p := positions[i]
+		out = append(out, &cellv1.MigrationCandidate{
+			EntityId: uint64(e),
+			Position: &gamev1.Vec3F{X: float32(p.X), Y: float32(p.Y), Z: float32(p.Z)},
+			IsPlayer: s.isPlayer(e),
+		})
+	}
+	return &cellv1.ListMigrationCandidatesResponse{Candidates: out}, nil
+}
+
 func (s *Server) Ping(_ context.Context, req *cellv1.PingRequest) (*cellv1.PingResponse, error) {
 	_ = req
 	return &cellv1.PingResponse{

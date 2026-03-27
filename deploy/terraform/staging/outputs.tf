@@ -2,6 +2,16 @@ output "namespace" {
   value = kubernetes_namespace.mmo.metadata[0].name
 }
 
+output "loki_logql_base" {
+  description = "Базовый LogQL-селектор по namespace MMO; при MMO_LOG_FORMAT=json строки в stdout парсятся как JSON приложением."
+  value       = "{namespace=\"${var.namespace}\"}"
+}
+
+output "loki_pod_label_selectors" {
+  description = "Ключи labels на подах (при mmo_structured_logs=true) для relabel/log stream filters."
+  value       = var.mmo_structured_logs ? var.mmo_loki_log_labels : {}
+}
+
 output "grid_manager_grpc" {
   value = "${var.grid_service_name}.${var.namespace}.svc.cluster.local:${var.grid_grpc_port}"
 }

@@ -73,6 +73,9 @@ locals {
       "${var.cell_service_name}-${key}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}"
     )
   }
+
+  # Стабильные селекторы для пайплайна Loki/Alloy (stdout + JSON при mmo_structured_logs).
+  mmo_log_pod_labels = var.mmo_structured_logs ? var.mmo_loki_log_labels : {}
 }
 
 resource "kubernetes_namespace" "mmo" {
@@ -112,9 +115,12 @@ resource "kubernetes_deployment" "grid_manager" {
 
     template {
       metadata {
-        labels = {
-          app = "grid-manager"
-        }
+        labels = merge(
+          {
+            app = "grid-manager"
+          },
+          local.mmo_log_pod_labels,
+        )
       }
 
       spec {
@@ -186,10 +192,13 @@ resource "kubernetes_deployment" "cell_node" {
 
     template {
       metadata {
-        labels = {
-          app        = "cell-node"
-          cell_shard = each.key
-        }
+        labels = merge(
+          {
+            app        = "cell-node"
+            cell_shard = each.key
+          },
+          local.mmo_log_pod_labels,
+        )
       }
 
       spec {
@@ -338,9 +347,12 @@ resource "kubernetes_deployment" "gateway" {
 
     template {
       metadata {
-        labels = {
-          app = "gateway"
-        }
+        labels = merge(
+          {
+            app = "gateway"
+          },
+          local.mmo_log_pod_labels,
+        )
       }
 
       spec {

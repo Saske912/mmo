@@ -12,15 +12,15 @@
 
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
 - **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, **`forward-update noop`**, **`split-prepare`**, **`split-drain`** на соте из ping + проверка **`Join`** нового игрока, B2, resolve, ping, gateway **`/healthz`** и **`/readyz`**, ws-smoke). Опционально: **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`**.
-- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** ([`deploy/terraform/staging/main.tf`](deploy/terraform/staging/main.tf)). Переменная **`cell_instances`**, **`mmo_structured_logs`** (по умолчанию **true** — env **`MMO_LOG_FORMAT=json`** на gateway / grid-manager / cell). Пример двух сот: [`cell_instances.auto.tfvars`](deploy/terraform/staging/cell_instances.auto.tfvars).
-- **Поток трафика:** клиент → `cmd/gateway/main.go` (**`/v1/session`**: опционально **`display_name`** → профиль; **`EnsurePlayerStats`** / в ответе JSON опционально **`stats`** `{level,xp}` (`mmo_player_stats`); **resolve_x/z** пара или нет (**400** при одном поле); JWT и **`UpsertPlayerLastCell`** как раньше) → **`/v1/ws`**. Смоук [`scripts/ws-smoke`](scripts/ws-smoke): **`-session-x/z`**, **`-display-name`**, **`-second-session-x/z`**, печать **stats** при наличии БД у gateway.
-- **Grafana (staging):** дашборд **MMO Backend (staging)** — UID **`mmo-backend-overview`** ([ссылка](https://grafana.pass-k8s.ru/d/mmo-backend-overview?from=now-1h&to=now)): панели rate/**p95** (gateway, grid registry, cell tick). Группа алертов **`mmo-staging`**: ошибки RPC/apply_input и **SLO** — **p95 `mmo_gateway_registry_resolve_duration_seconds` > 0.5s** (5m). **Логи:** в Terraform **`mmo_structured_logs`** (по умолчанию вкл.) выставляет **`MMO_LOG_FORMAT=json`** на подах MMO + [`internal/logging`](internal/logging).
+- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** ([`deploy/terraform/staging/main.tf`](deploy/terraform/staging/main.tf)). Переменная **`cell_instances`**, **`mmo_structured_logs`** (по умолчанию **true** — env **`MMO_LOG_FORMAT=json`** на gateway / grid-manager / cell), опционально **`mmo_loki_log_labels`** для селекторов сбора логов. Пример двух сот: [`cell_instances.auto.tfvars`](deploy/terraform/staging/cell_instances.auto.tfvars).
+- **Поток трафика:** клиент → `cmd/gateway/main.go` (**`/v1/session`**: опционально **`display_name`** → профиль; **`EnsurePlayerStats`** / в ответе JSON опционально **`stats`** `{level,xp}` (`mmo_player_stats`); **`EnsurePlayerWallet`** / опционально **`wallet`** `{gold}` (`mmo_player_wallet`); **resolve_x/z** пара или нет (**400** при одном поле); JWT и **`UpsertPlayerLastCell`** как раньше) → **`/v1/ws`**. Смоук [`scripts/ws-smoke`](scripts/ws-smoke): **`-session-x/z`**, **`-display-name`**, **`-second-session-x/z`**, печать **stats** / **wallet** при наличии БД у gateway.
+- **Grafana (staging):** дашборд **MMO Backend (staging)** — UID **`mmo-backend-overview`** ([ссылка](https://grafana.pass-k8s.ru/d/mmo-backend-overview?from=now-1h&to=now)): панели rate/**p95** (gateway, grid registry, cell tick). Группа алертов **`mmo-staging`**: ошибки RPC/apply_input и **SLO по p95** — **`mmo_gateway_registry_resolve_duration_seconds`** > 0.5s; **`mmo_gateway_cell_join_duration_seconds`** > 0.5s; **`mmo_cell_tick_step_duration_seconds`** > 50ms; **`mmo_grid_registry_rpc_duration_seconds`** (`method="ForwardCellUpdate"`) > 0.5s (окно 5m). **Логи:** Terraform **`mmo_structured_logs`** + **`mmo_loki_log_labels`** на подах (селекторы для агента логов), outputs **`loki_logql_base`** / **`loki_pod_label_selectors`**, [`internal/logging`](internal/logging).
 - **Grid-manager (Registry):** **`ForwardCellUpdate`** → `Cell.Update`; режимы **noop**, **tps**, **split-prepare**, **split-drain true|false** (**`CellUpdateSetSplitDrain`**: новые **`Join`** на соте отклоняются, уже вошедшие остаются). **`PlanSplit`** / **`partition-plan`**. Метрики: **`mmo_grid_registry_rpc_*`**.
 - **Распил B2 (каталог):** `ResolveMostSpecific` выбирает соту с **максимальным `level`** среди содержащих точку; тест [`internal/discovery/split_resolve_test.go`](internal/discovery/split_resolve_test.go); в смоуке при наличии в registry **`cell_-1_-1_1`** проверяется `resolve -500 -500` → эта сота.
 - **Эпик B3 (cold-path, первый проход):** выполнен — общая геометрия сплита в [`internal/partition`](internal/partition) (`ChildSpecsForSplit`, паритет с `PlanSplit` в тестах), операторский [**runbook**](runbooks/cold-cell-split.md): план → `cell_instances` → выкат → resolve → реконнект клиентов (автосмены соты в gateway нет); вывод родителя из каталога — шаг по runbook (graceful shutdown + при необходимости убрать из tfvars). Без live-handoff NPC и без redirect в gateway.
 - **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
-- **БД в кластере (операторы уже стоят):** **CloudNativePG**; DSN **`DATABASE_URL_RW`** в Secret `mmo-backend`. **Gateway / goose:** **`mmo_session_issue`**, **`mmo_player_last_cell`**, **`mmo_player_profile`**, **`mmo_player_stats`** (прогрессия `level`/`xp`, строка при первой сессии). **ScyllaDB** — клиента в MMO пока нет *(инфра `scylla` — Phase 0)*.
+- **БД в кластере (операторы уже стоят):** **CloudNativePG**; DSN **`DATABASE_URL_RW`** в Secret `mmo-backend`. **Gateway / goose:** **`mmo_session_issue`**, **`mmo_player_last_cell`**, **`mmo_player_profile`**, **`mmo_player_stats`**, **`mmo_player_wallet`** (`gold`, строка при первой сессии). **ScyllaDB** — клиента в MMO пока нет *(инфра `scylla` — Phase 0)*.
 
 ```mermaid
 flowchart LR
@@ -38,9 +38,9 @@ flowchart LR
 
 **Следующий шаг (приоритет):**
 
-1. **Postgres:** дальнейшие доменные таблицы и API; при росте — Job для DDL. Уже есть **`mmo_player_profile`**, **`mmo_player_stats`** + поля в **`/v1/session`**. **Unity** или **`ws-smoke`**.
-2. **Соты:** исполняемый сплит / **live-mиграция** сущностей; частично — **`split_drain`** и cold-path B3 (см. §0.4).
-3. **Observability:** сбор stdout в **Loki** в кластере (поды уже с **JSON** при **`mmo_structured_logs`**); доп. **SLO**-алерты; опционально **Tempo**.
+1. **Postgres:** дальнейшие доменные таблицы и API; при росте — Job для DDL. Уже есть **`mmo_player_profile`**, **`mmo_player_stats`**, **`mmo_player_wallet`** + поля **`stats`** / **`wallet`** в **`/v1/session`**. **Unity** или **`ws-smoke`**.
+2. **Соты:** исполняемый сплит / полная **live-миграция**; заготовка **`Cell.ListMigrationCandidates`** + **`mmoctl migration-candidates`**; **`split_drain`**, **`split_prepare`**, cold-path B3 (см. §0.4).
+3. **Observability:** сбор stdout в **Loki** в кластере (уже собирается) (поды уже с **JSON** при **`mmo_structured_logs`**); доп. **SLO**-алерты; опционально **Tempo**.
 
 **Эпик B3 — cold-path (первый проход выполнен, март 2026):**
 
@@ -91,7 +91,7 @@ flowchart LR
 - [ ] **Критерий:** Два сервиса обмениваются сообщениями через NATS *(частично: dev/smoke через `mmoctl`; JetStream и кластерные сценарии — нет)*
 
 #### ☐ Базы данных
-- [x] **PostgreSQL (CNPG)** в кластере: namespace `postgresql`, ресурс `clusters.postgresql.cnpg.io/postgresql`, сервис **`postgresql-rw`** (и `postgresql-ro` / pooler); изнутри кластера **`postgresql-rw.postgresql.svc.cluster.local:5432`**. Клиент и миграции: **`internal/db`** (**goose**), gateway при **`DATABASE_URL_RW`** — **`RunMigrations`**, таблицы **`mmo_session_issue`**, **`mmo_player_last_cell`**, **`mmo_player_profile`**, **`mmo_player_stats`**. Отдельный пайплайн только в CI / K8s Job без DDL из процесса gateway — **[ ]** по политике при росте команды.
+- [x] **PostgreSQL (CNPG)** в кластере: namespace `postgresql`, ресурс `clusters.postgresql.cnpg.io/postgresql`, сервис **`postgresql-rw`** (и `postgresql-ro` / pooler); изнутри кластера **`postgresql-rw.postgresql.svc.cluster.local:5432`**. Клиент и миграции: **`internal/db`** (**goose**), gateway при **`DATABASE_URL_RW`** — **`RunMigrations`**, таблицы **`mmo_session_issue`**, **`mmo_player_last_cell`**, **`mmo_player_profile`**, **`mmo_player_stats`**, **`mmo_player_wallet`**. Отдельный пайплайн только в CI / K8s Job без DDL из процесса gateway — **[ ]** по политике при росте команды.
 - [x] **ScyllaDB** в кластере: `scylla-operator`, `ScyllaCluster` в namespace **`scylla`** (manager — `scylla-manager`). CQL **9042** на клиентских svc (`scylla-client` и т.д.). Использование из Go — **[ ]** позже.
 - [x] **Redis** — namespace `redis`, cell-node: снепшот соты (`REDIS_ADDR` / пароль из Secret `mmo-backend`, ключ `mmo:cell:{id}:state`).
 - [x] **Критерий для MMO (частично):** клиент к Postgres и версионированные миграции (goose) для сессий в gateway; снепшоты соты — Redis; **Scylla** — позже.
@@ -147,7 +147,7 @@ flowchart LR
 
 #### ☐ Gateway сервис
 - [x] Реализован HTTP endpoint для аутентификации (JWT)
-- [x] Опционально **Postgres** (`DATABASE_URL_RW`): аудит, профиль, **`EnsurePlayerStats`**, в JSON сессии опционально **`stats`**, **`resolve_x`/`resolve_z`**, JWT, **`UpsertPlayerLastCell`**, **`/readyz`**
+- [x] Опционально **Postgres** (`DATABASE_URL_RW`): аудит, профиль, **`EnsurePlayerStats`**, **`EnsurePlayerWallet`**, в JSON сессии опционально **`stats`** / **`wallet`**, **`resolve_x`/`resolve_z`**, JWT, **`UpsertPlayerLastCell`**, **`/readyz`**
 - [x] WebSocket/UDP листенер для клиентов *(WebSocket; UDP — нет)*
 - [x] Прокси-роутинг: клиент → правильная сота *(resolve + gRPC к cell после upgrade)*
 - [x] Проброс бинарного `ClientInput` по WebSocket → gRPC `ApplyInput` на соту; при закрытии сокета — `Leave`
@@ -173,9 +173,9 @@ flowchart LR
 ### 0.4 Интеграция и первая сота
 
 #### ☐ Первая сота (Cell Service)
-- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop, `set_target_tps`, **`split_prepare`**, **`set_split_drain`**)*, **`PlanSplit`**
+- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop, `set_target_tps`, **`split_prepare`**, **`set_split_drain`**)*, **`PlanSplit`**, **`ListMigrationCandidates`** (сущности с позицией + флаг игрок для планирования handoff)
 - [x] **Cold-path сплита (B3, операторский):** runbook, `partition-plan`, частичный выкат дочерних шардов, проверка resolve; без автосмены соты в gateway
-- [ ] Исполняемый сплит / **live-миграция** сущностей на соте *(частично: **`split_drain`** отклоняет новые Join; **`split_prepare`** — диагностика через **`ForwardCellUpdate`**)*.
+- [ ] Исполняемый сплит / полная **live-миграция** сущностей *(частично: **`split_drain`**, **`split_prepare`**, **`ListMigrationCandidates`** / **`mmoctl migration-candidates`**)*.
 - [x] Интегрированы ECS + сетевой стрим репликации *(AOI в игровом цикле cell-node не задействован)*
 - [x] Graceful shutdown: сохранение снепшота в **Redis** (`CellPersist`; игроки не персистятся); Scylla — вне текущего скоупа
 - [x] Регистрация в Consul при старте
@@ -192,16 +192,16 @@ flowchart LR
 
 #### ☐ Мониторинг и observability
 - [x] **ServiceMonitor** в staging Terraform ([`servicemonitors.tf`](deploy/terraform/staging/servicemonitors.tf)) — scrape `/metrics` у gateway и при портах > 0 у cell-node / grid-manager *(нужен selector Prometheus под ваши labels)*
-- [x] **Grafana:** дашборд **`mmo-backend-overview`**, **p95** latency; **alert rules** **mmo-staging** (ошибки + **p95 resolve gateway** > 0.5s)
+- [x] **Grafana:** дашборд **`mmo-backend-overview`**, **p95** latency; **alert rules** **mmo-staging** (ошибки + **p95**: resolve, **Cell.Join**, cell **tick**, **ForwardCellUpdate**)
 - [x] **Gateway (WS path):** гистограммы латентности — [`cmd/gateway/metrics.go`](cmd/gateway/metrics.go)
 - [x] **Cell / grid в Prometheus:** **`mmo_cell_tick_step_duration_seconds`**, см. [`cmd/cell-node/metrics.go`](cmd/cell-node/metrics.go); grid — см. registrysvc выше
-- [ ] Полнота метрик по сценариям; **Loki** в кластере — пайплайн сбора stdout *(поды MMO: **`MMO_LOG_FORMAT=json`** через Terraform **`mmo_structured_logs`**, [`internal/logging`](internal/logging))*
+- [x] **Loki / stdout:** поды MMO с **`MMO_LOG_FORMAT=json`** (**`mmo_structured_logs`**) + labels **`mmo_loki_log_labels`** и outputs для LogQL — [`internal/logging`](internal/logging), Terraform staging. Полнота метрик по сценариям — **[ ]** при необходимости.
 - [ ] Tempo для трассировки (опционально)
-- [x] **Критерий (базово):** Дашборд **p95** и активность; алерты **mmo-staging** (в т.ч. SLO по resolve)
+- [x] **Критерий (базово):** Дашборд **p95** и активность; алерты **mmo-staging** (SLO по latency: resolve, join, tick, ForwardCellUpdate)
 
 #### Следующий шаг (кратко)
 
-Новые доменные таблицы/API; Unity / `ws-smoke`; live-сплит и миграция сущностей; интеграция **Loki** со stdout; **Tempo** при необходимости.
+Доменные таблицы/API (инвентарь, квесты — дальше); Unity / `ws-smoke`; исполняемый сплит и полная миграция сущностей; **Tempo** при необходимости.
 
 ---
 

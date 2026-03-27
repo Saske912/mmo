@@ -161,6 +161,21 @@ message WorldChunk {
   }
 }
 
+// Кандидаты для live-миграции / handoff между сотами (оператор, grid-manager).
+message ListMigrationCandidatesRequest {
+  string reason = 1;
+}
+
+message MigrationCandidate {
+  uint64 entity_id = 1;
+  mmo.game.v1.Vec3f position = 2;
+  bool is_player = 3;
+}
+
+message ListMigrationCandidatesResponse {
+  repeated MigrationCandidate candidates = 1;
+}
+
 // Cell — минимальный игровой узел соты (первая итерация).
 service Cell {
   rpc Ping(PingRequest) returns (PingResponse);
@@ -169,5 +184,6 @@ service Cell {
   rpc ApplyInput(ApplyInputRequest) returns (ApplyInputResponse);
   rpc Update(UpdateRequest) returns (UpdateResponse);
   rpc PlanSplit(PlanSplitRequest) returns (PlanSplitResponse);
+  rpc ListMigrationCandidates(ListMigrationCandidatesRequest) returns (ListMigrationCandidatesResponse);
   rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }
