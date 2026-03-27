@@ -67,6 +67,9 @@ go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list
 echo "== mmoctl forward-update noop (registry -> cell, id=${FIRST_CELL}) =="
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" noop
 
+echo "== mmoctl resolve (-500,-500) — при дочерней соте в каталоге выигрывает больший level =="
+go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500 -500
+
 echo "== mmoctl ping (cell localhost:${CELL_PORT}) =="
 go run ./cmd/mmoctl ping "127.0.0.1:${CELL_PORT}"
 

@@ -79,6 +79,7 @@ func usage() {
   mmoctl [-registry host:port] resolve <x> <z>
   mmoctl [-registry host:port] forward-update <cell_id> noop
   mmoctl [-registry host:port] forward-update <cell_id> tps <int>
+  mmoctl plansplit <host:port>
   mmoctl ping <host:port>
   mmoctl join <host:port> <player_id>
 `)
@@ -258,6 +259,30 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			log.Fatal(err)
 		}
 		fmt.Printf("ok=%v %s\n", resp.Ok, resp.Message)
+	case "plansplit":
+		if len(rest) != 1 {
+			log.Fatal("plansplit: need host:port")
+		}
+		ep := rest[0]
+		conn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewCellClient(conn)
+		resp, err := cl.PlanSplit(ctx, &cellv1.PlanSplitRequest{Reason: "mmoctl"})
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, ch := range resp.Children {
+			b := ch.GetBounds()
+			if b == nil {
+				fmt.Printf("%s level=%d bounds=<nil>\n", ch.Id, ch.Level)
+				continue
+			}
+			fmt.Printf("%s level=%d bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
+				ch.Id, ch.Level, b.XMin, b.XMax, b.ZMin, b.ZMax)
+		}
 	case "ping":
 		if len(rest) != 1 {
 			log.Fatal("ping: need host:port")

@@ -8,6 +8,17 @@ data "terraform_remote_state" "staging" {
   }
 }
 
+# Миграция: одиночные ресурсы → for_each с ключом primary (без пересоздания при первом apply после апгрейда).
+moved {
+  from = kubernetes_deployment.cell_node
+  to   = kubernetes_deployment.cell_node["primary"]
+}
+
+moved {
+  from = kubernetes_service.cell
+  to   = kubernetes_service.cell["primary"]
+}
+
 locals {
   mmo    = data.terraform_remote_state.staging.outputs.mmo
   harbor = try(local.mmo.harbor, null)
@@ -54,8 +65,14 @@ locals {
     GATEWAY_JWT_SECRET = var.gateway_jwt_secret
   }
 
-  # Совпадает с metadata.name у kubernetes_namespace (var.namespace).
-  cell_grpc_advertise = "${var.cell_service_name}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}"
+  # DNS gRPC для регистрации в Consul: primary → legacy имя Service (mmo-cell), остальные — mmo-cell-<key>.
+  cell_grpc_advertise = {
+    for key, _ in var.cell_instances : key => (
+      key == "primary" ?
+      "${var.cell_service_name}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}" :
+      "${var.cell_service_name}-${key}.${var.namespace}.svc.cluster.local:${var.cell_grpc_port}"
+    )
+  }
 }
 
 resource "kubernetes_namespace" "mmo" {
@@ -138,11 +155,14 @@ resource "kubernetes_deployment" "grid_manager" {
 }
 
 resource "kubernetes_deployment" "cell_node" {
+  for_each = var.cell_instances
+
   metadata {
-    name      = "cell-node"
+    name      = each.key == "primary" ? "cell-node" : "cell-node-${each.key}"
     namespace = kubernetes_namespace.mmo.metadata[0].name
     labels = {
-      app = "cell-node"
+      app        = "cell-node"
+      cell_shard = each.key
     }
   }
 
@@ -151,14 +171,16 @@ resource "kubernetes_deployment" "cell_node" {
 
     selector {
       match_labels = {
-        app = "cell-node"
+        app        = "cell-node"
+        cell_shard = each.key
       }
     }
 
     template {
       metadata {
         labels = {
-          app = "cell-node"
+          app        = "cell-node"
+          cell_shard = each.key
         }
       }
 
@@ -170,7 +192,15 @@ resource "kubernetes_deployment" "cell_node" {
 
           command = ["/cell-node"]
           args = concat(
-            ["-listen", "0.0.0.0:${var.cell_grpc_port}", "-id", var.cell_id],
+            [
+              "-listen", "0.0.0.0:${var.cell_grpc_port}",
+              "-id", each.value.id,
+              "-level", tostring(each.value.level),
+              "-xmin", tostring(each.value.xmin),
+              "-xmax", tostring(each.value.xmax),
+              "-zmin", tostring(each.value.zmin),
+              "-zmax", tostring(each.value.zmax),
+            ],
             var.cell_metrics_port > 0 ? ["-metrics-listen", "0.0.0.0:${var.cell_metrics_port}"] : [],
           )
 
@@ -196,7 +226,7 @@ resource "kubernetes_deployment" "cell_node" {
 
           env {
             name  = "MMO_CELL_GRPC_ADVERTISE"
-            value = local.cell_grpc_advertise
+            value = local.cell_grpc_advertise[each.key]
           }
         }
       }
@@ -237,17 +267,21 @@ resource "kubernetes_service" "grid_manager" {
 }
 
 resource "kubernetes_service" "cell" {
+  for_each = var.cell_instances
+
   metadata {
-    name      = var.cell_service_name
+    name      = each.key == "primary" ? var.cell_service_name : "${var.cell_service_name}-${each.key}"
     namespace = kubernetes_namespace.mmo.metadata[0].name
     labels = {
-      app = "cell-node"
+      app        = "cell-node"
+      cell_shard = each.key
     }
   }
 
   spec {
     selector = {
-      app = "cell-node"
+      app        = "cell-node"
+      cell_shard = each.key
     }
 
     port {

@@ -1,0 +1,20 @@
+# Пример второй соты (квадрант SW после PlanSplit для cell_0_0_0 [-1000,1000]²): раскомментируйте и сольите с вашим *.auto.tfvars.
+#
+# cell_instances = {
+#   primary = {
+#     id    = "cell_0_0_0"
+#     level = 0
+#     xmin  = -1000
+#     xmax  = 1000
+#     zmin  = -1000
+#     zmax  = 1000
+#   }
+#   child_sw = {
+#     id    = "cell_-1_-1_1"
+#     level = 1
+#     xmin  = -1000
+#     xmax  = 0
+#     zmin  = -1000
+#     zmax  = 0
+#   }
+# }

@@ -125,6 +125,22 @@ message LeaveResponse {
   string message = 2;
 }
 
+// План четверичного сплита текущей соты (границы и level задаются на узле; grpc_endpoint задаётся при деплое дочернего пода).
+message PlanSplitResponseChild {
+  string id = 1;
+  Bounds bounds = 2;
+  int32 level = 3;
+}
+
+message PlanSplitRequest {
+  // Опционально: причина / тикет для логов оператора.
+  string reason = 1;
+}
+
+message PlanSplitResponse {
+  repeated PlanSplitResponseChild children = 1;
+}
+
 // Кадр мира: снапшот или дельта (game.v1).
 message WorldChunk {
   oneof kind {
@@ -140,5 +156,6 @@ service Cell {
   rpc Leave(LeaveRequest) returns (LeaveResponse);
   rpc ApplyInput(ApplyInputRequest) returns (ApplyInputResponse);
   rpc Update(UpdateRequest) returns (UpdateResponse);
+  rpc PlanSplit(PlanSplitRequest) returns (PlanSplitResponse);
   rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }

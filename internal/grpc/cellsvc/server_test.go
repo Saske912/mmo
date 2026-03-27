@@ -4,9 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
 	"mmo/internal/cellsim"
+	"mmo/internal/partition"
 )
 
 func TestJoinApplyInputMovesPlayer(t *testing.T) {
@@ -119,5 +122,63 @@ func TestLeaveIdempotent(t *testing.T) {
 	l2, err := srv.Leave(ctx, &cellv1.LeaveRequest{PlayerId: "p3"})
 	if err != nil || !l2.Ok {
 		t.Fatalf("second Leave: %+v", l2)
+	}
+}
+
+func TestPlanSplit_level0(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	ctx := context.Background()
+
+	resp, err := srv.PlanSplit(ctx, &cellv1.PlanSplitRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Children) != 4 {
+		t.Fatalf("children: %d", len(resp.Children))
+	}
+	mx, mz := partition.Mid(parent)
+	wantIDs := []string{
+		partition.ChildID(0, 0, 1),
+		partition.ChildID(1, 0, 1),
+		partition.ChildID(0, 1, 1),
+		partition.ChildID(1, 1, 1),
+	}
+	for i, ch := range resp.Children {
+		if ch.Id != wantIDs[i] {
+			t.Errorf("child[%d] id: got %s want %s", i, ch.Id, wantIDs[i])
+		}
+		if ch.Level != 1 {
+			t.Errorf("child[%d] level: %d", i, ch.Level)
+		}
+		b := ch.Bounds
+		if b == nil {
+			t.Fatalf("child[%d] nil bounds", i)
+		}
+		switch i {
+		case 0:
+			if b.XMin != parent.XMin || b.XMax != mx || b.ZMin != parent.ZMin || b.ZMax != mz {
+				t.Errorf("quad0 bounds %+v mid (%v,%v)", b, mx, mz)
+			}
+			if !partition.Contains(b, -500, -500) {
+				t.Errorf("quad0 should contain (-500,-500)")
+			}
+		case 3:
+			if b.XMin != mx || b.XMax != parent.XMax || b.ZMin != mz || b.ZMax != parent.ZMax {
+				t.Errorf("quad3 bounds %+v", b)
+			}
+		}
+	}
+}
+
+func TestPlanSplit_noBounds(t *testing.T) {
+	srv := &Server{CellID: "x", Sim: cellsim.NewRuntime(), Bounds: nil, Level: 0}
+	_, err := srv.PlanSplit(context.Background(), &cellv1.PlanSplitRequest{})
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code: %v", err)
 	}
 }

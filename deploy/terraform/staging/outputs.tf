@@ -7,7 +7,13 @@ output "grid_manager_grpc" {
 }
 
 output "cell_grpc_advertise" {
-  value = local.cell_grpc_advertise
+  description = "gRPC DNS для primary-соты (обратная совместимость со скриптами)."
+  value       = local.cell_grpc_advertise["primary"]
+}
+
+output "cell_grpc_advertise_by_shard" {
+  description = "gRPC DNS по ключу cell_instances (primary, …)."
+  value       = local.cell_grpc_advertise
 }
 
 output "gateway_http" {

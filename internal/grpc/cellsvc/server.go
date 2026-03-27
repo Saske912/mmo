@@ -13,6 +13,7 @@ import (
 	gamev1 "mmo/gen/gamev1"
 	"mmo/internal/cellsim"
 	"mmo/internal/ecs"
+	"mmo/internal/partition"
 	"mmo/internal/replic"
 )
 
@@ -21,10 +22,13 @@ type Server struct {
 	cellv1.UnimplementedCellServer
 	CellID string
 	Sim    *cellsim.Runtime
+	// Bounds и Level — границы соты в каталоге (для PlanSplit и согласованности с Resolve).
+	Bounds *cellv1.Bounds
+	Level  int32
 
-	playerMu    sync.Mutex
-	players     map[uint64]struct{}
-	playerByID  map[string]ecs.Entity
+	playerMu     sync.Mutex
+	players      map[uint64]struct{}
+	playerByID   map[string]ecs.Entity
 	onApplyInput func(ok bool) // опционально: метрики (устанавливает cell-node)
 }
 
@@ -75,10 +79,10 @@ func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinR
 	if existing, ok := s.playerByID[pid]; ok {
 		s.playerMu.Unlock()
 		return &cellv1.JoinResponse{
-			Ok:        true,
-			CellId:    s.CellID,
-			Message:   "already_joined",
-			EntityId:  uint64(existing),
+			Ok:       true,
+			CellId:   s.CellID,
+			Message:  "already_joined",
+			EntityId: uint64(existing),
 		}, nil
 	}
 	s.playerMu.Unlock()
@@ -99,10 +103,10 @@ func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinR
 	s.playerMu.Unlock()
 
 	return &cellv1.JoinResponse{
-		Ok:        true,
-		CellId:    s.CellID,
-		Message:   "spawned",
-		EntityId:  uint64(e),
+		Ok:       true,
+		CellId:   s.CellID,
+		Message:  "spawned",
+		EntityId: uint64(e),
 	}, nil
 }
 
@@ -209,6 +213,26 @@ func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.U
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}
+}
+
+func (s *Server) PlanSplit(_ context.Context, _ *cellv1.PlanSplitRequest) (*cellv1.PlanSplitResponse, error) {
+	if s.Bounds == nil {
+		return nil, status.Error(codes.FailedPrecondition, "no bounds on cell server")
+	}
+	childBounds := partition.SplitFour(s.Bounds)
+	nextLevel := int(s.Level) + 1
+	out := make([]*cellv1.PlanSplitResponseChild, 0, 4)
+	for i := range 4 {
+		qx, qz := i%2, i/2
+		b := childBounds[i]
+		child := &cellv1.PlanSplitResponseChild{
+			Id:     partition.ChildID(qx, qz, nextLevel),
+			Bounds: b,
+			Level:  int32(nextLevel),
+		}
+		out = append(out, child)
+	}
+	return &cellv1.PlanSplitResponse{Children: out}, nil
 }
 
 func (s *Server) Ping(_ context.Context, req *cellv1.PingRequest) (*cellv1.PingResponse, error) {

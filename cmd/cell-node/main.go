@@ -77,7 +77,12 @@ func main() {
 	sim := cellsim.NewRuntime()
 	tryLoadAndMaybeSpawnNPCs(ctx, rdb, redisStateKey(*cellID), sim, *demoNPCs, usePersist)
 
-	cellSvc := &cellsvc.Server{CellID: *cellID, Sim: sim}
+	cellSvc := &cellsvc.Server{
+		CellID: *cellID,
+		Sim:    sim,
+		Bounds: spec.Bounds,
+		Level:  int32(*level),
+	}
 	wirePrometheus(*metricsListen, cellSvc, sim)
 
 	srv := grpc.NewServer()
