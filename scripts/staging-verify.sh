@@ -57,7 +57,15 @@ P2=$!
 sleep 2
 
 echo "== mmoctl list (registry localhost:${GM_PORT}) =="
+FIRST_CELL="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list | head -1 | awk '{print $1}')"
+if [ -z "${FIRST_CELL:-}" ]; then
+  echo "no cells in registry" >&2
+  exit 1
+fi
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list
+
+echo "== mmoctl forward-update noop (registry -> cell, id=${FIRST_CELL}) =="
+go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" noop
 
 echo "== mmoctl ping (cell localhost:${CELL_PORT}) =="
 go run ./cmd/mmoctl ping "127.0.0.1:${CELL_PORT}"
