@@ -18,4 +18,26 @@ var (
 		Name:      "apply_input_total",
 		Help:      "ClientInput forwarded to cell via ApplyInput",
 	}, []string{"status"})
+
+	gatewayRegistryResolveDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "registry_resolve_duration_seconds",
+		Help:      "Duration of Registry.ResolvePosition gRPC call",
+		Buckets:   prometheus.DefBuckets,
+	})
+	gatewayCellJoinDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "cell_join_duration_seconds",
+		Help:      "Duration of Cell.Join gRPC call",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"result"})
+	gatewayCellApplyInputDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "cell_apply_input_duration_seconds",
+		Help:      "Duration of Cell.ApplyInput gRPC call",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"result"})
 )

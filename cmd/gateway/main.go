@@ -240,7 +240,9 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	defer regCC.Close()
 	reg := cellv1.NewRegistryClient(regCC)
+	resolveStart := time.Now()
 	res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: rx, Z: rz})
+	gatewayRegistryResolveDuration.Observe(time.Since(resolveStart).Seconds())
 	if err != nil {
 		log.Printf("resolve: %v", err)
 		http.Error(w, "registry resolve failed", http.StatusBadGateway)
@@ -271,7 +273,13 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer cellCC.Close()
 	cell := cellv1.NewCellClient(cellCC)
 
+	joinStart := time.Now()
 	jres, err := cell.Join(ctx, &cellv1.JoinRequest{PlayerId: playerID})
+	joinResult := "ok"
+	if err != nil || jres == nil || !jres.Ok {
+		joinResult = "err"
+	}
+	gatewayCellJoinDuration.WithLabelValues(joinResult).Observe(time.Since(joinStart).Seconds())
 	if err != nil || jres == nil || !jres.Ok {
 		log.Printf("join: %v res=%+v", err, jres)
 		return
@@ -316,15 +324,19 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		aCtx, acancel := context.WithTimeout(ctx, 2*time.Second)
+		applyStart := time.Now()
 		ares, aerr := cell.ApplyInput(aCtx, &cellv1.ApplyInputRequest{PlayerId: playerID, Input: &in})
+		applyDur := time.Since(applyStart).Seconds()
 		acancel()
 		if aerr != nil || ares == nil || !ares.Ok {
+			gatewayCellApplyInputDuration.WithLabelValues("err").Observe(applyDur)
 			gatewayApplyInput.WithLabelValues("err").Inc()
 			if aerr != nil {
 				log.Printf("apply_input: %v", aerr)
 			}
 			continue
 		}
+		gatewayCellApplyInputDuration.WithLabelValues("ok").Observe(applyDur)
 		gatewayApplyInput.WithLabelValues("ok").Inc()
 	}
 }
