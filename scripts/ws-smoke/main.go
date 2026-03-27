@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,26 +27,66 @@ func main() {
 	gw := flag.String("gateway", "http://127.0.0.1:8080", "базовый URL gateway (http)")
 	player := flag.String("player", "ws-smoke", "player_id для Join")
 	second := flag.String("second-player", "", "если непусто — после первого прогона второй session+ws с этим player_id")
+	sxStr := flag.String("session-x", "", "опционально: resolve_x для POST /v1/session (вместе с -session-z)")
+	szStr := flag.String("session-z", "", "опционально: resolve_z для POST /v1/session")
+	secSXStr := flag.String("second-session-x", "", "для -second-player: resolve_x (вместе с -second-session-z)")
+	secSZStr := flag.String("second-session-z", "", "для -second-player: resolve_z")
 	n := flag.Int("n", 5, "сколько кадров WorldChunk вывести и выйти")
 	inputs := flag.Int("inputs", 0, "после первого snapshot отправить столько ClientInput (вперёд, mask=1)")
 	verbose := flag.Bool("verbose", false, "печать позиций из дельт")
 	flag.Parse()
 
 	base := strings.TrimSuffix(*gw, "/")
-	if err := runOnce(base, *player, *n, *inputs, *verbose); err != nil {
+	rx, rz, use, err := parseCoordPair(*sxStr, *szStr, "-session-x/-session-z")
+	if err != nil {
+		log.Fatal(err)
+	}
+	var firstRx, firstRz *float64
+	if use {
+		firstRx, firstRz = &rx, &rz
+	}
+
+	if err := runOnce(base, *player, *n, *inputs, *verbose, firstRx, firstRz); err != nil {
 		log.Fatal(err)
 	}
 	sp := strings.TrimSpace(*second)
 	if sp != "" {
+		srx, srz, sUse, sErr := parseCoordPair(*secSXStr, *secSZStr, "-second-session-x/-second-session-z")
+		if sErr != nil {
+			log.Fatal(sErr)
+		}
+		var secRx, secRz *float64
+		if sUse {
+			secRx, secRz = &srx, &srz
+		}
 		fmt.Printf("--- second player %q ---\n", sp)
-		if err := runOnce(base, sp, *n, *inputs, *verbose); err != nil {
+		if err := runOnce(base, sp, *n, *inputs, *verbose, secRx, secRz); err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func runOnce(base, player string, n, inputs int, verbose bool) error {
-	token, err := sessionToken(base, player)
+func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error) {
+	xStr = strings.TrimSpace(xStr)
+	zStr = strings.TrimSpace(zStr)
+	haveX := xStr != ""
+	haveZ := zStr != ""
+	if haveX != haveZ {
+		return 0, 0, false, fmt.Errorf("%s: задайте оба поля или ни одного", label)
+	}
+	if !haveX {
+		return 0, 0, false, nil
+	}
+	x, err1 := strconv.ParseFloat(xStr, 64)
+	z, err2 := strconv.ParseFloat(zStr, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false, fmt.Errorf("%s: неверное число", label)
+	}
+	return x, z, true, nil
+}
+
+func runOnce(base, player string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
+	token, err := sessionToken(base, player, sessionRX, sessionRZ)
 	if err != nil {
 		return err
 	}
@@ -107,8 +148,13 @@ func runOnce(base, player string, n, inputs int, verbose bool) error {
 	return nil
 }
 
-func sessionToken(base, player string) (string, error) {
-	body, err := json.Marshal(map[string]string{"player_id": player})
+func sessionToken(base, player string, resolveX, resolveZ *float64) (string, error) {
+	m := map[string]any{"player_id": player}
+	if resolveX != nil {
+		m["resolve_x"] = *resolveX
+		m["resolve_z"] = *resolveZ
+	}
+	body, err := json.Marshal(m)
 	if err != nil {
 		return "", err
 	}

@@ -146,7 +146,7 @@ if ! curl_public "${GATEWAY_PUBLIC}/readyz" | grep -q ok; then
   exit 1
 fi
 
-echo "== ws-smoke (Ingress ${GATEWAY_PUBLIC}, первые кадры) =="
-go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3 -second-player ws-smoke-2
+echo "== ws-smoke (Ingress ${GATEWAY_PUBLIC}, первые кадры; второй игрок — resolve в SW для child-sw) =="
+go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3 -second-player ws-smoke-2 -second-session-x -500 -second-session-z -500
 
 echo "OK: registry, cell, gateway через Ingress (healthz + readyz + ws-smoke) прошли."

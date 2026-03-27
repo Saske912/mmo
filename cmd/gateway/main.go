@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -147,21 +148,38 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		PlayerID string `json:"player_id"`
+		PlayerID string   `json:"player_id"`
+		ResolveX *float64 `json:"resolve_x,omitempty"`
+		ResolveZ *float64 `json:"resolve_z,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.PlayerID) == "" {
 		http.Error(w, `need {"player_id":"..."}`, http.StatusBadRequest)
 		return
 	}
-	rx, rz := g.resolveX, g.resolveZ
-	if g.db != nil {
-		lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
-		if lx, lz, ok, lerr := db.GetPlayerLastCellCoords(lctx, g.db, body.PlayerID); lerr != nil {
-			log.Printf("session last_cell: %v", lerr)
-		} else if ok {
-			rx, rz = lx, lz
+	bodyHasX := body.ResolveX != nil
+	bodyHasZ := body.ResolveZ != nil
+	if bodyHasX != bodyHasZ {
+		http.Error(w, "provide both resolve_x and resolve_z or omit both", http.StatusBadRequest)
+		return
+	}
+	var rx, rz float64
+	if bodyHasX {
+		rx, rz = *body.ResolveX, *body.ResolveZ
+		if math.IsNaN(rx) || math.IsNaN(rz) {
+			http.Error(w, "resolve_x and resolve_z must be valid numbers", http.StatusBadRequest)
+			return
 		}
-		lcancel()
+	} else {
+		rx, rz = g.resolveX, g.resolveZ
+		if g.db != nil {
+			lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
+			if lx, lz, ok, lerr := db.GetPlayerLastCellCoords(lctx, g.db, body.PlayerID); lerr != nil {
+				log.Printf("session last_cell: %v", lerr)
+			} else if ok {
+				rx, rz = lx, lz
+			}
+			lcancel()
+		}
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, sessionClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
