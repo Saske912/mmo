@@ -11,9 +11,11 @@
 Этот раздел отражает **фактическое состояние репозитория MMO**, а не весь aspirational-чеклист ниже.
 
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
-- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, cell ping, gateway `/healthz`, ws-smoke).
-- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Чеклист ниже может содержать исторические формулировки из шаблона — ориентир на этот снимок и Terraform.
-- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `Update`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
+- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz`, ws-smoke).
+- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Несколько сот: переменная **`cell_instances`** (map) — по одному Deployment + Service на шард, лейблы `cell_shard`, отдельный **`MMO_CELL_GRPC_ADVERTISE`**; пример дочерней соты — [`deploy/terraform/staging/cell_instances.auto.tfvars.example`](deploy/terraform/staging/cell_instances.auto.tfvars.example).
+- **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `Update`, `PlanSplit`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
+- **Grid-manager (Registry):** gRPC **`ForwardCellUpdate`** — по `cell_id` из каталога проксирует `Cell.Update` на endpoint соты; CLI: `mmoctl forward-update …`. **`PlanSplit`** на соте (план четырёх детей); CLI: `mmoctl plansplit <host:port>`.
+- **Распил B2 (каталог):** `ResolveMostSpecific` выбирает соту с **максимальным `level`** среди содержащих точку; тест [`internal/discovery/split_resolve_test.go`](internal/discovery/split_resolve_test.go); в смоуке при наличии в registry **`cell_-1_-1_1`** проверяется `resolve -500 -500` → эта сота.
 - **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
 - **БД в кластере (операторы уже стоят):** **CloudNativePG** — namespace `postgresql`, CR `Cluster/postgresql` (2 инстанса, healthy); из подов: сервис записи **`postgresql-rw.postgresql.svc:5432`**, наружу при необходимости — **`postgresql-lb`** (LoadBalancer). **ScyllaDB** — operator/manager в `scylla-operator` / `scylla-manager`, кластер **`ScyllaCluster/scylla`** в namespace `scylla` (datacenter `staging-dc`, CQL смотреть на svc вроде `scylla-client.scylla.svc`, порт **9042**). В приложении MMO к ним пока нет подключённого кода — только инфраструктура.
@@ -34,9 +36,20 @@ flowchart LR
 
 **Следующий шаг (приоритет):**
 
-1. Сплит соты, grid-manager → cell с полноценными командами в `Update`.
-2. ServiceMonitor / scrape Prometheus в кластере, дашборды Grafana.
-3. Клиент Unity или расширенный отладочный клиент (интерполяция, UI).
+1. **Эпик B3 (cold-path сплита):** см. блок ниже — миграция мира/игроков и вывод родителя без live-handoff в первом проходе.
+2. Дашборды Grafana / алерты поверх ServiceMonitor (см. `deploy/terraform/staging/servicemonitors.tf`).
+3. Первый клиент к **Postgres (CNPG)** или сессии в БД; Unity / расширенный ws-smoke.
+
+**Эпик B3 — cold-path (следующий спринт, зафиксировано):**
+
+| Шаг | Действие |
+|-----|----------|
+| План | `mmoctl plansplit` к родителю или чтение из [`internal/partition`](internal/partition); сверка id/bounds с `cell_instances`. |
+| Подъём детей | OpenTofu + новые ключи Redis `mmo:cell:{child_id}:state` (пустой мир или рестор из бэкапа вручную). |
+| Трафик | Пока родитель в Consul, `Resolve` отдаёт ребёнка в покрытых квадрантах при более высоком `level` у ребёнка — см. тест B2. |
+| Игроки | Автосмена соты в gateway **не реализована** — в cold-процедуре: краткий простой или ручной реконнект; зафиксировать в runbook. |
+| Вывод родителя | Успешный graceful shutdown родительского `cell-node` → deregister Consul; затем убрать родителя из `cell_instances` при необходимости. |
+| Не в первом PR | Live-перенос NPC между cell по gRPC; автоматический redirect игрока в gateway. |
 
 ---
 
@@ -155,8 +168,8 @@ flowchart LR
 ### 0.4 Интеграция и первая сота
 
 #### ☐ Первая сота (Cell Service)
-- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop / `set_target_tps`)*
-- [ ] Реализован gRPC `Split` и полноценный командный слой через `Update`
+- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop / `set_target_tps`)*, **`PlanSplit`** *(план 4 дочерних сот, без исполнения сплита на сервере)*
+- [ ] Исполняемый сплит / drain / live-mиграция сущностей; расширение командного `Update` под grid-manager
 - [x] Интегрированы ECS + сетевой стрим репликации *(AOI в игровом цикле cell-node не задействован)*
 - [x] Graceful shutdown: сохранение снепшота в **Redis** (`CellPersist`; игроки не персистятся); Scylla — вне текущего скоупа
 - [x] Регистрация в Consul при старте
@@ -165,20 +178,21 @@ flowchart LR
 #### ☐ Grid Manager (базовый)
 - [ ] Мониторинг метрик через Prometheus (players, entities, cpu)
 - [ ] Анализ порогов (hardcoded для начала)
-- [ ] gRPC клиент для коммуникации с сотами *(сервис — сервер Registry; вызовы в сторону cell — через gateway/клиентов)*
+- [x] gRPC **прокси на соты:** `Registry.ForwardCellUpdate` → dial `Cell.Update` по каталогу (`mmoctl forward-update`)
+- [ ] Политики нагрузки / оркестрация сплита из grid-manager без ручного tfvars
 - [ ] Логирование всех операций
 - [x] **Критерий:** Grid Manager видит одну соту в Consul (`ListCells` / `ResolvePosition` над каталогом)
 
 #### ☐ Мониторинг и observability
-- [ ] Prometheus метрики для всех Go сервисов *(частично: `GET /metrics` на **gateway** и опционально **cell-node** `-metrics-listen`, см. Terraform `cell_metrics_port`)*
-- [ ] Grafana дашборды: количество игроков, активных сот, latency
+- [x] **ServiceMonitor** в staging Terraform ([`servicemonitors.tf`](deploy/terraform/staging/servicemonitors.tf)) — scrape `/metrics` у gateway и при портах > 0 у cell-node / grid-manager *(нужен selector Prometheus под ваши labels)*
+- [ ] Prometheus: полнота метрик по всем сценариям; Grafana дашборды (игроки, соты, latency)
 - [ ] Loki для логов (structured logging в JSON)
 - [ ] Tempo для трассировки (опционально)
 - [ ] **Критерий:** На дашборде видна активность
 
 #### Следующий шаг (кратко)
 
-Сплит сот и расширение `Update` от grid-manager; scrape Prometheus / Grafana; клиент Unity или расширенный `ws-smoke`.
+B3 cold-path (таблица в «Снимок состояния»); дашборды Grafana; первый Postgres-клиент; клиент Unity или расширенный `ws-smoke`.
 
 ---
 
