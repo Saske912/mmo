@@ -48,8 +48,10 @@ func (c *ConsulCatalog) RegisterCell(ctx context.Context, spec *cellv1.CellSpec)
 	return c.passTTL(spec.Id)
 }
 
+// ttlCheckID без ":" — иначе PUT /v1/agent/check/update/<id> на стороне Consul
+// трактует путь неверно и UpdateTTL не находит check (см. лог agent.http Unknown check ID).
 func ttlCheckID(serviceID string) string {
-	return "service:" + serviceID
+	return "mmo-cell-ttl-" + serviceID
 }
 
 func (c *ConsulCatalog) passTTL(serviceID string) error {
