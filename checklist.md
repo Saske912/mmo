@@ -11,11 +11,12 @@
 Этот раздел отражает **фактическое состояние репозитория MMO**, а не весь aspirational-чеклист ниже.
 
 - **Стек:** Go, protobuf в `proto/`, ECS в `internal/ecs`, репликация в `internal/replic`, обнаружение сот в `internal/discovery` (Consul HTTP API, `hashicorp/consul/api`).
-- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz`, ws-smoke).
-- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Несколько сот: переменная **`cell_instances`** (map) — по одному Deployment + Service на шард, лейблы `cell_shard`, отдельный **`MMO_CELL_GRPC_ADVERTISE`**; пример дочерней соты — [`deploy/terraform/staging/cell_instances.auto.tfvars.example`](deploy/terraform/staging/cell_instances.auto.tfvars.example).
+- **Деплой staging:** `scripts/deploy-staging.sh` (тесты → образ → Harbor → OpenTofu), манифесты в `deploy/terraform/staging/`; смоук `scripts/staging-verify.sh` (registry, forward-update, unit-тест B2 каталога, resolve, cell ping, gateway `/healthz`, ws-smoke). Опционально: **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`** для регрессии нескольких шардов.
+- **Kubernetes:** кластер **Talos**; приложение в namespace **`mmo`** (`deploy/terraform/staging/main.tf`). Несколько сот: переменная **`cell_instances`** (map) — по одному Deployment + Service на шард, лейблы `cell_shard`, отдельный **`MMO_CELL_GRPC_ADVERTISE`**; ключ шарда — **RFC 1123 без `_`** (например `child-sw`). На staging закоммичен пример двух сот: [`deploy/terraform/staging/cell_instances.auto.tfvars`](deploy/terraform/staging/cell_instances.auto.tfvars); шаблон — [`cell_instances.auto.tfvars.example`](deploy/terraform/staging/cell_instances.auto.tfvars.example).
 - **Поток трафика:** клиент → `cmd/gateway/main.go` (JWT `/v1/session`, WebSocket `/v1/ws`) → `ResolvePosition` у `cmd/grid-manager` (каталог из Consul) → gRPC `cmd/cell-node` (`Ping`, `Join`, `Leave`, `ApplyInput`, `Update`, `PlanSplit`, `SubscribeDeltas`) → симуляция `internal/cellsim` + ECS; метрики: `GET /metrics` на gateway, на соте флаг `-metrics-listen` (в staging через `cell_metrics_port` в Terraform).
-- **Grid-manager (Registry):** gRPC **`ForwardCellUpdate`** — по `cell_id` из каталога проксирует `Cell.Update` на endpoint соты; CLI: `mmoctl forward-update …`. **`PlanSplit`** на соте (план четырёх детей); CLI: `mmoctl plansplit <host:port>`.
+- **Grid-manager (Registry):** gRPC **`ForwardCellUpdate`** — по `cell_id` из каталога проксирует `Cell.Update` на endpoint соты; CLI: `mmoctl forward-update …`. **`PlanSplit`** на соте (план четырёх детей); CLI: `mmoctl plansplit <host:port>`. Офлайн тот же план: **`mmoctl partition-plan`** (сверка с Terraform без вызова соты).
 - **Распил B2 (каталог):** `ResolveMostSpecific` выбирает соту с **максимальным `level`** среди содержащих точку; тест [`internal/discovery/split_resolve_test.go`](internal/discovery/split_resolve_test.go); в смоуке при наличии в registry **`cell_-1_-1_1`** проверяется `resolve -500 -500` → эта сота.
+- **Эпик B3 (cold-path, первый проход):** выполнен — общая геометрия сплита в [`internal/partition`](internal/partition) (`ChildSpecsForSplit`, паритет с `PlanSplit` в тестах), операторский [**runbook**](runbooks/cold-cell-split.md): план → `cell_instances` → выкат → resolve → реконнект клиентов (автосмены соты в gateway нет); вывод родителя из каталога — шаг по runbook (graceful shutdown + при необходимости убрать из tfvars). Без live-handoff NPC и без redirect в gateway.
 - **Персист соты:** при непустом `REDIS_ADDR` cell-node сохраняет protobuf `CellPersist` в ключ `mmo:cell:{cell_id}:state` перед graceful shutdown (`-persist-snapshot`, по умолчанию вкл.) и восстанавливает при старте (игроки не в снепшоте); без Redis — как раньше.
 - **Consul:** регистрация с `bounds`, `level`, логический id в meta (`mmo_cell_id`), уникальный id инстанса на pod (`HOSTNAME`); при shutdown — `ServiceDeregister` по тому же составному id. **Без отдельного health-check:** в каталоге сервис без checks считается passing (обход проблем `UpdateTTL` на агенте в этом окружении).
 - **БД в кластере (операторы уже стоят):** **CloudNativePG** — namespace `postgresql`, CR `Cluster/postgresql` (2 инстанса, healthy); из подов: сервис записи **`postgresql-rw.postgresql.svc:5432`**, наружу при необходимости — **`postgresql-lb`** (LoadBalancer). **ScyllaDB** — operator/manager в `scylla-operator` / `scylla-manager`, кластер **`ScyllaCluster/scylla`** в namespace `scylla` (datacenter `staging-dc`, CQL смотреть на svc вроде `scylla-client.scylla.svc`, порт **9042**). В приложении MMO к ним пока нет подключённого кода — только инфраструктура.
@@ -36,20 +37,22 @@ flowchart LR
 
 **Следующий шаг (приоритет):**
 
-1. **Эпик B3 (cold-path сплита):** см. блок ниже — миграция мира/игроков и вывод родителя без live-handoff в первом проходе.
-2. Дашборды Grafana / алерты поверх ServiceMonitor (см. `deploy/terraform/staging/servicemonitors.tf`).
-3. Первый клиент к **Postgres (CNPG)** или сессии в БД; Unity / расширенный ws-smoke.
+1. Дашборды Grafana / алерты поверх ServiceMonitor (см. `deploy/terraform/staging/servicemonitors.tf`).
+2. Первый клиент к **Postgres (CNPG)** или сессии в БД; Unity / расширенный `ws-smoke`.
+3. Дальше по продукту: исполняемый сплит/drain/live-migrate на соте или оркестрация из grid-manager (см. §0.4).
 
-**Эпик B3 — cold-path (следующий спринт, зафиксировано):**
+**Эпик B3 — cold-path (первый проход выполнен, март 2026):**
 
-| Шаг | Действие |
-|-----|----------|
-| План | `mmoctl plansplit` к родителю или чтение из [`internal/partition`](internal/partition); сверка id/bounds с `cell_instances`. |
-| Подъём детей | OpenTofu + новые ключи Redis `mmo:cell:{child_id}:state` (пустой мир или рестор из бэкапа вручную). |
-| Трафик | Пока родитель в Consul, `Resolve` отдаёт ребёнка в покрытых квадрантах при более высоком `level` у ребёнка — см. тест B2. |
-| Игроки | Автосмена соты в gateway **не реализована** — в cold-процедуре: краткий простой или ручной реконнект; зафиксировать в runbook. |
-| Вывод родителя | Успешный graceful shutdown родительского `cell-node` → deregister Consul; затем убрать родителя из `cell_instances` при необходимости. |
-| Не в первом PR | Live-перенос NPC между cell по gRPC; автоматический redirect игрока в gateway. |
+Инструменты и процедура в репозитории; на staging проверены родитель + дочерняя сота (`cell_0_0_0` и `cell_-1_-1_1`), resolve в SW-квадранте. Полный «только дети» (убрать родителя из каталога) — по [runbook](runbooks/cold-cell-split.md), не автотест.
+
+| Шаг | Статус | Действие |
+|-----|--------|----------|
+| План | Сделано | `mmoctl plansplit` / **`mmoctl partition-plan`**; [`internal/partition`](internal/partition); сверка с `cell_instances`. |
+| Подъём детей | Сделано | OpenTofu + Redis `mmo:cell:{child_id}:state` (пустой мир или вручную). |
+| Трафик | Сделано | `Resolve` отдаёт ребёнка в покрытых квадрантах при большем `level` — B2 + смоук. |
+| Игроки | Как задумано | Автосмены соты в gateway **нет** — runbook: простой или реконнект. |
+| Вывод родителя | Операция по runbook | Graceful shutdown → deregister; убрать из `cell_instances` при необходимости. |
+| Вне объёма B3 | — | Live-перенос NPC; redirect игрока в gateway. |
 
 ---
 
@@ -168,12 +171,13 @@ flowchart LR
 ### 0.4 Интеграция и первая сота
 
 #### ☐ Первая сота (Cell Service)
-- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop / `set_target_tps`)*, **`PlanSplit`** *(план 4 дочерних сот, без исполнения сплита на сервере)*
-- [ ] Исполняемый сплит / drain / live-mиграция сущностей; расширение командного `Update` под grid-manager
+- [x] Реализован gRPC сервер: `Ping`, `Join`, `SubscribeDeltas`, `ApplyInput`, `Leave`, `Update` *(noop / `set_target_tps`)*, **`PlanSplit`** *(план 4 дочерних сот; исполнение сплита на сервере — нет)*
+- [x] **Cold-path сплита (B3, операторский):** runbook, `partition-plan`, частичный выкат дочерних шардов, проверка resolve; без автосмены соты в gateway
+- [ ] Исполняемый сплит / drain / live-миграция сущностей на соте; расширение командного `Update` под grid-manager
 - [x] Интегрированы ECS + сетевой стрим репликации *(AOI в игровом цикле cell-node не задействован)*
 - [x] Graceful shutdown: сохранение снепшота в **Redis** (`CellPersist`; игроки не персистятся); Scylla — вне текущего скоупа
 - [x] Регистрация в Consul при старте
-- [x] **Критерий:** Один под запущен, игрок может подключиться *(staging + ws-smoke)*
+- [x] **Критерий:** Соты в кластере, игрок может подключиться *(staging + ws-smoke; при нескольких шардах — см. resolve / B3)*
 
 #### ☐ Grid Manager (базовый)
 - [ ] Мониторинг метрик через Prometheus (players, entities, cpu)
@@ -181,7 +185,7 @@ flowchart LR
 - [x] gRPC **прокси на соты:** `Registry.ForwardCellUpdate` → dial `Cell.Update` по каталогу (`mmoctl forward-update`)
 - [ ] Политики нагрузки / оркестрация сплита из grid-manager без ручного tfvars
 - [ ] Логирование всех операций
-- [x] **Критерий:** Grid Manager видит одну соту в Consul (`ListCells` / `ResolvePosition` над каталогом)
+- [x] **Критерий:** Grid Manager видит соты в Consul (`ListCells` / `ResolvePosition` над каталогом; на staging — несколько шардов)
 
 #### ☐ Мониторинг и observability
 - [x] **ServiceMonitor** в staging Terraform ([`servicemonitors.tf`](deploy/terraform/staging/servicemonitors.tf)) — scrape `/metrics` у gateway и при портах > 0 у cell-node / grid-manager *(нужен selector Prometheus под ваши labels)*
@@ -192,7 +196,7 @@ flowchart LR
 
 #### Следующий шаг (кратко)
 
-B3 cold-path (таблица в «Снимок состояния»); дашборды Grafana; первый Postgres-клиент; клиент Unity или расширенный `ws-smoke`.
+Дашборды Grafana / алерты; первый Postgres-клиент; клиент Unity или расширенный `ws-smoke`; по сотам — исполняемый сплит или оркестрация из grid-manager (см. чекбоксы выше).
 
 ---
 
