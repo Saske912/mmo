@@ -20,8 +20,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
+
+	"mmo/internal/config"
+	"mmo/internal/db"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -41,11 +45,33 @@ func main() {
 		jwtBytes = []byte(v)
 	}
 
+	cfg := config.FromEnv()
+	var pgPool *pgxpool.Pool
+	if strings.TrimSpace(cfg.DatabaseURLRW) != "" {
+		dctx, dcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		p, err := db.OpenPool(dctx, cfg.DatabaseURLRW)
+		dcancel()
+		if err != nil {
+			log.Fatalf("database pool: %v", err)
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err = db.EnsureSchema(sctx, p)
+		scancel()
+		if err != nil {
+			p.Close()
+			log.Fatalf("database schema: %v", err)
+		}
+		pgPool = p
+		defer pgPool.Close()
+		log.Printf("database: connected (session audit + /readyz)")
+	}
+
 	g := &gateway{
 		registryAddr: *registry,
 		jwtSecret:    jwtBytes,
 		resolveX:     *resX,
 		resolveZ:     *resZ,
+		db:           pgPool,
 	}
 
 	mux := http.NewServeMux()
@@ -53,6 +79,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/readyz", g.readyz)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/session", g.session)
 	mux.HandleFunc("/v1/ws", g.ws)
@@ -66,6 +93,7 @@ type gateway struct {
 	jwtSecret    []byte
 	resolveX     float64
 	resolveZ     float64
+	db           *pgxpool.Pool
 }
 
 var sessionLimiters sync.Map // IP -> *rate.Limiter
@@ -81,6 +109,24 @@ func peerHost(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func (g *gateway) readyz(w http.ResponseWriter, r *http.Request) {
+	if g.db == nil {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	err := g.db.Ping(ctx)
+	cancel()
+	if err != nil {
+		log.Printf("readyz: %v", err)
+		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
 }
 
 func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +154,13 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "token", http.StatusInternalServerError)
 		return
+	}
+	if g.db != nil {
+		ictx, icancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if ierr := db.RecordSessionIssue(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session audit: %v", ierr)
+		}
+		icancel()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"token": signed})

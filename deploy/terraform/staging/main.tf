@@ -346,6 +346,25 @@ resource "kubernetes_deployment" "gateway" {
             container_port = var.gateway_http_port
           }
 
+          liveness_probe {
+            http_get {
+              path = "/healthz"
+              port = "http"
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/readyz"
+              port = "http"
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+            failure_threshold     = 3
+          }
+
           env_from {
             secret_ref {
               name = kubernetes_secret.mmo_backend.metadata[0].name

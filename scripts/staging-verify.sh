@@ -140,7 +140,13 @@ if ! curl_public "${GATEWAY_PUBLIC}/healthz" | grep -q ok; then
   exit 1
 fi
 
+echo "== gateway /readyz (Ingress ${GATEWAY_PUBLIC}; БД или ok без DSN) =="
+if ! curl_public "${GATEWAY_PUBLIC}/readyz" | grep -q ok; then
+  echo "gateway readyz failed (${GATEWAY_PUBLIC})" >&2
+  exit 1
+fi
+
 echo "== ws-smoke (Ingress ${GATEWAY_PUBLIC}, первые кадры) =="
 go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3
 
-echo "OK: registry, cell, gateway через Ingress (healthz + ws-smoke) прошли."
+echo "OK: registry, cell, gateway через Ingress (healthz + readyz + ws-smoke) прошли."
