@@ -26,7 +26,20 @@ if [ -z "$TAG" ]; then
 fi
 
 cd "$STAGING_DIR"
-HOST="$(tofu output -raw harbor_registry_hostname)"
+# Как в Makefile harbor-push: при пустом state tofu пишет предупреждение в stdout — не кормим им kubectl.
+HOST="${HARBOR_REGISTRY_HOSTNAME:-}"
+if [ -z "$HOST" ]; then
+  _raw="$(tofu output -raw harbor_registry_hostname 2>/dev/null || true)"
+  _raw="${_raw//$'\r'/}"
+  _raw="${_raw//$'\n'/}"
+  if [ -n "$_raw" ] && [[ "$_raw" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$ ]]; then
+    HOST="$_raw"
+  fi
+fi
+if [ -z "$HOST" ]; then
+  echo "goose-migrate-job: задайте HARBOR_REGISTRY_HOSTNAME или проверьте tofu output harbor_registry_hostname (нужен remote state с outputs)" >&2
+  exit 1
+fi
 IMAGE="${HOST}/${HARBOR_PROJECT}/${IMAGE_REPOSITORY}:${TAG}"
 
 echo "== goose Job image: $IMAGE (tag from image.auto.tfvars) =="

@@ -1,6 +1,6 @@
 .PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
 
-# harbor-login и др. используют [[ ]] и подстановки `${var//...}` — нужен bash, не dash.
+# harbor-login и др. рецепты используют bash (подстановки ${var//…}, [[ … ]]).
 SHELL := /bin/bash
 
 STAGING_DIR := deploy/terraform/staging
