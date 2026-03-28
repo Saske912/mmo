@@ -5,6 +5,32 @@
 - **`make test`** или **`go test ./...`** из каталога [`backend`](../).
 - Сборка образов и staging: [`scripts/deploy-staging.sh`](../scripts/deploy-staging.sh) (опции `--no-commit`, `--skip-test` — см. справку в скрипте).
 
+### Предусловия полного `tofu apply`
+
+- **Remote state** для каталога [`deploy/terraform/staging`](../deploy/terraform/staging) (как у рабочей станции оператора) или свой backend — иначе `tofu output` / план не совпадут с кластером.
+- При **`gateway_ingress_enabled = true`** (дефолт) в каталоге модуля должны быть **`certs/fullchain.pem`** и **`certs/privkey.pem`** (см. `certs/README`). Скрипт деплоя проверяет их до `make tofu-apply`. Иначе отключите Ingress в `*.auto.tfvars` или используйте запасной путь ниже.
+- **Harbor:** `make harbor-login` читает `tofu output harbor_*` или переменные **`HARBOR_REGISTRY_HOSTNAME`**, **`HARBOR_DOCKER_USERNAME`**, **`HARBOR_DOCKER_PASSWORD`**. Рецепты Makefile требуют **bash** (`SHELL := /bin/bash`).
+
+### Запасной выкат только образа (`kubectl set image`)
+
+Если OpenTofu с этой машины недоступен, но образ уже в registry (например после **`make harbor-push`** с переопределением Harbor через env):
+
+- Namespace: **`mmo`** (см. Terraform). Образ: **`$REGISTRY/library/mmo-backend:$TAG`** (подставьте хост Harbor и тег коммита / `image.auto.tfvars`).
+- Имя контейнера в pod **всегда `cell-node`** у каждого Deployment соты; отличаются только имена Deployment.
+
+```bash
+NS=mmo
+IMG=harbor.example/library/mmo-backend:YOUR_TAG
+kubectl -n "$NS" set image deploy/gateway gateway="$IMG"
+kubectl -n "$NS" set image deploy/grid-manager grid-manager="$IMG"
+kubectl -n "$NS" set image deploy/cell-node cell-node="$IMG"
+# Дочерние шарды: имя Deployment = cell-node-<ключ_из_cell_instances>, контейнер = cell-node
+kubectl -n "$NS" set image deploy/cell-node-child-sw cell-node="$IMG"
+kubectl -n "$NS" rollout status deploy/gateway --timeout=120s
+```
+
+После выката: **`bash scripts/staging-verify.sh`** (и при смене схемы БД — убедиться, что Job **`/migrate`** отработал или gateway мигрирует сам).
+
 ## GitHub Actions
 
 - Workflow в **суперпроекте** [Saske912/full_mmo](https://github.com/Saske912/full_mmo): [`.github/workflows/backend-ci.yml`](../../.github/workflows/backend-ci.yml) — **`go test ./...`** при изменениях в `backend/**`.

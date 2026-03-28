@@ -113,6 +113,18 @@ if [ "$STAGING_RUN_GOOSE_JOB" = 1 ] || [ "$STAGING_RUN_GOOSE_JOB" = true ]; then
   bash scripts/goose-migrate-job.sh
 fi
 
+# Ingress TLS по умолчанию включён — без PEM OpenTofu упадёт на file(); см. deploy/terraform/staging/variables.tf.
+if ! grep -rqE '^[[:space:]]*gateway_ingress_enabled[[:space:]]*=[[:space:]]*false([[:space:]]|$|#)' "$STAGING_DIR"/*.auto.tfvars 2>/dev/null; then
+  _chain="$STAGING_DIR/certs/fullchain.pem"
+  _key="$STAGING_DIR/certs/privkey.pem"
+  if [ ! -f "$_chain" ] || [ ! -f "$_key" ]; then
+    echo "Нет файлов TLS для Ingress: $_chain и $_key" >&2
+    echo "Положите сертификаты (см. $STAGING_DIR/certs/README) или задайте gateway_ingress_enabled = false в *.auto.tfvars." >&2
+    echo "Запасной выкат образа без tofu: см. backend/docs/ci-and-deploy.md (kubectl set image)." >&2
+    exit 1
+  fi
+fi
+
 echo "== make tofu-apply (= staging-tofu-validate + apply) =="
 make tofu-apply
 

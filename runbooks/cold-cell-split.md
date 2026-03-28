@@ -130,6 +130,13 @@ PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=inclus
 
 Подсказка для клиента после сессии с БД: **GET** `https://<gateway>/v1/me/last-cell` (JWT) — последние **`cell_id`** / **`resolve_x,z`** из `mmo_player_last_cell` для реконнекта без угадывания координат.
 
+## 8. После изменений БД, контента или handoff
+
+1. **Миграции:** при **`gateway_skip_db_migrations`** на gateway убедитесь, что Job **`/migrate`** (или эквивалент) применён до проверок; заголовок **`X-MMO-Goose-Version`** на **`GET /readyz`** — см. [`ci-and-deploy.md`](../docs/ci-and-deploy.md), **`make verify-readyz-goose`**.
+2. **Регрессия кластера:** **`scripts/staging-verify.sh`** с при необходимости **`STAGING_VERIFY_MIGRATION_DRY_RUN=incluster`**, **`STAGING_VERIFY_EXPECT_CELL_IDS`**, **`STAGING_VERIFY_RESOLVE_CHECKS`**, **`STAGING_VERIFY_READYZ_GOOSE_HEADER=1`**.
+3. **Только что выполнили handoff NPC:** при желании **`MODE=incluster`** — [`scripts/run-forward-npc-handoff.sh`](../scripts/run-forward-npc-handoff.sh) как дым после изменений образа или каталога.
+4. **Нагрузка на gateway:** **`make load-smoke`** из корня `backend/` после затратных изменений в сессии/БД.
+
 ## Вне этой процедуры
 
 - Live-migrate **игроков** и автоматический redirect в gateway при смене покрытия (сейчас — только реконнект клиента).
