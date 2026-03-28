@@ -40,4 +40,12 @@ var (
 		Help:      "Duration of Cell.ApplyInput gRPC call",
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"result"})
+
+	// Счётчик: последняя сота в БД не совпала с результатом Registry.ResolvePosition (смена покрытия / handoff).
+	gatewayCellHandoffMismatch = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "cell_handoff_mismatch_total",
+		Help:      "WebSocket connects where mmo_player_last_cell.cell_id differed from resolved cell id",
+	})
 )

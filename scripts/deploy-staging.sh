@@ -101,3 +101,4 @@ make tofu-apply
 echo ""
 echo "Готово. Образ: harbor (тег $TAG, зафиксирован в deploy/terraform/staging/image.auto.tfvars)."
 echo "Проверка: bash scripts/staging-verify.sh"
+echo "При вынесении миграций в Job: GATEWAY_SKIP_DB_MIGRATIONS=1 и заголовок X-MMO-Goose-Version на GET …/readyz после успешного goose."

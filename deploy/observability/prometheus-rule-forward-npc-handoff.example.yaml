@@ -14,7 +14,7 @@ spec:
         - alert: MMO_GridForwardNpcHandoffP95High
           expr: |
             histogram_quantile(0.95,
-              sum(rate(mmo_grid_registry_rpc_duration_seconds_bucket{method="ForwardNpcHandoff"}[5m])) by (le)
+              sum(rate(mmo_grid_registry_rpc_duration_seconds_bucket{namespace="mmo",method="ForwardNpcHandoff"}[5m])) by (le)
             ) > 0.5
           for: 5m
           labels:

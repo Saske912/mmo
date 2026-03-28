@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +109,9 @@ func main() {
 	mux.HandleFunc("/v1/me/quests", g.meQuests)
 	mux.HandleFunc("/v1/me/quest-progress", g.questProgress)
 	mux.HandleFunc("/v1/me/items/add", g.itemsAdd)
+	mux.HandleFunc("/v1/me/items/remove", g.itemsRemove)
+	mux.HandleFunc("/v1/me/items/transfer", g.itemsTransfer)
+	mux.HandleFunc("/v1/me/resolve-preview", g.resolvePreview)
 	mux.HandleFunc("/v1/me/last-cell", g.lastCell)
 	mux.HandleFunc("/v1/ws", g.ws)
 
@@ -121,6 +125,16 @@ type gateway struct {
 	resolveX     float64
 	resolveZ     float64
 	db           *pgxpool.Pool
+}
+
+func questAPIMap(q db.PlayerQuestAPIRow) map[string]any {
+	m := map[string]any{
+		"quest_id": q.QuestID, "state": q.State, "progress": q.Progress, "target_progress": q.TargetProgress,
+	}
+	if q.PrerequisiteQuestID != "" {
+		m["prerequisite_quest_id"] = q.PrerequisiteQuestID
+	}
+	return m
 }
 
 // sessionClaims: координаты resolve для WebSocket (новые токены); без mmo_has_resolve — как старые JWT, берём дефолт gateway.
@@ -250,6 +264,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsurePlayerQuestSeed(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session quest seed: %v", ierr)
 		}
+		if _, ierr := db.EnsureUnlockedQuestsForPlayer(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session quest unlock: %v", ierr)
+		}
 		if ierr := db.EnsureStarterPlayerItems(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session starter items: %v", ierr)
 		}
@@ -286,9 +303,7 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		} else if len(qrows) > 0 {
 			qarr := make([]map[string]any, 0, len(qrows))
 			for _, q := range qrows {
-				qarr = append(qarr, map[string]any{
-					"quest_id": q.QuestID, "state": q.State, "progress": q.Progress, "target_progress": q.TargetProgress,
-				})
+				qarr = append(qarr, questAPIMap(q))
 			}
 			out["quests"] = qarr
 		}
@@ -342,9 +357,7 @@ func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
 	}
 	qarr := make([]map[string]any, 0, len(rows))
 	for _, q := range rows {
-		qarr = append(qarr, map[string]any{
-			"quest_id": q.QuestID, "state": q.State, "progress": q.Progress, "target_progress": q.TargetProgress,
-		})
+		qarr = append(qarr, questAPIMap(q))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"quests": qarr})
@@ -401,6 +414,9 @@ func (g *gateway) questProgress(w http.ResponseWriter, r *http.Request) {
 			}
 			out["items_rewarded"] = ir
 		}
+		if len(res.NewlyUnlockedQuests) > 0 {
+			out["newly_unlocked_quests"] = res.NewlyUnlockedQuests
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -445,6 +461,201 @@ func (g *gateway) itemsAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (g *gateway) itemsRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := bearerOrQueryToken(r)
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		ItemID   string `json:"item_id"`
+		Quantity int    `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.ItemID) == "" || body.Quantity <= 0 {
+		http.Error(w, `need {"item_id":"...","quantity":n}`, http.StatusBadRequest)
+		return
+	}
+	actx, acancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer acancel()
+	if err := db.RemovePlayerItemQuantity(actx, g.db, claims.Subject, body.ItemID, body.Quantity); err != nil {
+		log.Printf("items remove: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (g *gateway) itemsTransfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := bearerOrQueryToken(r)
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		ToPlayerID string `json:"to_player_id"`
+		ItemID     string `json:"item_id"`
+		Quantity   int    `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
+		strings.TrimSpace(body.ToPlayerID) == "" || strings.TrimSpace(body.ItemID) == "" || body.Quantity <= 0 {
+		http.Error(w, `need {"to_player_id":"...","item_id":"...","quantity":n}`, http.StatusBadRequest)
+		return
+	}
+	actx, acancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer acancel()
+	if err := db.TransferPlayerItems(actx, g.db, claims.Subject, body.ToPlayerID, body.ItemID, body.Quantity); err != nil {
+		log.Printf("items transfer: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (g *gateway) resolvePreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	tokenStr := bearerOrQueryToken(r)
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	qx := r.URL.Query().Get("resolve_x")
+	qz := r.URL.Query().Get("resolve_z")
+	if (qx == "") != (qz == "") {
+		http.Error(w, "provide both resolve_x and resolve_z", http.StatusBadRequest)
+		return
+	}
+	var rx, rz float64
+	if qx != "" {
+		rx, err = strconv.ParseFloat(qx, 64)
+		if err != nil {
+			http.Error(w, "invalid resolve_x", http.StatusBadRequest)
+			return
+		}
+		rz, err = strconv.ParseFloat(qz, 64)
+		if err != nil {
+			http.Error(w, "invalid resolve_z", http.StatusBadRequest)
+			return
+		}
+		if math.IsNaN(rx) || math.IsNaN(rz) {
+			http.Error(w, "resolve_x and resolve_z must be valid numbers", http.StatusBadRequest)
+			return
+		}
+	} else {
+		rx, rz = g.resolveX, g.resolveZ
+		if g.db != nil {
+			lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
+			if lx, lz, ok, lerr := db.GetPlayerLastCellCoords(lctx, g.db, claims.Subject); lerr != nil {
+				log.Printf("resolve-preview last_cell: %v", lerr)
+			} else if ok {
+				rx, rz = lx, lz
+			}
+			lcancel()
+		}
+	}
+
+	pctx, pcancel := context.WithTimeout(r.Context(), 5*time.Second)
+	regCC, err := grpc.NewClient(g.registryAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		pcancel()
+		log.Printf("resolve-preview dial: %v", err)
+		http.Error(w, "registry unavailable", http.StatusBadGateway)
+		return
+	}
+	defer regCC.Close()
+	reg := cellv1.NewRegistryClient(regCC)
+	res, err := reg.ResolvePosition(pctx, &cellv1.ResolvePositionRequest{X: rx, Z: rz})
+	pcancel()
+	if err != nil {
+		log.Printf("resolve-preview: %v", err)
+		http.Error(w, "registry resolve failed", http.StatusBadGateway)
+		return
+	}
+
+	out := map[string]any{"resolve_x": rx, "resolve_z": rz}
+	if res != nil && res.Found && res.Cell != nil && res.Cell.GrpcEndpoint != "" {
+		out["resolved"] = map[string]any{
+			"found": true, "cell_id": res.Cell.GetId(), "grpc_endpoint": res.Cell.GrpcEndpoint,
+		}
+	} else {
+		out["resolved"] = map[string]any{"found": false}
+	}
+
+	var cellMismatch bool
+	if g.db != nil {
+		lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
+		rec, lerr := db.GetPlayerLastCellRecord(lctx, g.db, claims.Subject)
+		lcancel()
+		if lerr != nil {
+			log.Printf("resolve-preview last record: %v", lerr)
+		} else if rec != nil {
+			out["last_cell"] = map[string]any{
+				"found": true, "cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
+			}
+			resolvedID := ""
+			if res != nil && res.Found && res.Cell != nil {
+				resolvedID = res.Cell.GetId()
+			}
+			if resolvedID != "" && rec.CellID != "" && resolvedID != rec.CellID {
+				cellMismatch = true
+			}
+		} else {
+			out["last_cell"] = map[string]any{"found": false}
+		}
+	}
+	out["cell_id_mismatch"] = cellMismatch
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (g *gateway) lastCell(w http.ResponseWriter, r *http.Request) {
@@ -550,6 +761,19 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	ep := res.Cell.GrpcEndpoint
 	cellID := res.Cell.GetId()
 	slog.InfoContext(rctx, "registry_resolve_ok", "cell_id", cellID, "grpc_endpoint", ep)
+
+	if g.db != nil {
+		lctx, lcancel := context.WithTimeout(ctx, 2*time.Second)
+		rec, rerr := db.GetPlayerLastCellRecord(lctx, g.db, playerID)
+		lcancel()
+		if rerr != nil {
+			log.Printf("ws handoff check: %v", rerr)
+		} else if rec != nil && cellID != "" && rec.CellID != "" && rec.CellID != cellID {
+			gatewayCellHandoffMismatch.Inc()
+			w.Header().Set("X-MMO-Last-Cell-Id", rec.CellID)
+			w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
+		}
+	}
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {

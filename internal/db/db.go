@@ -226,12 +226,13 @@ type QuestDef struct {
 
 // QuestProgressApplyResult итог применения прогресса (в т.ч. автозавершение).
 type QuestProgressApplyResult struct {
-	Completed       bool
-	Progress        int
-	TargetProgress  int
-	GoldReward      int64
-	ItemsRewarded   []PlayerItemRow
-	AlreadyComplete bool
+	Completed         bool
+	Progress          int
+	TargetProgress    int
+	GoldReward        int64
+	ItemsRewarded     []PlayerItemRow
+	AlreadyComplete   bool
+	NewlyUnlockedQuests []string // квесты, выданные после завершения (цепочка по prerequisite)
 }
 
 // LatestAppliedGooseVersion максимальный применённый version_id из goose_db_version (0, если таблицы нет или пусто).
@@ -336,6 +337,35 @@ ON CONFLICT (player_id, item_id) DO UPDATE SET
 	return err
 }
 
+func removePlayerItemQuantityTx(ctx context.Context, tx pgx.Tx, playerID, itemID string, qty int) error {
+	if qty <= 0 {
+		return fmt.Errorf("quantity must be > 0")
+	}
+	var cur int
+	err := tx.QueryRow(ctx,
+		`SELECT quantity FROM mmo_player_item WHERE player_id = $1 AND item_id = $2 FOR UPDATE`,
+		playerID, itemID,
+	).Scan(&cur)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("item not found")
+		}
+		return err
+	}
+	if cur < qty {
+		return fmt.Errorf("insufficient quantity")
+	}
+	if cur == qty {
+		_, err = tx.Exec(ctx, `DELETE FROM mmo_player_item WHERE player_id = $1 AND item_id = $2`, playerID, itemID)
+	} else {
+		_, err = tx.Exec(ctx,
+			`UPDATE mmo_player_item SET quantity = quantity - $3 WHERE player_id = $1 AND item_id = $2`,
+			playerID, itemID, qty,
+		)
+	}
+	return err
+}
+
 // ApplyPlayerQuestProgress выставляет progress; при достижении target из mmo_quest_def завершает квест и выдаёт награды, синхронизируя JSONB-инвентарь.
 func ApplyPlayerQuestProgress(ctx context.Context, pool *pgxpool.Pool, playerID, questID string, progress int) (*QuestProgressApplyResult, error) {
 	if progress < 0 {
@@ -435,6 +465,11 @@ func ApplyPlayerQuestProgress(ctx context.Context, pool *pgxpool.Pool, playerID,
 			res.ItemsRewarded = []PlayerItemRow{{ItemID: def.RewardItemID, Quantity: def.RewardItemQty}}
 		}
 	}
+	unlocked, uerr := EnsureUnlockedQuestsForPlayer(ctx, pool, playerID)
+	if uerr != nil {
+		return nil, uerr
+	}
+	res.NewlyUnlockedQuests = unlocked
 	return res, nil
 }
 
@@ -488,18 +523,47 @@ func syncPlayerInventoryJSONBTx(ctx context.Context, tx pgx.Tx, playerID string)
 	return nil
 }
 
+// EnsureUnlockedQuestsForPlayer вставляет активные строки квестов, у которых выполнен prerequisite в mmo_quest_def.
+func EnsureUnlockedQuestsForPlayer(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]string, error) {
+	rows, err := pool.Query(ctx, `
+INSERT INTO mmo_player_quest (player_id, quest_id, state)
+SELECT $1, d.quest_id, 'active'
+FROM mmo_quest_def d
+WHERE d.prerequisite_quest_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM mmo_player_quest q
+    WHERE q.player_id = $1 AND q.quest_id = d.prerequisite_quest_id AND q.state = 'completed'
+  )
+ON CONFLICT (player_id, quest_id) DO NOTHING
+RETURNING quest_id`, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var qid string
+		if err := rows.Scan(&qid); err != nil {
+			return nil, err
+		}
+		out = append(out, qid)
+	}
+	return out, rows.Err()
+}
+
 // PlayerQuestAPIRow квест с целевым прогрессом для API.
 type PlayerQuestAPIRow struct {
-	QuestID        string `json:"quest_id"`
-	State          string `json:"state"`
-	Progress       int    `json:"progress"`
-	TargetProgress int    `json:"target_progress"`
+	QuestID             string `json:"quest_id"`
+	State               string `json:"state"`
+	Progress            int    `json:"progress"`
+	TargetProgress      int    `json:"target_progress"`
+	PrerequisiteQuestID string `json:"prerequisite_quest_id,omitempty"`
 }
 
 // ListPlayerQuestsForAPI объединяет прогресс игрока с mmo_quest_def.
 func ListPlayerQuestsForAPI(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]PlayerQuestAPIRow, error) {
 	const q = `
-SELECT q.quest_id, q.state, q.progress, COALESCE(d.target_progress, 0)
+SELECT q.quest_id, q.state, q.progress, COALESCE(d.target_progress, 0), COALESCE(d.prerequisite_quest_id, '')
 FROM mmo_player_quest q
 LEFT JOIN mmo_quest_def d ON d.quest_id = q.quest_id
 WHERE q.player_id = $1
@@ -512,9 +576,11 @@ ORDER BY q.quest_id`
 	var out []PlayerQuestAPIRow
 	for rows.Next() {
 		var r PlayerQuestAPIRow
-		if err := rows.Scan(&r.QuestID, &r.State, &r.Progress, &r.TargetProgress); err != nil {
+		var prereq string
+		if err := rows.Scan(&r.QuestID, &r.State, &r.Progress, &r.TargetProgress, &prereq); err != nil {
 			return nil, err
 		}
+		r.PrerequisiteQuestID = prereq
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -545,6 +611,72 @@ func AddPlayerItemQuantity(ctx context.Context, pool *pgxpool.Pool, playerID, it
 		return err
 	}
 	if err := syncPlayerInventoryJSONBTx(ctx, tx, playerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RemovePlayerItemQuantity снимает количество предмета и синхронизирует JSONB-инвентарь.
+func RemovePlayerItemQuantity(ctx context.Context, pool *pgxpool.Pool, playerID, itemID string, qty int) error {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return fmt.Errorf("empty item_id")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := removePlayerItemQuantityTx(ctx, tx, playerID, itemID, qty); err != nil {
+		return err
+	}
+	if err := syncPlayerInventoryJSONBTx(ctx, tx, playerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// TransferPlayerItems переносит предметы между игроками (MVP «торговля» без обмена на стороне клиента).
+func TransferPlayerItems(ctx context.Context, pool *pgxpool.Pool, fromPlayer, toPlayer, itemID string, qty int) error {
+	if qty <= 0 {
+		return fmt.Errorf("quantity must be > 0")
+	}
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return fmt.Errorf("empty item_id")
+	}
+	fromPlayer = strings.TrimSpace(fromPlayer)
+	toPlayer = strings.TrimSpace(toPlayer)
+	if fromPlayer == "" || toPlayer == "" {
+		return fmt.Errorf("empty player_id")
+	}
+	if fromPlayer == toPlayer {
+		return fmt.Errorf("cannot transfer to self")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var one int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM mmo_item_def WHERE id = $1`, itemID).Scan(&one); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("unknown item_id")
+		}
+		return err
+	}
+	if err := removePlayerItemQuantityTx(ctx, tx, fromPlayer, itemID, qty); err != nil {
+		return err
+	}
+	_, _ = tx.Exec(ctx, `INSERT INTO mmo_player_wallet (player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`, toPlayer)
+	_, _ = tx.Exec(ctx, `INSERT INTO mmo_player_inventory (player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`, toPlayer)
+	if err := addPlayerItemQuantityTx(ctx, tx, toPlayer, itemID, qty); err != nil {
+		return err
+	}
+	if err := syncPlayerInventoryJSONBTx(ctx, tx, fromPlayer); err != nil {
+		return err
+	}
+	if err := syncPlayerInventoryJSONBTx(ctx, tx, toPlayer); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -162,9 +162,24 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	if err != nil || !prog3.Completed || prog3.GoldReward != 50 {
 		t.Fatalf("quest complete: %+v err=%v", prog3, err)
 	}
+	if len(prog3.NewlyUnlockedQuests) != 1 || prog3.NewlyUnlockedQuests[0] != "tutorial_followup" {
+		t.Fatalf("expected unlock tutorial_followup: %+v", prog3.NewlyUnlockedQuests)
+	}
 	qDone, err := ListPlayerQuests(ctx, pool, "quest-user")
-	if err != nil || len(qDone) != 1 || qDone[0].State != "completed" || qDone[0].Progress != 3 {
-		t.Fatalf("quest done row: %+v err=%v", qDone, err)
+	if err != nil || len(qDone) != 2 {
+		t.Fatalf("quest done + chain: %+v err=%v", qDone, err)
+	}
+	var introDone, followActive bool
+	for _, q := range qDone {
+		if q.QuestID == "tutorial_intro" && q.State == "completed" && q.Progress == 3 {
+			introDone = true
+		}
+		if q.QuestID == "tutorial_followup" && q.State == "active" && q.Progress == 0 {
+			followActive = true
+		}
+	}
+	if !introDone || !followActive {
+		t.Fatalf("unexpected quest rows: %+v", qDone)
 	}
 	var gold int64
 	err = pool.QueryRow(ctx, `SELECT gold FROM mmo_player_wallet WHERE player_id = $1`, "quest-user").Scan(&gold)
@@ -193,7 +208,7 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatal(err)
 	}
 	qrows2, err := ListPlayerQuests(ctx, pool, "quest-user")
-	if err != nil || len(qrows2) != 1 {
+	if err != nil || len(qrows2) != 2 {
 		t.Fatalf("quest idempotent: %+v err=%v", qrows2, err)
 	}
 	emptyQuests, err := ListPlayerQuests(ctx, pool, "no-quest-rows-xyz")
@@ -204,9 +219,33 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	if err := AddPlayerItemQuantity(ctx, pool, "pickup-user", "coin_copper", 3); err != nil {
 		t.Fatal(err)
 	}
+	if err := RemovePlayerItemQuantity(ctx, pool, "pickup-user", "coin_copper", 2); err != nil {
+		t.Fatal(err)
+	}
 	pickupItems, err := ListPlayerItemsNormalized(ctx, pool, "pickup-user")
-	if err != nil || len(pickupItems) != 1 || pickupItems[0].ItemID != "coin_copper" || pickupItems[0].Quantity != 3 {
-		t.Fatalf("pickup add: %+v err=%v", pickupItems, err)
+	if err != nil || len(pickupItems) != 1 || pickupItems[0].ItemID != "coin_copper" || pickupItems[0].Quantity != 1 {
+		t.Fatalf("pickup remove: %+v err=%v", pickupItems, err)
+	}
+
+	if err := EnsureStarterPlayerItems(ctx, pool, "xfer-from"); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsurePlayerWallet(ctx, pool, "xfer-to"); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsurePlayerInventory(ctx, pool, "xfer-to"); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransferPlayerItems(ctx, pool, "xfer-from", "xfer-to", "tutorial_shard", 1); err != nil {
+		t.Fatal(err)
+	}
+	fromItems, err := ListPlayerItemsNormalized(ctx, pool, "xfer-from")
+	if err != nil || len(fromItems) != 0 {
+		t.Fatalf("xfer from empty: %+v err=%v", fromItems, err)
+	}
+	toItems, err := ListPlayerItemsNormalized(ctx, pool, "xfer-to")
+	if err != nil || len(toItems) != 1 || toItems[0].ItemID != "tutorial_shard" || toItems[0].Quantity != 1 {
+		t.Fatalf("xfer to: %+v err=%v", toItems, err)
 	}
 
 	if err := EnsureStarterPlayerItems(ctx, pool, "item-user"); err != nil {
