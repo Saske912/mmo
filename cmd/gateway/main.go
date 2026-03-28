@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"mmo/internal/logging"
 	"mmo/internal/tracing"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 )
 
@@ -98,6 +100,7 @@ func main() {
 	mux.HandleFunc("/readyz", g.readyz)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/session", g.session)
+	mux.HandleFunc("/v1/me/quests", g.meQuests)
 	mux.HandleFunc("/v1/ws", g.ws)
 
 	log.Printf("gateway http://%s registry=%s resolve=(%.1f,%.1f)", *listen, *registry, *resX, *resZ)
@@ -229,6 +232,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsurePlayerInventory(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session inventory ensure: %v", ierr)
 		}
+		if ierr := db.EnsurePlayerQuestSeed(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session quest seed: %v", ierr)
+		}
 		icancel()
 	}
 
@@ -253,10 +259,63 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		} else if iok {
 			out["inventory"] = inv
 		}
+		qrows, qerr := db.ListPlayerQuests(sctx, g.db, body.PlayerID)
+		if qerr != nil {
+			log.Printf("session quests read: %v", qerr)
+		} else if len(qrows) > 0 {
+			qarr := make([]map[string]any, 0, len(qrows))
+			for _, q := range qrows {
+				qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State})
+			}
+			out["quests"] = qarr
+		}
 		scancel()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := r.Header.Get("Authorization")
+	if strings.HasPrefix(tokenStr, "Bearer ") {
+		tokenStr = strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
+	} else {
+		tokenStr = r.URL.Query().Get("token")
+	}
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	qctx, qcancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer qcancel()
+	rows, err := db.ListPlayerQuests(qctx, g.db, claims.Subject)
+	if err != nil {
+		log.Printf("me quests: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	qarr := make([]map[string]any, 0, len(rows))
+	for _, q := range rows {
+		qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"quests": qarr})
 }
 
 func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +343,10 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	regCC, err := grpc.NewClient(g.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	regCC, err := grpc.NewClient(g.registryAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if err != nil {
 		log.Printf("registry dial: %v", err)
 		http.Error(w, "registry unavailable", http.StatusBadGateway)
@@ -310,6 +372,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	ep := res.Cell.GrpcEndpoint
 	cellID := res.Cell.GetId()
+	slog.InfoContext(rctx, "registry_resolve_ok", "cell_id", cellID, "grpc_endpoint", ep)
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -320,7 +383,10 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 
 	inLim := rate.NewLimiter(rate.Limit(100), 50)
 
-	cellCC, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cellCC, err := grpc.NewClient(ep,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if err != nil {
 		log.Printf("cell dial %s: %v", ep, err)
 		return
@@ -341,6 +407,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		log.Printf("join: %v res=%+v", err, jres)
 		return
 	}
+	slog.InfoContext(jctx, "cell_join_ok", "player_id", playerID, "entity_id", jres.EntityId)
 	log.Printf("ws join player=%s entity_id=%d", playerID, jres.EntityId)
 	gatewayWsSessions.Inc()
 

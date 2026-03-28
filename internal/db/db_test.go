@@ -138,4 +138,23 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	if gotCell != "cell_-1_-1_1" || rx != -500 || rz != -500 {
 		t.Fatalf("after upsert: %q %v %v", gotCell, rx, rz)
 	}
+
+	if err := EnsurePlayerQuestSeed(ctx, pool, "quest-user"); err != nil {
+		t.Fatal(err)
+	}
+	qrows, err := ListPlayerQuests(ctx, pool, "quest-user")
+	if err != nil || len(qrows) != 1 || qrows[0].QuestID != "tutorial_intro" || qrows[0].State != "active" {
+		t.Fatalf("quest seed: %+v err=%v", qrows, err)
+	}
+	if err := EnsurePlayerQuestSeed(ctx, pool, "quest-user"); err != nil {
+		t.Fatal(err)
+	}
+	qrows2, err := ListPlayerQuests(ctx, pool, "quest-user")
+	if err != nil || len(qrows2) != 1 {
+		t.Fatalf("quest idempotent: %+v err=%v", qrows2, err)
+	}
+	emptyQuests, err := ListPlayerQuests(ctx, pool, "no-quest-rows-xyz")
+	if err != nil || len(emptyQuests) != 0 {
+		t.Fatalf("quest empty list: %+v err=%v", emptyQuests, err)
+	}
 }

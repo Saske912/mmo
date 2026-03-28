@@ -165,6 +165,61 @@ func TestUpdateExportNpcPersist(t *testing.T) {
 	}
 }
 
+func TestUpdateImportNpcPersist_roundtripFromExport(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv1 := &Server{CellID: "imp_src", Sim: sim}
+	ctx := context.Background()
+	exp, err := srv1.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_ExportNpcPersist{
+			ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: "src"},
+		},
+	})
+	if err != nil || exp == nil || !exp.Ok || exp.NpcExportJson == "" {
+		t.Fatalf("export: %+v err=%v", exp, err)
+	}
+	sim2 := cellsim.NewRuntime()
+	srv2 := &Server{CellID: "imp_dst", Sim: sim2}
+	im, err := srv2.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_ImportNpcPersist{
+			ImportNpcPersist: &cellv1.CellUpdateImportNpcPersist{
+				NpcImportJson: exp.NpcExportJson,
+				Reason:        "dst",
+			},
+		},
+	})
+	if err != nil || im == nil || !im.Ok {
+		t.Fatalf("import: %+v err=%v", im, err)
+	}
+}
+
+func TestUpdateImportNpcPersist_rejectsWithPlayers(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "imp_blk", Sim: sim}
+	ctx := context.Background()
+	if _, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "in_world"}); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_ExportNpcPersist{
+			ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: "snap"},
+		},
+	})
+	if err != nil || exp == nil || !exp.Ok {
+		t.Fatal(exp, err)
+	}
+	im, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_ImportNpcPersist{
+			ImportNpcPersist: &cellv1.CellUpdateImportNpcPersist{
+				NpcImportJson: exp.NpcExportJson,
+				Reason:        "no",
+			},
+		},
+	})
+	if err != nil || im == nil || im.Ok {
+		t.Fatalf("expected import blocked with players, got %+v err=%v", im, err)
+	}
+}
+
 func TestListMigrationCandidates(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	srv := &Server{CellID: "mig1", Sim: sim}

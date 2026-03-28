@@ -277,6 +277,39 @@ func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.U
 			msg += " reason=" + reason
 		}
 		return &cellv1.UpdateResponse{Ok: true, Message: msg, NpcExportJson: string(raw)}, nil
+	case *cellv1.UpdateRequest_ImportNpcPersist:
+		if s.Sim == nil || s.Sim.World == nil || s.Sim.Loop == nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "no_sim"}, nil
+		}
+		if s.PlayerCount() > 0 {
+			return &cellv1.UpdateResponse{Ok: false, Message: "import_npc_persist blocked: players connected"}, nil
+		}
+		raw := ""
+		if p.ImportNpcPersist != nil {
+			raw = strings.TrimSpace(p.ImportNpcPersist.GetNpcImportJson())
+		}
+		if raw == "" {
+			return &cellv1.UpdateResponse{Ok: false, Message: "empty npc_import_json"}, nil
+		}
+		var persist gamev1.CellPersist
+		if err := protojson.Unmarshal([]byte(raw), &persist); err != nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "json: " + err.Error()}, nil
+		}
+		s.Sim.Mu.Lock()
+		err := snapshot.Decode(s.Sim.World, s.Sim.Loop, &persist)
+		s.Sim.Mu.Unlock()
+		if err != nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "decode: " + err.Error()}, nil
+		}
+		reason := ""
+		if p.ImportNpcPersist != nil {
+			reason = strings.TrimSpace(p.ImportNpcPersist.GetReason())
+		}
+		msg := fmt.Sprintf("import_npc_persist entities=%d", len(persist.Entities))
+		if reason != "" {
+			msg += " reason=" + reason
+		}
+		return &cellv1.UpdateResponse{Ok: true, Message: msg}, nil
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}

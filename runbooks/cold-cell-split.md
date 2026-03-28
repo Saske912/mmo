@@ -63,6 +63,16 @@ mmoctl -registry <grid-manager:9100> forward-update <parent_cell_id> export-npc-
 
 Ответ **`ForwardCellUpdate`** содержит **`npc_export_json`** (на стороне grid-manager то же поле проксируется). Оператор может положить полезную нагрузку в ключ Redis дочерней соты `mmo:cell:<child_id>:state` или использовать для отладки. Полный live-handoff без ручных шагов — вне cold-path.
 
+**Импорт на дочерней соте** (без ручного `redis-cli`): при **отсутствии подключённых игроков** на целевой соте тот же JSON применяется через **`Cell.Update` → `import_npc_persist`** (восстановление как при `snapshot.Decode`). Через registry:
+
+```bash
+mmoctl -registry <grid-manager:9100> forward-update <child_cell_id> import-npc-persist handoff.json "handoff-ticket"
+# или stdin:
+cat parent_export.json | mmoctl -registry ... forward-update <child_cell_id> import-npc-persist -
+```
+
+Если на соте есть живые сессии (**`PlayerCount` > 0**), импорт отклоняется — сначала освободите мир (cold-path).
+
 Операторский **dry-run** (каталог → прямой gRPC списка кандидатов + экспорт через registry):
 
 ```bash

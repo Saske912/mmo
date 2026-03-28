@@ -110,6 +110,9 @@ func runOnce(base, player string, displayName *string, n, inputs int, verbose bo
 	if len(sess.Inventory) > 0 {
 		fmt.Printf("[%s] session inventory: %s\n", player, string(sess.Inventory))
 	}
+	if len(sess.Quests) > 0 {
+		fmt.Printf("[%s] session quests: %+v\n", player, sess.Quests)
+	}
 
 	wsURL, err := wsDialURL(base, token)
 	if err != nil {
@@ -179,6 +182,10 @@ type sessionInfo struct {
 		Gold int64 `json:"gold"`
 	} `json:"wallet"`
 	Inventory json.RawMessage `json:"inventory"`
+	Quests    []struct {
+		QuestID string `json:"quest_id"`
+		State   string `json:"state"`
+	} `json:"quests"`
 }
 
 func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (sessionInfo, error) {

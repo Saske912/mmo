@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	cellv1 "mmo/gen/cellv1"
 	"mmo/internal/discovery"
@@ -41,7 +42,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	cellv1.RegisterRegistryServer(srv, &registrysvc.Server{Store: store})
 
 	lis, err := net.Listen("tcp", *addr)

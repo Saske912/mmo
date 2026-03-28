@@ -178,3 +178,38 @@ func GetPlayerInventoryItems(ctx context.Context, pool *pgxpool.Pool, playerID s
 	}
 	return json.RawMessage(raw), true, nil
 }
+
+// EnsurePlayerQuestSeed вставляет заготовку квеста tutorial_intro при первой сессии (идемпотентно).
+func EnsurePlayerQuestSeed(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	const q = `
+INSERT INTO mmo_player_quest (player_id, quest_id, state)
+VALUES ($1, 'tutorial_intro', 'active')
+ON CONFLICT (player_id, quest_id) DO NOTHING`
+	_, err := pool.Exec(ctx, q, playerID)
+	return err
+}
+
+// PlayerQuestRow строка прогресса квеста для API.
+type PlayerQuestRow struct {
+	QuestID string
+	State   string
+}
+
+// ListPlayerQuests перечисляет квесты игрока (может быть пусто).
+func ListPlayerQuests(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]PlayerQuestRow, error) {
+	const q = `SELECT quest_id, state FROM mmo_player_quest WHERE player_id = $1 ORDER BY quest_id`
+	rows, err := pool.Query(ctx, q, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlayerQuestRow
+	for rows.Next() {
+		var r PlayerQuestRow
+		if err := rows.Scan(&r.QuestID, &r.State); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

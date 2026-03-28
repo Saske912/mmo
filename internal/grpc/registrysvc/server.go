@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
@@ -114,7 +115,10 @@ func (s *Server) ForwardCellUpdate(ctx context.Context, req *cellv1.ForwardCellU
 		return nil, e
 	}
 
-	conn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(ep,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if err != nil {
 		incRPC("ForwardCellUpdate", err)
 		return nil, status.Errorf(codes.Unavailable, "dial cell: %v", err)

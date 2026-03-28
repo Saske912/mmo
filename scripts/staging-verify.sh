@@ -61,12 +61,27 @@ P2=$!
 sleep 2
 
 echo "== mmoctl list (registry localhost:${GM_PORT}) =="
-FIRST_CELL="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list | head -1 | awk '{print $1}')"
+CATALOG_PREVIEW="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list)"
+FIRST_CELL="$(echo "$CATALOG_PREVIEW" | head -1 | awk '{print $1}')"
 if [ -z "${FIRST_CELL:-}" ]; then
   echo "no cells in registry" >&2
   exit 1
 fi
-go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list
+echo "$CATALOG_PREVIEW"
+
+echo "== mmoctl migration-dry-run / export-npc-persist (smoke) =="
+MIGRATE_CELL="${STAGING_VERIFY_MIGRATE_CELL:-cell_0_0_0}"
+if echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
+  go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" migration-dry-run "$MIGRATE_CELL"
+else
+  echo "skip migration-dry-run (no ${MIGRATE_CELL} in catalog)"
+fi
+EXP_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" export-npc-persist staging-verify)"
+echo "$EXP_OUT"
+if ! echo "$EXP_OUT" | grep -qE 'npc_export_json_bytes=[1-9][0-9]*'; then
+  echo "staging: export-npc-persist expected npc_export_json_bytes>0" >&2
+  exit 1
+fi
 
 echo "== mmoctl forward-update noop (registry -> cell, id=${FIRST_CELL}) =="
 go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" noop
@@ -94,7 +109,7 @@ echo "== B2: unit-тест каталога (родитель + SW-ребёно�
 go test ./internal/discovery -run TestResolveMostSpecific_childWinsInSWQuadrant -count=1
 
 echo "== mmoctl resolve (-500,-500) =="
-LIST_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" list)"
+LIST_OUT="$CATALOG_PREVIEW"
 RESOLVE_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500 -500)"
 echo "$RESOLVE_OUT"
 # Если в кластере зарегистрирована дочерняя сота из PlanSplit (пример cell_instances.auto.tfvars.example), точка (-500,-500) должна резолвиться в неё, а не в родителя level=0.

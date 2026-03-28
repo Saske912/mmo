@@ -65,6 +65,12 @@ message CellUpdateExportNpcPersist {
   string reason = 1;
 }
 
+// Импорт NPC на дочерней соте: тот же JSON game.v1.CellPersist. Только при отсутствии подключённых игроков.
+message CellUpdateImportNpcPersist {
+  string npc_import_json = 1;
+  string reason = 2;
+}
+
 message UpdateRequest {
   oneof payload {
     CellUpdateNoop noop = 1;
@@ -73,6 +79,7 @@ message UpdateRequest {
     CellUpdateSplitPrepare split_prepare = 3;
     CellUpdateSetSplitDrain set_split_drain = 4;
     CellUpdateExportNpcPersist export_npc_persist = 5;
+    CellUpdateImportNpcPersist import_npc_persist = 6;
   }
 }
 

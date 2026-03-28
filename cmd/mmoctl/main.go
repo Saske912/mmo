@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -87,6 +88,7 @@ func usage() {
   mmoctl [-registry host:port] forward-update <cell_id> split-prepare [reason]
   mmoctl [-registry host:port] forward-update <cell_id> split-drain <true|false>
   mmoctl [-registry host:port] forward-update <cell_id> export-npc-persist [reason]
+  mmoctl [-registry host:port] forward-update <cell_id> import-npc-persist <path|-> [reason]
   mmoctl [-registry host:port] migration-dry-run <cell_id>
   mmoctl plansplit <host:port>
   mmoctl migration-candidates <host:port> [reason]
@@ -331,7 +333,7 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
 	case "forward-update":
 		if len(rest) < 2 {
-			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist ...")
+			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist | import-npc-persist ...")
 		}
 		cellID := rest[0]
 		var upd *cellv1.UpdateRequest
@@ -378,6 +380,31 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			}
 			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_ExportNpcPersist{
 				ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: reason},
+			}}
+		case "import-npc-persist":
+			if len(rest) < 3 {
+				log.Fatal("forward-update: import-npc-persist needs <path|-> [reason]")
+			}
+			path := rest[2]
+			reason := "mmoctl"
+			if len(rest) >= 4 {
+				reason = rest[3]
+			}
+			var body []byte
+			var rerr error
+			if path == "-" {
+				body, rerr = io.ReadAll(os.Stdin)
+			} else {
+				body, rerr = os.ReadFile(path)
+			}
+			if rerr != nil {
+				log.Fatal(rerr)
+			}
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_ImportNpcPersist{
+				ImportNpcPersist: &cellv1.CellUpdateImportNpcPersist{
+					NpcImportJson: string(body),
+					Reason:        reason,
+				},
 			}}
 		default:
 			log.Fatalf("forward-update: unknown mode %q", rest[1])
