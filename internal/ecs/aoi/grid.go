@@ -6,6 +6,9 @@ import (
 	"mmo/internal/ecs"
 )
 
+// ReplicationDefaultCellSize размер ячейки индекса для AOI-репликации на соте (м), согласован с cellsvc.
+const ReplicationDefaultCellSize = 50.0
+
 // SpatialGrid равномерная сетка по XZ для AOI (ячейка cellSize мировых единиц).
 type SpatialGrid struct {
 	cellSize float64
@@ -18,7 +21,7 @@ type SpatialGrid struct {
 // NewSpatialGrid cellSize > 0 (чеклист: ячейки 50x50).
 func NewSpatialGrid(cellSize float64) *SpatialGrid {
 	if cellSize <= 0 {
-		cellSize = 50
+		cellSize = ReplicationDefaultCellSize
 	}
 	return &SpatialGrid{
 		cellSize:   cellSize,
@@ -45,6 +48,24 @@ func (g *SpatialGrid) UpdateEntity(w *ecs.World, e ecs.Entity) {
 	g.RemoveEntity(e)
 	g.entityCell[e] = k
 	g.buckets[k] = append(g.buckets[k], e)
+}
+
+// RebuildFromWorld полностью пересобирает индекс по текущим позициям (для AOI в репликации без интеграции в MovementSystem).
+func (g *SpatialGrid) RebuildFromWorld(w *ecs.World) {
+	if g == nil || w == nil {
+		return
+	}
+	g.buckets = make(map[[2]int][]ecs.Entity)
+	g.entityCell = make(map[ecs.Entity][2]int)
+	for e := range w.Alive() {
+		p, ok := w.Position(e)
+		if !ok {
+			continue
+		}
+		k := g.key(p.X, p.Z)
+		g.entityCell[e] = k
+		g.buckets[k] = append(g.buckets[k], e)
+	}
 }
 
 // RemoveEntity убирает из индекса.

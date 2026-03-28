@@ -38,6 +38,8 @@ message Delta {
   uint64 tick = 1;
   uint64 from_tick = 2;
   repeated EntityState changed = 3;
+  // Сущности, выпавшие из области интереса (AOI) или удалённые с мира — клиент должен убрать их локально.
+  repeated uint64 removed_entity_ids = 4;
 }
 
 // Сущность для персиста cell-node в Redis (позиция + скорость + здоровье).

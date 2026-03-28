@@ -23,3 +23,42 @@ func QueryHealth(w *World) []Entity {
 	}
 	return out
 }
+
+// QueryCollidable сущности с Position и Collider.
+func QueryCollidable(w *World) []Entity {
+	out := make([]Entity, 0)
+	for e := range w.alive {
+		if _, okP := w.positions[e]; okP {
+			if _, okC := w.colliders[e]; okC {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
+}
+
+// QueryTriggerZones сущности с Position и TriggerZone.
+func QueryTriggerZones(w *World) []Entity {
+	out := make([]Entity, 0)
+	for e := range w.alive {
+		if _, okP := w.positions[e]; okP {
+			if _, okZ := w.triggerZones[e]; okZ {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
+}
+
+// QueryTriggerSensors сущности с Position и TriggerSensor.
+func QueryTriggerSensors(w *World) []Entity {
+	out := make([]Entity, 0)
+	for e := range w.alive {
+		if _, okP := w.positions[e]; okP {
+			if _, okS := w.triggerSensors[e]; okS {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
+}

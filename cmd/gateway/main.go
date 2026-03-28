@@ -829,7 +829,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	sub, err := cell.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{})
+	sub, err := cell.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{ViewerEntityId: jres.EntityId})
 	if err != nil {
 		log.Printf("subscribe: %v", err)
 		return

@@ -42,6 +42,21 @@ func BuildSnapshot(w *ecs.World, tick uint64, isPlayer func(ecs.Entity) bool) *g
 	return out
 }
 
+// BuildSnapshotEntities снимок только перечисленных сущностей (AOI / interest management).
+func BuildSnapshotEntities(w *ecs.World, tick uint64, entities []ecs.Entity, isPlayer func(ecs.Entity) bool) *gamev1.Snapshot {
+	out := &gamev1.Snapshot{Tick: tick}
+	for _, e := range entities {
+		ip := false
+		if isPlayer != nil {
+			ip = isPlayer(e)
+		}
+		if st := EntityState(w, e, ip); st != nil {
+			out.Entities = append(out.Entities, st)
+		}
+	}
+	return out
+}
+
 // BuildDelta по списку изменившихся сущностей (after World.TakeDirtyEntities).
 func BuildDelta(w *ecs.World, tick, fromTick uint64, changed []ecs.Entity, isPlayer func(ecs.Entity) bool) *gamev1.Delta {
 	d := &gamev1.Delta{Tick: tick, FromTick: fromTick}

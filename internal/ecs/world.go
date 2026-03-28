@@ -8,6 +8,9 @@ type World struct {
 	positions  map[Entity]Position
 	velocities map[Entity]Velocity
 	healths    map[Entity]Health
+	colliders  map[Entity]Collider
+	triggerZones   map[Entity]TriggerZone
+	triggerSensors map[Entity]TriggerSensor
 
 	dirty map[Entity]struct{} // для репликации (позиция/здоровье менялись)
 }
@@ -19,6 +22,9 @@ func NewWorld() *World {
 		positions:  make(map[Entity]Position),
 		velocities: make(map[Entity]Velocity),
 		healths:    make(map[Entity]Health),
+		colliders:  make(map[Entity]Collider),
+		triggerZones:   make(map[Entity]TriggerZone),
+		triggerSensors: make(map[Entity]TriggerSensor),
 	}
 }
 
@@ -36,6 +42,9 @@ func (w *World) DestroyEntity(e Entity) {
 	delete(w.positions, e)
 	delete(w.velocities, e)
 	delete(w.healths, e)
+	delete(w.colliders, e)
+	delete(w.triggerZones, e)
+	delete(w.triggerSensors, e)
 	delete(w.dirty, e)
 }
 
@@ -94,6 +103,45 @@ func (w *World) RemoveHealth(e Entity) {
 	delete(w.dirty, e)
 }
 
+func (w *World) SetCollider(e Entity, c Collider) {
+	w.colliders[e] = c
+}
+
+func (w *World) Collider(e Entity) (Collider, bool) {
+	c, ok := w.colliders[e]
+	return c, ok
+}
+
+func (w *World) RemoveCollider(e Entity) {
+	delete(w.colliders, e)
+}
+
+func (w *World) SetTriggerZone(e Entity, z TriggerZone) {
+	w.triggerZones[e] = z
+}
+
+func (w *World) TriggerZone(e Entity) (TriggerZone, bool) {
+	z, ok := w.triggerZones[e]
+	return z, ok
+}
+
+func (w *World) RemoveTriggerZone(e Entity) {
+	delete(w.triggerZones, e)
+}
+
+func (w *World) SetTriggerSensor(e Entity, s TriggerSensor) {
+	w.triggerSensors[e] = s
+}
+
+func (w *World) TriggerSensor(e Entity) (TriggerSensor, bool) {
+	s, ok := w.triggerSensors[e]
+	return s, ok
+}
+
+func (w *World) RemoveTriggerSensor(e Entity) {
+	delete(w.triggerSensors, e)
+}
+
 // TakeDirtyEntities возвращает сущности с несинхронизированными полями и очищает набор dirty.
 func (w *World) TakeDirtyEntities() []Entity {
 	if len(w.dirty) == 0 {
@@ -124,6 +172,39 @@ func (w *World) VisitHealth(fn func(e Entity, h Health)) {
 		h, ok := w.healths[e]
 		if ok {
 			fn(e, h)
+		}
+	}
+}
+
+// VisitCollidable сущности с Position и Collider.
+func (w *World) VisitCollidable(fn func(e Entity, pos Position, col Collider)) {
+	for e := range w.alive {
+		p, okP := w.positions[e]
+		c, okC := w.colliders[e]
+		if okP && okC {
+			fn(e, p, c)
+		}
+	}
+}
+
+// VisitTriggerZones сущности с Position и TriggerZone.
+func (w *World) VisitTriggerZones(fn func(e Entity, pos Position, zone TriggerZone)) {
+	for e := range w.alive {
+		p, okP := w.positions[e]
+		z, okZ := w.triggerZones[e]
+		if okP && okZ {
+			fn(e, p, z)
+		}
+	}
+}
+
+// VisitTriggerSensors сущности с Position и TriggerSensor.
+func (w *World) VisitTriggerSensors(fn func(e Entity, pos Position, sensor TriggerSensor)) {
+	for e := range w.alive {
+		p, okP := w.positions[e]
+		s, okS := w.triggerSensors[e]
+		if okP && okS {
+			fn(e, p, s)
 		}
 	}
 }

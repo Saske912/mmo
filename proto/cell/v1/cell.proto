@@ -148,6 +148,8 @@ message JoinResponse {
 
 message SubscribeDeltasRequest {
   uint64 from_tick = 1;
+  // Если задано — репликация только в радиусе AOI от этой сущности (игрок после Join). 0 = весь мир (как раньше).
+  uint64 viewer_entity_id = 2;
 }
 
 message ApplyInputRequest {

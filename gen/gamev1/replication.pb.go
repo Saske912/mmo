@@ -267,12 +267,14 @@ func (x *Snapshot) GetEntities() []*EntityState {
 
 // Delta только изменившиеся сущности с прошлого кадра.
 type Delta struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tick          uint64                 `protobuf:"varint,1,opt,name=tick,proto3" json:"tick,omitempty"`
-	FromTick      uint64                 `protobuf:"varint,2,opt,name=from_tick,json=fromTick,proto3" json:"from_tick,omitempty"`
-	Changed       []*EntityState         `protobuf:"bytes,3,rep,name=changed,proto3" json:"changed,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Tick     uint64                 `protobuf:"varint,1,opt,name=tick,proto3" json:"tick,omitempty"`
+	FromTick uint64                 `protobuf:"varint,2,opt,name=from_tick,json=fromTick,proto3" json:"from_tick,omitempty"`
+	Changed  []*EntityState         `protobuf:"bytes,3,rep,name=changed,proto3" json:"changed,omitempty"`
+	// Сущности, выпавшие из области интереса (AOI) или удалённые с мира — клиент должен убрать их локально.
+	RemovedEntityIds []uint64 `protobuf:"varint,4,rep,packed,name=removed_entity_ids,json=removedEntityIds,proto3" json:"removed_entity_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Delta) Reset() {
@@ -322,6 +324,13 @@ func (x *Delta) GetFromTick() uint64 {
 func (x *Delta) GetChanged() []*EntityState {
 	if x != nil {
 		return x.Changed
+	}
+	return nil
+}
+
+func (x *Delta) GetRemovedEntityIds() []uint64 {
+	if x != nil {
+		return x.RemovedEntityIds
 	}
 	return nil
 }
@@ -502,11 +511,12 @@ const file_game_v1_replication_proto_rawDesc = "" +
 	"health_pct\x18\x04 \x01(\x02R\thealthPct\"T\n" +
 	"\bSnapshot\x12\x12\n" +
 	"\x04tick\x18\x01 \x01(\x04R\x04tick\x124\n" +
-	"\bentities\x18\x02 \x03(\v2\x18.mmo.game.v1.EntityStateR\bentities\"l\n" +
+	"\bentities\x18\x02 \x03(\v2\x18.mmo.game.v1.EntityStateR\bentities\"\x9a\x01\n" +
 	"\x05Delta\x12\x12\n" +
 	"\x04tick\x18\x01 \x01(\x04R\x04tick\x12\x1b\n" +
 	"\tfrom_tick\x18\x02 \x01(\x04R\bfromTick\x122\n" +
-	"\achanged\x18\x03 \x03(\v2\x18.mmo.game.v1.EntityStateR\achanged\"\xd4\x01\n" +
+	"\achanged\x18\x03 \x03(\v2\x18.mmo.game.v1.EntityStateR\achanged\x12,\n" +
+	"\x12removed_entity_ids\x18\x04 \x03(\x04R\x10removedEntityIds\"\xd4\x01\n" +
 	"\x11CellPersistEntity\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\x04R\bentityId\x12.\n" +
 	"\bposition\x18\x02 \x01(\v2\x12.mmo.game.v1.Vec3fR\bposition\x12.\n" +
@@ -518,7 +528,7 @@ const file_game_v1_replication_proto_rawDesc = "" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x12\n" +
 	"\x04tick\x18\x02 \x01(\x04R\x04tick\x12\x19\n" +
 	"\bloop_tps\x18\x03 \x01(\x02R\aloopTps\x12:\n" +
-	"\bentities\x18\x04 \x03(\v2\x1e.mmo.game.v1.CellPersistEntityR\bentitiesB\x17Z\x15mmo/gen/gamev1;gamev1b\x06proto3"
+	"\bentities\x18\x04 \x03(\v2\x1e.mmo.game.v1.CellPersistEntityR\bentitiesB%Z\x15mmo/gen/gamev1;gamev1\xaa\x02\vMmo.Game.V1b\x06proto3"
 
 var (
 	file_game_v1_replication_proto_rawDescOnce sync.Once

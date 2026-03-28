@@ -48,3 +48,22 @@ func TestNeighborCellKeys(t *testing.T) {
 		t.Fatalf("neighbors 3x3 =9 got %d", len(k))
 	}
 }
+
+func TestSpatialGridRebuildFromWorld(t *testing.T) {
+	w := ecs.NewWorld()
+	g := NewSpatialGrid(50)
+	a := w.CreateEntity()
+	w.SetPosition(a, ecs.Position{X: 1, Z: 2})
+	b := w.CreateEntity()
+	w.SetPosition(b, ecs.Position{X: 50, Z: 50})
+	g.UpdateEntity(w, a)
+	g.RebuildFromWorld(w)
+	if len(g.QueryRadius(w, 1, 2, 80)) != 2 {
+		t.Fatalf("after rebuild expected 2 inside radius, got %d", len(g.QueryRadius(w, 1, 2, 80)))
+	}
+	w.SetPosition(b, ecs.Position{X: 5000, Z: 5000})
+	g.RebuildFromWorld(w)
+	if len(g.QueryRadius(w, 1, 2, 80)) != 1 {
+		t.Fatalf("after move + rebuild should see 1 entity near a")
+	}
+}

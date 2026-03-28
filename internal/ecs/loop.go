@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,7 @@ type GameLoop struct {
 	World   *World
 	Systems []System
 	Stats   LoopStats
+	paused  atomic.Bool
 }
 
 // NewGameLoop TPS по умолчанию 20.
@@ -64,6 +66,9 @@ func (g *GameLoop) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			if g.IsPaused() {
+				continue
+			}
 			g.Step()
 		}
 	}
@@ -74,4 +79,19 @@ func (g *GameLoop) RunSteps(count int) {
 	for i := 0; i < count; i++ {
 		g.Step()
 	}
+}
+
+// Pause ставит цикл на паузу (идемпотентно).
+func (g *GameLoop) Pause() {
+	g.paused.Store(true)
+}
+
+// Resume снимает паузу цикла (идемпотентно).
+func (g *GameLoop) Resume() {
+	g.paused.Store(false)
+}
+
+// IsPaused показывает, стоит ли цикл на паузе.
+func (g *GameLoop) IsPaused() bool {
+	return g.paused.Load()
 }

@@ -33,6 +33,16 @@
 3. Дым handoff: **`run-forward-npc-handoff.sh`**.
 4. Нагрузка: **`make load-smoke`** (корень `backend/`).
 
+## Хвосты cold-path после MVP (операционка и UX)
+
+См. также таблицу в снимке [roadmap-checklist.md](../../docs/roadmap-checklist.md) («Эпик B3 — cold-path»).
+
+| Область | Что ещё открыто |
+|---------|------------------|
+| **Игроки** | Автоперенос сессии без реконнекта **нет**; есть `GET /v1/me/resolve-preview`, **409** на `/v1/ws` при расхождении last_cell ↔ resolve — реконнект по [runbook §4](../runbooks/cold-cell-split.md). |
+| **Вывод родителя** | Полный вывод из каталога (в т.ч. §5 runbook): graceful shutdown → deregister; при необходимости убрать соту из [`cell_instances.auto.tfvars`](../deploy/terraform/staging/cell_instances.auto.tfvars) и `tofu apply`. |
+| **NPC / миграции** | **`ForwardNpcHandoff`** / **`mmoctl forward-npc-handoff`** — [runbook §6–7](../runbooks/cold-cell-split.md); операторский цикл §7 — выше в этом файле. Репетиция §7 без §5 — см. подраздел выше. |
+
 ## Live-миграция игроков
 
 Полный **live-handoff** игроков без реконнекта — вне текущего scope (см. конец runbook). Для планирования переноса сущностей на уровне соты реализованы **`ListMigrationCandidates`** (gRPC **cell**) и **`migration-dry-run`** в [cmd/mmoctl](../cmd/mmoctl/main.go).

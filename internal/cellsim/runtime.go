@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mmo/internal/ecs"
+	"mmo/internal/ecs/aoi"
 )
 
 const defaultTPS = 25
@@ -16,6 +17,8 @@ type Runtime struct {
 	Mu    sync.RWMutex // Step и чтение мира из gRPC
 	World *ecs.World
 	Loop  *ecs.GameLoop
+	// AOIGrid обновляется каждый тик через NetworkReplicationSystem; SubscribeDeltas использует тот же индекс.
+	AOIGrid *aoi.SpatialGrid
 
 	npcStarted atomic.Bool
 	// OnTick вызывается после каждого Step (удобно для метрик); держится коротким.
@@ -25,11 +28,13 @@ type Runtime struct {
 // NewRuntime создаёт мир с Movement и HealthRegen.
 func NewRuntime() *Runtime {
 	w := ecs.NewWorld()
+	grid := aoi.NewSpatialGrid(aoi.ReplicationDefaultCellSize)
 	loop := ecs.NewGameLoop(w, defaultTPS,
 		ecs.MovementSystem{},
 		ecs.HealthRegenSystem{RegenPerSec: 2},
+		ecs.NetworkReplicationSystem{Index: grid},
 	)
-	return &Runtime{World: w, Loop: loop}
+	return &Runtime{World: w, Loop: loop, AOIGrid: grid}
 }
 
 // Run блокирующий цикл до отмены ctx (шаг под Mu, чтобы SubscribeDeltas без гонок).

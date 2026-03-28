@@ -26,3 +26,26 @@ type Health struct {
 }
 
 func (Health) isComponent() {}
+
+// Collider простой AABB-коллайдер c полуразмерами по осям.
+type Collider struct {
+	HalfX, HalfY, HalfZ float64
+}
+
+func (Collider) isComponent() {}
+
+// TriggerZone AABB-зона-триггер. ID используется игровыми системами как ключ логики.
+type TriggerZone struct {
+	ID                string
+	HalfX, HalfY, HalfZ float64
+}
+
+func (TriggerZone) isComponent() {}
+
+// TriggerSensor область сущности для проверки входа/выхода из TriggerZone.
+// Нулевые полуразмеры трактуются как точка.
+type TriggerSensor struct {
+	HalfX, HalfY, HalfZ float64
+}
+
+func (TriggerSensor) isComponent() {}

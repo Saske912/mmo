@@ -2,6 +2,8 @@ package natsbus
 
 import (
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -11,7 +13,9 @@ var ErrEmptyURL = errors.New("empty NATS server URL")
 
 // Client тонкая обёртка над NATS core (без JetStream на этом этапе).
 type Client struct {
-	conn *nats.Conn
+	conn            *nats.Conn
+	reconnectCount  atomic.Int64
+	disconnectCount atomic.Int64
 }
 
 // Connect устанавливает соединение (NATS_URL или собранный URL из config).
@@ -24,6 +28,51 @@ func Connect(url string, opts ...nats.Option) (*Client, error) {
 		return nil, err
 	}
 	return &Client{conn: conn}, nil
+}
+
+// ReconnectConfig базовые параметры reconnect-политики для подписчиков.
+type ReconnectConfig struct {
+	RetryOnFailedConnect bool
+	MaxReconnects        int
+	ReconnectWait        time.Duration
+	ConnectTimeout       time.Duration
+}
+
+// DefaultReconnectConfig безопасные дефолты для долгоживущих подписчиков.
+func DefaultReconnectConfig() ReconnectConfig {
+	return ReconnectConfig{
+		RetryOnFailedConnect: true,
+		MaxReconnects:        -1, // бесконечно
+		ReconnectWait:        2 * time.Second,
+		ConnectTimeout:       2 * time.Second,
+	}
+}
+
+// ConnectResilient подключает NATS с reconnect-политикой для долгоживущих sub.
+// Дополнительные opts могут переопределить дефолтные параметры.
+func ConnectResilient(url string, cfg ReconnectConfig, opts ...nats.Option) (*Client, error) {
+	if url == "" {
+		return nil, ErrEmptyURL
+	}
+	c := &Client{}
+	base := []nats.Option{
+		nats.RetryOnFailedConnect(cfg.RetryOnFailedConnect),
+		nats.MaxReconnects(cfg.MaxReconnects),
+		nats.ReconnectWait(cfg.ReconnectWait),
+		nats.Timeout(cfg.ConnectTimeout),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, _ error) {
+			c.disconnectCount.Add(1)
+		}),
+		nats.ReconnectHandler(func(_ *nats.Conn) {
+			c.reconnectCount.Add(1)
+		}),
+	}
+	conn, err := nats.Connect(url, append(base, opts...)...)
+	if err != nil {
+		return nil, err
+	}
+	c.conn = conn
+	return c, nil
 }
 
 func (c *Client) Publish(subject string, data []byte) error {
@@ -50,4 +99,9 @@ func (c *Client) Close() {
 
 func (c *Client) Conn() *nats.Conn {
 	return c.conn
+}
+
+// ReconnectStats текстовый статус для смоук/диагностики.
+func (c *Client) ReconnectStats() string {
+	return fmt.Sprintf("disconnects=%d reconnects=%d", c.disconnectCount.Load(), c.reconnectCount.Load())
 }

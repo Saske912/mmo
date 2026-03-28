@@ -1,6 +1,8 @@
 package ecs
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -40,5 +42,58 @@ func TestGameLoopWorstTickBounded(t *testing.T) {
 	// Симуляция 2000 шагов на desktop должна уложиться без «минутной» блокировки
 	if elapsed > 2*time.Second {
 		t.Fatalf("wall elapsed %v too long for %d steps", elapsed, ticks)
+	}
+}
+
+func TestGameLoopPauseResume(t *testing.T) {
+	w := NewWorld()
+	loop := NewGameLoop(w, 120, MovementSystem{})
+	loop.Pause()
+	if !loop.IsPaused() {
+		t.Fatal("loop should be paused")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := loop.Run(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("run error=%v", err)
+	}
+	if loop.Stats.TickCount != 0 {
+		t.Fatalf("ticks while paused: %d", loop.Stats.TickCount)
+	}
+
+	loop.Resume()
+	if loop.IsPaused() {
+		t.Fatal("loop should be resumed")
+	}
+	loop.RunSteps(3)
+	if loop.Stats.TickCount != 3 {
+		t.Fatalf("ticks after resume: %d", loop.Stats.TickCount)
+	}
+}
+
+func TestGameLoopRunRealTimeNoSignificantDrift(t *testing.T) {
+	w := NewWorld()
+	loop := NewGameLoop(w, 30, MovementSystem{}, HealthRegenSystem{RegenPerSec: 1})
+
+	const runFor = 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), runFor)
+	defer cancel()
+	start := time.Now()
+	err := loop.Run(ctx)
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("run error=%v", err)
+	}
+
+	expected := int(elapsed.Seconds() * loop.TPS)
+	got := int(loop.Stats.TickCount)
+	// Допускаем небольшой дрейф таймера/планировщика ОС.
+	if got < expected-3 || got > expected+3 {
+		t.Fatalf("tick drift too large: got=%d expected~=%d elapsed=%v", got, expected, elapsed)
+	}
+	if loop.Stats.WorstTickDur > 50*time.Millisecond {
+		t.Fatalf("worst tick too slow: %v", loop.Stats.WorstTickDur)
 	}
 }

@@ -376,7 +376,7 @@ func (s *Server) Ping(_ context.Context, req *cellv1.PingRequest) (*cellv1.PingR
 }
 
 // SubscribeDeltas поток снапшота и дельт с мира.
-func (s *Server) SubscribeDeltas(_ *cellv1.SubscribeDeltasRequest, stream cellv1.Cell_SubscribeDeltasServer) error {
+func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cellv1.Cell_SubscribeDeltasServer) error {
 	if s.Sim == nil || s.Sim.World == nil {
 		return status.Errorf(codes.FailedPrecondition, "no simulation")
 	}
@@ -387,7 +387,12 @@ func (s *Server) SubscribeDeltas(_ *cellv1.SubscribeDeltasRequest, stream cellv1
 
 	isPlayer := func(e ecs.Entity) bool { return s.isPlayer(e) }
 
-	var lastSentTick uint64
+	viewer := ecs.Entity(req.GetViewerEntityId())
+	useAOI := viewer != 0
+	grid := s.Sim.AOIGrid
+	var prevVisible map[ecs.Entity]struct{}
+
+	var lastSendTick uint64
 	first := true
 
 	for {
@@ -397,26 +402,81 @@ func (s *Server) SubscribeDeltas(_ *cellv1.SubscribeDeltasRequest, stream cellv1
 		case <-ticker.C:
 			s.Sim.Mu.Lock()
 			tick := s.Sim.Loop.Stats.TickCount
+			if useAOI {
+				if _, ok := s.Sim.World.Position(viewer); !ok {
+					useAOI = false
+				} else if grid == nil {
+					useAOI = false
+				}
+			}
 			if first {
-				snap := replic.BuildSnapshot(s.Sim.World, tick, isPlayer)
-				s.Sim.Mu.Unlock()
-				if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Snapshot{Snapshot: snap}}); err != nil {
-					return err
+				if useAOI && grid != nil {
+					vis := visibleEntitiesAOI(s.Sim.World, grid, viewer, replicationAOIRadius)
+					snap := replic.BuildSnapshotEntities(s.Sim.World, tick, vis, isPlayer)
+					prevVisible = visibleSetFromSlice(vis)
+					s.Sim.Mu.Unlock()
+					if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Snapshot{Snapshot: snap}}); err != nil {
+						return err
+					}
+				} else {
+					snap := replic.BuildSnapshot(s.Sim.World, tick, isPlayer)
+					s.Sim.Mu.Unlock()
+					if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Snapshot{Snapshot: snap}}); err != nil {
+						return err
+					}
 				}
 				first = false
-				lastSentTick = tick
+				lastSendTick = tick
 				continue
 			}
 			dirty := s.Sim.World.TakeDirtyEntities()
-			delta := replic.BuildDelta(s.Sim.World, tick, lastSentTick, dirty, isPlayer)
+			var delta *gamev1.Delta
+			if useAOI && grid != nil {
+				curSlice := visibleEntitiesAOI(s.Sim.World, grid, viewer, replicationAOIRadius)
+				cur := visibleSetFromSlice(curSlice)
+
+				changed := make([]ecs.Entity, 0, len(dirty)+8)
+				seen := make(map[ecs.Entity]struct{}, len(dirty)+len(cur))
+				for _, e := range dirty {
+					if _, in := cur[e]; in || e == viewer {
+						changed = append(changed, e)
+						seen[e] = struct{}{}
+					}
+				}
+				if prevVisible != nil {
+					for e := range cur {
+						if _, was := prevVisible[e]; !was {
+							if _, already := seen[e]; !already {
+								changed = append(changed, e)
+								seen[e] = struct{}{}
+							}
+						}
+					}
+				}
+				delta = replic.BuildDelta(s.Sim.World, tick, lastSendTick, changed, isPlayer)
+				if prevVisible != nil {
+					removed := make([]uint64, 0)
+					for e := range prevVisible {
+						if _, now := cur[e]; !now {
+							removed = append(removed, uint64(e))
+						}
+					}
+					if len(removed) > 0 {
+						delta.RemovedEntityIds = append([]uint64(nil), removed...)
+					}
+				}
+				prevVisible = cur
+			} else {
+				delta = replic.BuildDelta(s.Sim.World, tick, lastSendTick, dirty, isPlayer)
+			}
 			s.Sim.Mu.Unlock()
 
-			if len(delta.Changed) > 0 {
+			if len(delta.Changed) > 0 || len(delta.RemovedEntityIds) > 0 {
 				if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Delta{Delta: delta}}); err != nil {
 					return err
 				}
 			}
-			lastSentTick = tick
+			lastSendTick = tick
 		}
 	}
 }

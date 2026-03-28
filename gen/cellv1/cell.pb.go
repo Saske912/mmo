@@ -1317,10 +1317,12 @@ func (x *JoinResponse) GetEntityId() uint64 {
 }
 
 type SubscribeDeltasRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FromTick      uint64                 `protobuf:"varint,1,opt,name=from_tick,json=fromTick,proto3" json:"from_tick,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	FromTick uint64                 `protobuf:"varint,1,opt,name=from_tick,json=fromTick,proto3" json:"from_tick,omitempty"`
+	// Если задано — репликация только в радиусе AOI от этой сущности (игрок после Join). 0 = весь мир (как раньше).
+	ViewerEntityId uint64 `protobuf:"varint,2,opt,name=viewer_entity_id,json=viewerEntityId,proto3" json:"viewer_entity_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SubscribeDeltasRequest) Reset() {
@@ -1356,6 +1358,13 @@ func (*SubscribeDeltasRequest) Descriptor() ([]byte, []int) {
 func (x *SubscribeDeltasRequest) GetFromTick() uint64 {
 	if x != nil {
 		return x.FromTick
+	}
+	return 0
+}
+
+func (x *SubscribeDeltasRequest) GetViewerEntityId() uint64 {
+	if x != nil {
+		return x.ViewerEntityId
 	}
 	return 0
 }
@@ -2019,9 +2028,10 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x17\n" +
 	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1b\n" +
-	"\tentity_id\x18\x04 \x01(\x04R\bentityId\"5\n" +
+	"\tentity_id\x18\x04 \x01(\x04R\bentityId\"_\n" +
 	"\x16SubscribeDeltasRequest\x12\x1b\n" +
-	"\tfrom_tick\x18\x01 \x01(\x04R\bfromTick\"`\n" +
+	"\tfrom_tick\x18\x01 \x01(\x04R\bfromTick\x12(\n" +
+	"\x10viewer_entity_id\x18\x02 \x01(\x04R\x0eviewerEntityId\"`\n" +
 	"\x11ApplyInputRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12.\n" +
 	"\x05input\x18\x02 \x01(\v2\x18.mmo.game.v1.ClientInputR\x05input\">\n" +
@@ -2071,7 +2081,7 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\x06Update\x12\x1a.mmo.cell.v1.UpdateRequest\x1a\x1b.mmo.cell.v1.UpdateResponse\x12J\n" +
 	"\tPlanSplit\x12\x1d.mmo.cell.v1.PlanSplitRequest\x1a\x1e.mmo.cell.v1.PlanSplitResponse\x12t\n" +
 	"\x17ListMigrationCandidates\x12+.mmo.cell.v1.ListMigrationCandidatesRequest\x1a,.mmo.cell.v1.ListMigrationCandidatesResponse\x12Q\n" +
-	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B\x17Z\x15mmo/gen/cellv1;cellv1b\x06proto3"
+	"\x0fSubscribeDeltas\x12#.mmo.cell.v1.SubscribeDeltasRequest\x1a\x17.mmo.cell.v1.WorldChunk0\x01B%Z\x15mmo/gen/cellv1;cellv1\xaa\x02\vMmo.Cell.V1b\x06proto3"
 
 var (
 	file_cell_v1_cell_proto_rawDescOnce sync.Once
