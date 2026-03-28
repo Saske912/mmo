@@ -102,12 +102,27 @@ message ForwardCellUpdateResponse {
   string npc_export_json = 3;
 }
 
+// Оркестрация cold-handoff NPC: экспорт с родительской соты и импорт на дочернюю (тот же JSON).
+// Дочерняя сота должна быть без подключённых игроков (см. Cell import_npc_persist).
+message ForwardNpcHandoffRequest {
+  string parent_cell_id = 1;
+  string child_cell_id = 2;
+  string reason = 3;
+}
+
+message ForwardNpcHandoffResponse {
+  bool ok = 1;
+  string message = 2;
+  int32 npc_entity_count = 3;
+}
+
 // Registry — сервис обнаружения сот (заготовка Grid Manager / Consul-роли).
 service Registry {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc ListCells(ListCellsRequest) returns (ListCellsResponse);
   rpc ResolvePosition(ResolvePositionRequest) returns (ResolvePositionResponse);
   rpc ForwardCellUpdate(ForwardCellUpdateRequest) returns (ForwardCellUpdateResponse);
+  rpc ForwardNpcHandoff(ForwardNpcHandoffRequest) returns (ForwardNpcHandoffResponse);
 }
 
 message PingRequest {

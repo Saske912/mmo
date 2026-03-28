@@ -1,0 +1,24 @@
+# Пример Job: миграции goose без RunMigrations в gateway.
+# Подставьте образ и namespace под свой кластер (тот же образ mmo-backend, что у gateway).
+#
+#   kubectl apply -f goose-job.example.yaml
+#   kubectl logs -n mmo job/mmo-goose-migrate
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mmo-goose-migrate
+  namespace: mmo
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: harbor.pass-k8s.ru/library/mmo-backend:REPLACE_TAG
+          command: ["/migrate"]
+          envFrom:
+            - secretRef:
+                name: mmo-backend

@@ -191,13 +191,14 @@ ON CONFLICT (player_id, quest_id) DO NOTHING`
 
 // PlayerQuestRow строка прогресса квеста для API.
 type PlayerQuestRow struct {
-	QuestID string
-	State   string
+	QuestID  string
+	State    string
+	Progress int
 }
 
 // ListPlayerQuests перечисляет квесты игрока (может быть пусто).
 func ListPlayerQuests(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]PlayerQuestRow, error) {
-	const q = `SELECT quest_id, state FROM mmo_player_quest WHERE player_id = $1 ORDER BY quest_id`
+	const q = `SELECT quest_id, state, progress FROM mmo_player_quest WHERE player_id = $1 ORDER BY quest_id`
 	rows, err := pool.Query(ctx, q, playerID)
 	if err != nil {
 		return nil, err
@@ -206,10 +207,73 @@ func ListPlayerQuests(ctx context.Context, pool *pgxpool.Pool, playerID string) 
 	var out []PlayerQuestRow
 	for rows.Next() {
 		var r PlayerQuestRow
-		if err := rows.Scan(&r.QuestID, &r.State); err != nil {
+		if err := rows.Scan(&r.QuestID, &r.State, &r.Progress); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// UpdatePlayerQuestProgress обновляет progress для строки квеста (строка должна существовать).
+func UpdatePlayerQuestProgress(ctx context.Context, pool *pgxpool.Pool, playerID, questID string, progress int) error {
+	if progress < 0 {
+		return fmt.Errorf("progress must be >= 0")
+	}
+	questID = strings.TrimSpace(questID)
+	if questID == "" {
+		return fmt.Errorf("empty quest_id")
+	}
+	const q = `
+UPDATE mmo_player_quest SET progress = $3, updated_at = now()
+WHERE player_id = $1 AND quest_id = $2`
+	tag, err := pool.Exec(ctx, q, playerID, questID, progress)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("quest row not found")
+	}
+	return nil
+}
+
+// PlayerItemRow предмет игрока с отображаемым именем из каталога.
+type PlayerItemRow struct {
+	ItemID      string
+	Quantity    int
+	DisplayName string
+}
+
+// ListPlayerItemsNormalized возвращает предметы из mmo_player_item + mmo_item_def.
+func ListPlayerItemsNormalized(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]PlayerItemRow, error) {
+	const q = `
+SELECT pi.item_id, pi.quantity, d.display_name
+FROM mmo_player_item pi
+JOIN mmo_item_def d ON d.id = pi.item_id
+WHERE pi.player_id = $1
+ORDER BY pi.item_id`
+	rows, err := pool.Query(ctx, q, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlayerItemRow
+	for rows.Next() {
+		var r PlayerItemRow
+		if err := rows.Scan(&r.ItemID, &r.Quantity, &r.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// EnsureStarterPlayerItems выдаёт минимальный стартовый предмет для обучения (идемпотентно).
+func EnsureStarterPlayerItems(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	const q = `
+INSERT INTO mmo_player_item (player_id, item_id, quantity)
+VALUES ($1, 'tutorial_shard', 1)
+ON CONFLICT (player_id, item_id) DO NOTHING`
+	_, err := pool.Exec(ctx, q, playerID)
+	return err
 }

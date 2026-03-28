@@ -89,6 +89,7 @@ func usage() {
   mmoctl [-registry host:port] forward-update <cell_id> split-drain <true|false>
   mmoctl [-registry host:port] forward-update <cell_id> export-npc-persist [reason]
   mmoctl [-registry host:port] forward-update <cell_id> import-npc-persist <path|-> [reason]
+  mmoctl [-registry host:port] forward-npc-handoff <parent_cell_id> <child_cell_id> [reason]
   mmoctl [-registry host:port] migration-dry-run <cell_id>
   mmoctl plansplit <host:port>
   mmoctl migration-candidates <host:port> [reason]
@@ -331,6 +332,31 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 		b := c.Bounds
 		fmt.Printf("%s level=%d endpoint=%s bounds=[%.0f,%.0f]x[%.0f,%.0f]\n",
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
+	case "forward-npc-handoff":
+		if len(rest) < 2 {
+			log.Fatal("forward-npc-handoff: need <parent_cell_id> <child_cell_id> [reason]")
+		}
+		parentID := rest[0]
+		childID := rest[1]
+		reason := "mmoctl"
+		if len(rest) >= 3 {
+			reason = rest[2]
+		}
+		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewRegistryClient(conn)
+		resp, err := cl.ForwardNpcHandoff(ctx, &cellv1.ForwardNpcHandoffRequest{
+			ParentCellId: parentID,
+			ChildCellId:  childID,
+			Reason:       reason,
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ok=%v npc_entities=%d %s\n", resp.GetOk(), resp.GetNpcEntityCount(), resp.GetMessage())
 	case "forward-update":
 		if len(rest) < 2 {
 			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist | import-npc-persist ...")

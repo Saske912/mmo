@@ -48,7 +48,7 @@ func main() {
 	resZ := flag.Float64("resolve-z", 0, "")
 	flag.Parse()
 
-	shutdownTrace, err := tracing.Init(context.Background(), "mmo-gateway")
+	shutdownTrace, err := tracing.Init(context.Background(), "gateway")
 	if err != nil {
 		log.Fatalf("tracing: %v", err)
 	}
@@ -101,6 +101,7 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/v1/session", g.session)
 	mux.HandleFunc("/v1/me/quests", g.meQuests)
+	mux.HandleFunc("/v1/me/quest-progress", g.questProgress)
 	mux.HandleFunc("/v1/ws", g.ws)
 
 	log.Printf("gateway http://%s registry=%s resolve=(%.1f,%.1f)", *listen, *registry, *resX, *resZ)
@@ -235,6 +236,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsurePlayerQuestSeed(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session quest seed: %v", ierr)
 		}
+		if ierr := db.EnsureStarterPlayerItems(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session starter items: %v", ierr)
+		}
 		icancel()
 	}
 
@@ -265,9 +269,21 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		} else if len(qrows) > 0 {
 			qarr := make([]map[string]any, 0, len(qrows))
 			for _, q := range qrows {
-				qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State})
+				qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State, "progress": q.Progress})
 			}
 			out["quests"] = qarr
+		}
+		items, ierr := db.ListPlayerItemsNormalized(sctx, g.db, body.PlayerID)
+		if ierr != nil {
+			log.Printf("session items read: %v", ierr)
+		} else if len(items) > 0 {
+			iarr := make([]map[string]any, 0, len(items))
+			for _, it := range items {
+				iarr = append(iarr, map[string]any{
+					"item_id": it.ItemID, "quantity": it.Quantity, "display_name": it.DisplayName,
+				})
+			}
+			out["items"] = iarr
 		}
 		scancel()
 	}
@@ -312,10 +328,56 @@ func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
 	}
 	qarr := make([]map[string]any, 0, len(rows))
 	for _, q := range rows {
-		qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State})
+		qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State, "progress": q.Progress})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"quests": qarr})
+}
+
+func (g *gateway) questProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := r.Header.Get("Authorization")
+	if strings.HasPrefix(tokenStr, "Bearer ") {
+		tokenStr = strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
+	} else {
+		tokenStr = r.URL.Query().Get("token")
+	}
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		QuestID  string `json:"quest_id"`
+		Progress int    `json:"progress"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.QuestID) == "" {
+		http.Error(w, `need {"quest_id":"...","progress":n}`, http.StatusBadRequest)
+		return
+	}
+	qctx, qcancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer qcancel()
+	if err := db.UpdatePlayerQuestProgress(qctx, g.db, claims.Subject, body.QuestID, body.Progress); err != nil {
+		log.Printf("quest progress: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {

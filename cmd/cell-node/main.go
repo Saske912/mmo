@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	cellv1 "mmo/gen/cellv1"
@@ -20,10 +21,20 @@ import (
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/cellsvc"
 	"mmo/internal/logging"
+	"mmo/internal/tracing"
 )
 
 func main() {
 	logging.SetupFromEnv()
+	shutdownTrace, err := tracing.Init(context.Background(), "mmo-cell-node")
+	if err != nil {
+		log.Fatalf("tracing: %v", err)
+	}
+	defer func() {
+		c, cn := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cn()
+		_ = shutdownTrace(c)
+	}()
 	listen := flag.String("listen", "127.0.0.1:0", "cell gRPC listen address (0 picks free port)")
 	grpcAdvertise := flag.String("grpc-advertise", "", "host:port для регистрации в Consul/memory (K8s DNS); иначе env MMO_CELL_GRPC_ADVERTISE / CELL_GRPC_ENDPOINT; иначе адрес listen")
 	registryAddr := flag.String("registry", "127.0.0.1:9100", "grid-manager Registry address (used if Consul is not configured)")
@@ -87,7 +98,7 @@ func main() {
 	}
 	wirePrometheus(*metricsListen, cellSvc, sim)
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	cellv1.RegisterCellServer(srv, cellSvc)
 
 	errServe := make(chan error, 1)
@@ -114,7 +125,10 @@ func main() {
 	}
 
 	if caddr == "" {
-		conn, err := grpc.NewClient(*registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(*registryAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		)
 		if err != nil {
 			log.Fatalf("registry dial: %v", err)
 		}

@@ -5,12 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	cellv1 "mmo/gen/cellv1"
@@ -92,56 +89,11 @@ func (s *Server) ForwardCellUpdate(ctx context.Context, req *cellv1.ForwardCellU
 		incRPC("ForwardCellUpdate", e)
 		return nil, e
 	}
-	if s.Store == nil {
-		e := status.Error(codes.FailedPrecondition, "no catalog")
-		incRPC("ForwardCellUpdate", e)
-		return nil, e
-	}
-
-	spec, ok, err := discovery.FindCellByID(ctx, s.Store, req.CellId)
-	if err != nil {
-		incRPC("ForwardCellUpdate", err)
-		return nil, status.Error(codes.Unavailable, err.Error())
-	}
-	if !ok || spec == nil {
-		e := status.Errorf(codes.NotFound, "cell not found: %s", req.CellId)
-		incRPC("ForwardCellUpdate", e)
-		return nil, e
-	}
-	ep := spec.GetGrpcEndpoint()
-	if ep == "" {
-		e := status.Error(codes.FailedPrecondition, "cell has empty grpc_endpoint")
-		incRPC("ForwardCellUpdate", e)
-		return nil, e
-	}
-
-	conn, err := grpc.NewClient(ep,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-	)
-	if err != nil {
-		incRPC("ForwardCellUpdate", err)
-		return nil, status.Errorf(codes.Unavailable, "dial cell: %v", err)
-	}
-	defer conn.Close()
-
-	cellCtx, cellCancel := context.WithTimeout(ctx, forwardCellDialTimeout)
-	defer cellCancel()
-	cellClient := cellv1.NewCellClient(conn)
-	updResp, err := cellClient.Update(cellCtx, req.Update)
+	out, err := s.doForwardCellUpdate(ctx, req.CellId, req.Update)
 	if err != nil {
 		incRPC("ForwardCellUpdate", err)
 		return nil, err
 	}
-	if updResp == nil {
-		e := status.Error(codes.Internal, "nil UpdateResponse")
-		incRPC("ForwardCellUpdate", e)
-		return nil, e
-	}
 	incRPC("ForwardCellUpdate", nil)
-	return &cellv1.ForwardCellUpdateResponse{
-		Ok:            updResp.Ok,
-		Message:       updResp.Message,
-		NpcExportJson: updResp.GetNpcExportJson(),
-	}, nil
+	return out, nil
 }

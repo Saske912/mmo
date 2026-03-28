@@ -73,6 +73,14 @@ cat parent_export.json | mmoctl -registry ... forward-update <child_cell_id> imp
 
 Если на соте есть живые сессии (**`PlayerCount` > 0**), импорт отклоняется — сначала освободите мир (cold-path).
 
+**Один вызов registry (export → import):** RPC **`Registry.ForwardNpcHandoff`** выполняет оба шага на стороне grid-manager без временного файла у оператора:
+
+```bash
+mmoctl -registry <grid-manager:9100> forward-npc-handoff <parent_cell_id> <child_cell_id> "handoff-ticket"
+```
+
+Из пода: `./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 forward-npc-handoff cell_0_0_0 cell_-1_-1_1 ticket`.
+
 Операторский **dry-run** (каталог → прямой gRPC списка кандидатов на **cell** + экспорт через registry):
 
 ```bash
@@ -91,6 +99,5 @@ mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 
 ## Вне этой процедуры
 
-- Автоматический live-migrate NPC между сотами без операторских шагов.
-- Автоматический redirect игрока в gateway при смене покрытия.
+- Live-migrate **игроков** и автоматический redirect в gateway при смене покрытия (сейчас — только реконнект клиента).
 - Один Registry RPC `Unregister` для путей без Consul — не требуется, если сота сама снимает регистрацию при shutdown.

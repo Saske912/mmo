@@ -23,6 +23,7 @@ const (
 	Registry_ListCells_FullMethodName         = "/mmo.cell.v1.Registry/ListCells"
 	Registry_ResolvePosition_FullMethodName   = "/mmo.cell.v1.Registry/ResolvePosition"
 	Registry_ForwardCellUpdate_FullMethodName = "/mmo.cell.v1.Registry/ForwardCellUpdate"
+	Registry_ForwardNpcHandoff_FullMethodName = "/mmo.cell.v1.Registry/ForwardNpcHandoff"
 )
 
 // RegistryClient is the client API for Registry service.
@@ -35,6 +36,7 @@ type RegistryClient interface {
 	ListCells(ctx context.Context, in *ListCellsRequest, opts ...grpc.CallOption) (*ListCellsResponse, error)
 	ResolvePosition(ctx context.Context, in *ResolvePositionRequest, opts ...grpc.CallOption) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(ctx context.Context, in *ForwardCellUpdateRequest, opts ...grpc.CallOption) (*ForwardCellUpdateResponse, error)
+	ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHandoffRequest, opts ...grpc.CallOption) (*ForwardNpcHandoffResponse, error)
 }
 
 type registryClient struct {
@@ -85,6 +87,16 @@ func (c *registryClient) ForwardCellUpdate(ctx context.Context, in *ForwardCellU
 	return out, nil
 }
 
+func (c *registryClient) ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHandoffRequest, opts ...grpc.CallOption) (*ForwardNpcHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardNpcHandoffResponse)
+	err := c.cc.Invoke(ctx, Registry_ForwardNpcHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RegistryServer is the server API for Registry service.
 // All implementations must embed UnimplementedRegistryServer
 // for forward compatibility.
@@ -95,6 +107,7 @@ type RegistryServer interface {
 	ListCells(context.Context, *ListCellsRequest) (*ListCellsResponse, error)
 	ResolvePosition(context.Context, *ResolvePositionRequest) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(context.Context, *ForwardCellUpdateRequest) (*ForwardCellUpdateResponse, error)
+	ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error)
 	mustEmbedUnimplementedRegistryServer()
 }
 
@@ -116,6 +129,9 @@ func (UnimplementedRegistryServer) ResolvePosition(context.Context, *ResolvePosi
 }
 func (UnimplementedRegistryServer) ForwardCellUpdate(context.Context, *ForwardCellUpdateRequest) (*ForwardCellUpdateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForwardCellUpdate not implemented")
+}
+func (UnimplementedRegistryServer) ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForwardNpcHandoff not implemented")
 }
 func (UnimplementedRegistryServer) mustEmbedUnimplementedRegistryServer() {}
 func (UnimplementedRegistryServer) testEmbeddedByValue()                  {}
@@ -210,6 +226,24 @@ func _Registry_ForwardCellUpdate_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Registry_ForwardNpcHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardNpcHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServer).ForwardNpcHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Registry_ForwardNpcHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServer).ForwardNpcHandoff(ctx, req.(*ForwardNpcHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Registry_ServiceDesc is the grpc.ServiceDesc for Registry service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -232,6 +266,10 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForwardCellUpdate",
 			Handler:    _Registry_ForwardCellUpdate_Handler,
+		},
+		{
+			MethodName: "ForwardNpcHandoff",
+			Handler:    _Registry_ForwardNpcHandoff_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

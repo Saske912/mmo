@@ -19,6 +19,9 @@ import (
 	"mmo/internal/ecs"
 	"mmo/internal/partition"
 	"mmo/internal/replic"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Server — Cell gRPC: Ping, Join, Leave, ApplyInput, SubscribeDeltas (репликация из ECS).
@@ -69,11 +72,14 @@ func (s *Server) IsPlayer(e ecs.Entity) bool {
 }
 
 // Join создаёт сущность игрока в ECS. Повторный Join с тем же player_id идемпотентен.
-func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinResponse, error) {
+func (s *Server) Join(ctx context.Context, req *cellv1.JoinRequest) (*cellv1.JoinResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.Join")
+	defer span.End()
 	pid := strings.TrimSpace(req.GetPlayerId())
 	if pid == "" {
 		return &cellv1.JoinResponse{Ok: false, CellId: s.CellID, Message: "empty player_id"}, nil
 	}
+	span.SetAttributes(attribute.String("cell_id", s.CellID))
 	if s.Sim == nil || s.Sim.World == nil {
 		return &cellv1.JoinResponse{Ok: true, CellId: s.CellID, Message: "no_sim"}, nil
 	}
@@ -121,7 +127,9 @@ func (s *Server) Join(_ context.Context, req *cellv1.JoinRequest) (*cellv1.JoinR
 }
 
 // Leave удаляет игрока из мира. Неизвестный player_id — ok (идемпотентно).
-func (s *Server) Leave(_ context.Context, req *cellv1.LeaveRequest) (*cellv1.LeaveResponse, error) {
+func (s *Server) Leave(ctx context.Context, req *cellv1.LeaveRequest) (*cellv1.LeaveResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.Leave")
+	defer span.End()
 	pid := strings.TrimSpace(req.GetPlayerId())
 	if pid == "" {
 		return &cellv1.LeaveResponse{Ok: false, Message: "empty player_id"}, nil
@@ -150,7 +158,9 @@ func (s *Server) Leave(_ context.Context, req *cellv1.LeaveRequest) (*cellv1.Lea
 }
 
 // ApplyInput применяет ClientInput к сущности игрока (скорость в XZ).
-func (s *Server) ApplyInput(_ context.Context, req *cellv1.ApplyInputRequest) (*cellv1.ApplyInputResponse, error) {
+func (s *Server) ApplyInput(ctx context.Context, req *cellv1.ApplyInputRequest) (*cellv1.ApplyInputResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.ApplyInput")
+	defer span.End()
 	pid := strings.TrimSpace(req.GetPlayerId())
 	if pid == "" {
 		s.reportApplyInput(false)
@@ -365,7 +375,8 @@ func (s *Server) SubscribeDeltas(_ *cellv1.SubscribeDeltasRequest, stream cellv1
 	if s.Sim == nil || s.Sim.World == nil {
 		return status.Errorf(codes.FailedPrecondition, "no simulation")
 	}
-	ctx := stream.Context()
+	ctx, span := otel.Tracer("mmo/cell").Start(stream.Context(), "Cell.SubscribeDeltas")
+	defer span.End()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 

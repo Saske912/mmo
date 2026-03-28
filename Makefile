@@ -26,6 +26,7 @@ build:
 	go build -o bin/cell-node ./cmd/cell-node
 	go build -o bin/gateway ./cmd/gateway
 	go build -o bin/mmoctl ./cmd/mmoctl
+	go build -o bin/migrate ./cmd/migrate
 
 test:
 	go test ./...

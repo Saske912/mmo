@@ -143,8 +143,15 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatal(err)
 	}
 	qrows, err := ListPlayerQuests(ctx, pool, "quest-user")
-	if err != nil || len(qrows) != 1 || qrows[0].QuestID != "tutorial_intro" || qrows[0].State != "active" {
+	if err != nil || len(qrows) != 1 || qrows[0].QuestID != "tutorial_intro" || qrows[0].State != "active" || qrows[0].Progress != 0 {
 		t.Fatalf("quest seed: %+v err=%v", qrows, err)
+	}
+	if err := UpdatePlayerQuestProgress(ctx, pool, "quest-user", "tutorial_intro", 3); err != nil {
+		t.Fatal(err)
+	}
+	qrowsP, err := ListPlayerQuests(ctx, pool, "quest-user")
+	if err != nil || len(qrowsP) != 1 || qrowsP[0].Progress != 3 {
+		t.Fatalf("quest progress: %+v err=%v", qrowsP, err)
 	}
 	if err := EnsurePlayerQuestSeed(ctx, pool, "quest-user"); err != nil {
 		t.Fatal(err)
@@ -156,5 +163,20 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	emptyQuests, err := ListPlayerQuests(ctx, pool, "no-quest-rows-xyz")
 	if err != nil || len(emptyQuests) != 0 {
 		t.Fatalf("quest empty list: %+v err=%v", emptyQuests, err)
+	}
+
+	if err := EnsureStarterPlayerItems(ctx, pool, "item-user"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ListPlayerItemsNormalized(ctx, pool, "item-user")
+	if err != nil || len(items) != 1 || items[0].ItemID != "tutorial_shard" || items[0].Quantity != 1 || items[0].DisplayName == "" {
+		t.Fatalf("starter items: %+v err=%v", items, err)
+	}
+	if err := EnsureStarterPlayerItems(ctx, pool, "item-user"); err != nil {
+		t.Fatal(err)
+	}
+	items2, err := ListPlayerItemsNormalized(ctx, pool, "item-user")
+	if err != nil || len(items2) != 1 || items2[0].Quantity != 1 {
+		t.Fatalf("starter items idempotent: %+v err=%v", items2, err)
 	}
 }

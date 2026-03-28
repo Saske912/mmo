@@ -986,6 +986,128 @@ func (x *ForwardCellUpdateResponse) GetNpcExportJson() string {
 	return ""
 }
 
+// Оркестрация cold-handoff NPC: экспорт с родительской соты и импорт на дочернюю (тот же JSON).
+// Дочерняя сота должна быть без подключённых игроков (см. Cell import_npc_persist).
+type ForwardNpcHandoffRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ParentCellId  string                 `protobuf:"bytes,1,opt,name=parent_cell_id,json=parentCellId,proto3" json:"parent_cell_id,omitempty"`
+	ChildCellId   string                 `protobuf:"bytes,2,opt,name=child_cell_id,json=childCellId,proto3" json:"child_cell_id,omitempty"`
+	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardNpcHandoffRequest) Reset() {
+	*x = ForwardNpcHandoffRequest{}
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardNpcHandoffRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardNpcHandoffRequest) ProtoMessage() {}
+
+func (x *ForwardNpcHandoffRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardNpcHandoffRequest.ProtoReflect.Descriptor instead.
+func (*ForwardNpcHandoffRequest) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ForwardNpcHandoffRequest) GetParentCellId() string {
+	if x != nil {
+		return x.ParentCellId
+	}
+	return ""
+}
+
+func (x *ForwardNpcHandoffRequest) GetChildCellId() string {
+	if x != nil {
+		return x.ChildCellId
+	}
+	return ""
+}
+
+func (x *ForwardNpcHandoffRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ForwardNpcHandoffResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Ok             bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Message        string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	NpcEntityCount int32                  `protobuf:"varint,3,opt,name=npc_entity_count,json=npcEntityCount,proto3" json:"npc_entity_count,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ForwardNpcHandoffResponse) Reset() {
+	*x = ForwardNpcHandoffResponse{}
+	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardNpcHandoffResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardNpcHandoffResponse) ProtoMessage() {}
+
+func (x *ForwardNpcHandoffResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardNpcHandoffResponse.ProtoReflect.Descriptor instead.
+func (*ForwardNpcHandoffResponse) Descriptor() ([]byte, []int) {
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ForwardNpcHandoffResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *ForwardNpcHandoffResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ForwardNpcHandoffResponse) GetNpcEntityCount() int32 {
+	if x != nil {
+		return x.NpcEntityCount
+	}
+	return 0
+}
+
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClientId      string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
@@ -995,7 +1117,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	mi := &file_cell_v1_cell_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +1129,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[17]
+	mi := &file_cell_v1_cell_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +1142,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{17}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PingRequest) GetClientId() string {
@@ -1040,7 +1162,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	mi := &file_cell_v1_cell_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1174,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[18]
+	mi := &file_cell_v1_cell_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1187,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{18}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *PingResponse) GetCellId() string {
@@ -1091,7 +1213,7 @@ type JoinRequest struct {
 
 func (x *JoinRequest) Reset() {
 	*x = JoinRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[19]
+	mi := &file_cell_v1_cell_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1103,7 +1225,7 @@ func (x *JoinRequest) String() string {
 func (*JoinRequest) ProtoMessage() {}
 
 func (x *JoinRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[19]
+	mi := &file_cell_v1_cell_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1116,7 +1238,7 @@ func (x *JoinRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
 func (*JoinRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{19}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *JoinRequest) GetPlayerId() string {
@@ -1138,7 +1260,7 @@ type JoinResponse struct {
 
 func (x *JoinResponse) Reset() {
 	*x = JoinResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[20]
+	mi := &file_cell_v1_cell_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1150,7 +1272,7 @@ func (x *JoinResponse) String() string {
 func (*JoinResponse) ProtoMessage() {}
 
 func (x *JoinResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[20]
+	mi := &file_cell_v1_cell_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1163,7 +1285,7 @@ func (x *JoinResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinResponse.ProtoReflect.Descriptor instead.
 func (*JoinResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{20}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *JoinResponse) GetOk() bool {
@@ -1203,7 +1325,7 @@ type SubscribeDeltasRequest struct {
 
 func (x *SubscribeDeltasRequest) Reset() {
 	*x = SubscribeDeltasRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[21]
+	mi := &file_cell_v1_cell_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1215,7 +1337,7 @@ func (x *SubscribeDeltasRequest) String() string {
 func (*SubscribeDeltasRequest) ProtoMessage() {}
 
 func (x *SubscribeDeltasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[21]
+	mi := &file_cell_v1_cell_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1228,7 +1350,7 @@ func (x *SubscribeDeltasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeDeltasRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeDeltasRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{21}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SubscribeDeltasRequest) GetFromTick() uint64 {
@@ -1248,7 +1370,7 @@ type ApplyInputRequest struct {
 
 func (x *ApplyInputRequest) Reset() {
 	*x = ApplyInputRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[22]
+	mi := &file_cell_v1_cell_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1260,7 +1382,7 @@ func (x *ApplyInputRequest) String() string {
 func (*ApplyInputRequest) ProtoMessage() {}
 
 func (x *ApplyInputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[22]
+	mi := &file_cell_v1_cell_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1273,7 +1395,7 @@ func (x *ApplyInputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyInputRequest.ProtoReflect.Descriptor instead.
 func (*ApplyInputRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{22}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ApplyInputRequest) GetPlayerId() string {
@@ -1300,7 +1422,7 @@ type ApplyInputResponse struct {
 
 func (x *ApplyInputResponse) Reset() {
 	*x = ApplyInputResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[23]
+	mi := &file_cell_v1_cell_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1312,7 +1434,7 @@ func (x *ApplyInputResponse) String() string {
 func (*ApplyInputResponse) ProtoMessage() {}
 
 func (x *ApplyInputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[23]
+	mi := &file_cell_v1_cell_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1325,7 +1447,7 @@ func (x *ApplyInputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyInputResponse.ProtoReflect.Descriptor instead.
 func (*ApplyInputResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{23}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ApplyInputResponse) GetOk() bool {
@@ -1351,7 +1473,7 @@ type LeaveRequest struct {
 
 func (x *LeaveRequest) Reset() {
 	*x = LeaveRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[24]
+	mi := &file_cell_v1_cell_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1363,7 +1485,7 @@ func (x *LeaveRequest) String() string {
 func (*LeaveRequest) ProtoMessage() {}
 
 func (x *LeaveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[24]
+	mi := &file_cell_v1_cell_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1376,7 +1498,7 @@ func (x *LeaveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveRequest.ProtoReflect.Descriptor instead.
 func (*LeaveRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{24}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *LeaveRequest) GetPlayerId() string {
@@ -1396,7 +1518,7 @@ type LeaveResponse struct {
 
 func (x *LeaveResponse) Reset() {
 	*x = LeaveResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[25]
+	mi := &file_cell_v1_cell_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1408,7 +1530,7 @@ func (x *LeaveResponse) String() string {
 func (*LeaveResponse) ProtoMessage() {}
 
 func (x *LeaveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[25]
+	mi := &file_cell_v1_cell_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1421,7 +1543,7 @@ func (x *LeaveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveResponse.ProtoReflect.Descriptor instead.
 func (*LeaveResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{25}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *LeaveResponse) GetOk() bool {
@@ -1450,7 +1572,7 @@ type PlanSplitResponseChild struct {
 
 func (x *PlanSplitResponseChild) Reset() {
 	*x = PlanSplitResponseChild{}
-	mi := &file_cell_v1_cell_proto_msgTypes[26]
+	mi := &file_cell_v1_cell_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1584,7 @@ func (x *PlanSplitResponseChild) String() string {
 func (*PlanSplitResponseChild) ProtoMessage() {}
 
 func (x *PlanSplitResponseChild) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[26]
+	mi := &file_cell_v1_cell_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1597,7 @@ func (x *PlanSplitResponseChild) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanSplitResponseChild.ProtoReflect.Descriptor instead.
 func (*PlanSplitResponseChild) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{26}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *PlanSplitResponseChild) GetId() string {
@@ -1509,7 +1631,7 @@ type PlanSplitRequest struct {
 
 func (x *PlanSplitRequest) Reset() {
 	*x = PlanSplitRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[27]
+	mi := &file_cell_v1_cell_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1643,7 @@ func (x *PlanSplitRequest) String() string {
 func (*PlanSplitRequest) ProtoMessage() {}
 
 func (x *PlanSplitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[27]
+	mi := &file_cell_v1_cell_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1656,7 @@ func (x *PlanSplitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanSplitRequest.ProtoReflect.Descriptor instead.
 func (*PlanSplitRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{27}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PlanSplitRequest) GetReason() string {
@@ -1553,7 +1675,7 @@ type PlanSplitResponse struct {
 
 func (x *PlanSplitResponse) Reset() {
 	*x = PlanSplitResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[28]
+	mi := &file_cell_v1_cell_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1565,7 +1687,7 @@ func (x *PlanSplitResponse) String() string {
 func (*PlanSplitResponse) ProtoMessage() {}
 
 func (x *PlanSplitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[28]
+	mi := &file_cell_v1_cell_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1578,7 +1700,7 @@ func (x *PlanSplitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanSplitResponse.ProtoReflect.Descriptor instead.
 func (*PlanSplitResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{28}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PlanSplitResponse) GetChildren() []*PlanSplitResponseChild {
@@ -1602,7 +1724,7 @@ type WorldChunk struct {
 
 func (x *WorldChunk) Reset() {
 	*x = WorldChunk{}
-	mi := &file_cell_v1_cell_proto_msgTypes[29]
+	mi := &file_cell_v1_cell_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1614,7 +1736,7 @@ func (x *WorldChunk) String() string {
 func (*WorldChunk) ProtoMessage() {}
 
 func (x *WorldChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[29]
+	mi := &file_cell_v1_cell_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1627,7 +1749,7 @@ func (x *WorldChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldChunk.ProtoReflect.Descriptor instead.
 func (*WorldChunk) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{29}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *WorldChunk) GetKind() isWorldChunk_Kind {
@@ -1681,7 +1803,7 @@ type ListMigrationCandidatesRequest struct {
 
 func (x *ListMigrationCandidatesRequest) Reset() {
 	*x = ListMigrationCandidatesRequest{}
-	mi := &file_cell_v1_cell_proto_msgTypes[30]
+	mi := &file_cell_v1_cell_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1693,7 +1815,7 @@ func (x *ListMigrationCandidatesRequest) String() string {
 func (*ListMigrationCandidatesRequest) ProtoMessage() {}
 
 func (x *ListMigrationCandidatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[30]
+	mi := &file_cell_v1_cell_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1706,7 +1828,7 @@ func (x *ListMigrationCandidatesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMigrationCandidatesRequest.ProtoReflect.Descriptor instead.
 func (*ListMigrationCandidatesRequest) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{30}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListMigrationCandidatesRequest) GetReason() string {
@@ -1727,7 +1849,7 @@ type MigrationCandidate struct {
 
 func (x *MigrationCandidate) Reset() {
 	*x = MigrationCandidate{}
-	mi := &file_cell_v1_cell_proto_msgTypes[31]
+	mi := &file_cell_v1_cell_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1739,7 +1861,7 @@ func (x *MigrationCandidate) String() string {
 func (*MigrationCandidate) ProtoMessage() {}
 
 func (x *MigrationCandidate) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[31]
+	mi := &file_cell_v1_cell_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1752,7 +1874,7 @@ func (x *MigrationCandidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MigrationCandidate.ProtoReflect.Descriptor instead.
 func (*MigrationCandidate) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{31}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MigrationCandidate) GetEntityId() uint64 {
@@ -1785,7 +1907,7 @@ type ListMigrationCandidatesResponse struct {
 
 func (x *ListMigrationCandidatesResponse) Reset() {
 	*x = ListMigrationCandidatesResponse{}
-	mi := &file_cell_v1_cell_proto_msgTypes[32]
+	mi := &file_cell_v1_cell_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1797,7 +1919,7 @@ func (x *ListMigrationCandidatesResponse) String() string {
 func (*ListMigrationCandidatesResponse) ProtoMessage() {}
 
 func (x *ListMigrationCandidatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cell_v1_cell_proto_msgTypes[32]
+	mi := &file_cell_v1_cell_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1810,7 +1932,7 @@ func (x *ListMigrationCandidatesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMigrationCandidatesResponse.ProtoReflect.Descriptor instead.
 func (*ListMigrationCandidatesResponse) Descriptor() ([]byte, []int) {
-	return file_cell_v1_cell_proto_rawDescGZIP(), []int{32}
+	return file_cell_v1_cell_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListMigrationCandidatesResponse) GetCandidates() []*MigrationCandidate {
@@ -1877,7 +1999,15 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\x19ForwardCellUpdateResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12&\n" +
-	"\x0fnpc_export_json\x18\x03 \x01(\tR\rnpcExportJson\"*\n" +
+	"\x0fnpc_export_json\x18\x03 \x01(\tR\rnpcExportJson\"|\n" +
+	"\x18ForwardNpcHandoffRequest\x12$\n" +
+	"\x0eparent_cell_id\x18\x01 \x01(\tR\fparentCellId\x12\"\n" +
+	"\rchild_cell_id\x18\x02 \x01(\tR\vchildCellId\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"o\n" +
+	"\x19ForwardNpcHandoffResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12(\n" +
+	"\x10npc_entity_count\x18\x03 \x01(\x05R\x0enpcEntityCount\"*\n" +
 	"\vPingRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"V\n" +
 	"\fPingResponse\x12\x17\n" +
@@ -1925,12 +2055,13 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\x1fListMigrationCandidatesResponse\x12?\n" +
 	"\n" +
 	"candidates\x18\x01 \x03(\v2\x1f.mmo.cell.v1.MigrationCandidateR\n" +
-	"candidates2\xe1\x02\n" +
+	"candidates2\xc5\x03\n" +
 	"\bRegistry\x12G\n" +
 	"\bRegister\x12\x1c.mmo.cell.v1.RegisterRequest\x1a\x1d.mmo.cell.v1.RegisterResponse\x12J\n" +
 	"\tListCells\x12\x1d.mmo.cell.v1.ListCellsRequest\x1a\x1e.mmo.cell.v1.ListCellsResponse\x12\\\n" +
 	"\x0fResolvePosition\x12#.mmo.cell.v1.ResolvePositionRequest\x1a$.mmo.cell.v1.ResolvePositionResponse\x12b\n" +
-	"\x11ForwardCellUpdate\x12%.mmo.cell.v1.ForwardCellUpdateRequest\x1a&.mmo.cell.v1.ForwardCellUpdateResponse2\xe7\x04\n" +
+	"\x11ForwardCellUpdate\x12%.mmo.cell.v1.ForwardCellUpdateRequest\x1a&.mmo.cell.v1.ForwardCellUpdateResponse\x12b\n" +
+	"\x11ForwardNpcHandoff\x12%.mmo.cell.v1.ForwardNpcHandoffRequest\x1a&.mmo.cell.v1.ForwardNpcHandoffResponse2\xe7\x04\n" +
 	"\x04Cell\x12;\n" +
 	"\x04Ping\x12\x18.mmo.cell.v1.PingRequest\x1a\x19.mmo.cell.v1.PingResponse\x12;\n" +
 	"\x04Join\x12\x18.mmo.cell.v1.JoinRequest\x1a\x19.mmo.cell.v1.JoinResponse\x12>\n" +
@@ -1954,7 +2085,7 @@ func file_cell_v1_cell_proto_rawDescGZIP() []byte {
 	return file_cell_v1_cell_proto_rawDescData
 }
 
-var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_cell_v1_cell_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_cell_v1_cell_proto_goTypes = []any{
 	(*Bounds)(nil),                          // 0: mmo.cell.v1.Bounds
 	(*CellSpec)(nil),                        // 1: mmo.cell.v1.CellSpec
@@ -1973,26 +2104,28 @@ var file_cell_v1_cell_proto_goTypes = []any{
 	(*UpdateResponse)(nil),                  // 14: mmo.cell.v1.UpdateResponse
 	(*ForwardCellUpdateRequest)(nil),        // 15: mmo.cell.v1.ForwardCellUpdateRequest
 	(*ForwardCellUpdateResponse)(nil),       // 16: mmo.cell.v1.ForwardCellUpdateResponse
-	(*PingRequest)(nil),                     // 17: mmo.cell.v1.PingRequest
-	(*PingResponse)(nil),                    // 18: mmo.cell.v1.PingResponse
-	(*JoinRequest)(nil),                     // 19: mmo.cell.v1.JoinRequest
-	(*JoinResponse)(nil),                    // 20: mmo.cell.v1.JoinResponse
-	(*SubscribeDeltasRequest)(nil),          // 21: mmo.cell.v1.SubscribeDeltasRequest
-	(*ApplyInputRequest)(nil),               // 22: mmo.cell.v1.ApplyInputRequest
-	(*ApplyInputResponse)(nil),              // 23: mmo.cell.v1.ApplyInputResponse
-	(*LeaveRequest)(nil),                    // 24: mmo.cell.v1.LeaveRequest
-	(*LeaveResponse)(nil),                   // 25: mmo.cell.v1.LeaveResponse
-	(*PlanSplitResponseChild)(nil),          // 26: mmo.cell.v1.PlanSplitResponseChild
-	(*PlanSplitRequest)(nil),                // 27: mmo.cell.v1.PlanSplitRequest
-	(*PlanSplitResponse)(nil),               // 28: mmo.cell.v1.PlanSplitResponse
-	(*WorldChunk)(nil),                      // 29: mmo.cell.v1.WorldChunk
-	(*ListMigrationCandidatesRequest)(nil),  // 30: mmo.cell.v1.ListMigrationCandidatesRequest
-	(*MigrationCandidate)(nil),              // 31: mmo.cell.v1.MigrationCandidate
-	(*ListMigrationCandidatesResponse)(nil), // 32: mmo.cell.v1.ListMigrationCandidatesResponse
-	(*gamev1.ClientInput)(nil),              // 33: mmo.game.v1.ClientInput
-	(*gamev1.Snapshot)(nil),                 // 34: mmo.game.v1.Snapshot
-	(*gamev1.Delta)(nil),                    // 35: mmo.game.v1.Delta
-	(*gamev1.Vec3F)(nil),                    // 36: mmo.game.v1.Vec3f
+	(*ForwardNpcHandoffRequest)(nil),        // 17: mmo.cell.v1.ForwardNpcHandoffRequest
+	(*ForwardNpcHandoffResponse)(nil),       // 18: mmo.cell.v1.ForwardNpcHandoffResponse
+	(*PingRequest)(nil),                     // 19: mmo.cell.v1.PingRequest
+	(*PingResponse)(nil),                    // 20: mmo.cell.v1.PingResponse
+	(*JoinRequest)(nil),                     // 21: mmo.cell.v1.JoinRequest
+	(*JoinResponse)(nil),                    // 22: mmo.cell.v1.JoinResponse
+	(*SubscribeDeltasRequest)(nil),          // 23: mmo.cell.v1.SubscribeDeltasRequest
+	(*ApplyInputRequest)(nil),               // 24: mmo.cell.v1.ApplyInputRequest
+	(*ApplyInputResponse)(nil),              // 25: mmo.cell.v1.ApplyInputResponse
+	(*LeaveRequest)(nil),                    // 26: mmo.cell.v1.LeaveRequest
+	(*LeaveResponse)(nil),                   // 27: mmo.cell.v1.LeaveResponse
+	(*PlanSplitResponseChild)(nil),          // 28: mmo.cell.v1.PlanSplitResponseChild
+	(*PlanSplitRequest)(nil),                // 29: mmo.cell.v1.PlanSplitRequest
+	(*PlanSplitResponse)(nil),               // 30: mmo.cell.v1.PlanSplitResponse
+	(*WorldChunk)(nil),                      // 31: mmo.cell.v1.WorldChunk
+	(*ListMigrationCandidatesRequest)(nil),  // 32: mmo.cell.v1.ListMigrationCandidatesRequest
+	(*MigrationCandidate)(nil),              // 33: mmo.cell.v1.MigrationCandidate
+	(*ListMigrationCandidatesResponse)(nil), // 34: mmo.cell.v1.ListMigrationCandidatesResponse
+	(*gamev1.ClientInput)(nil),              // 35: mmo.game.v1.ClientInput
+	(*gamev1.Snapshot)(nil),                 // 36: mmo.game.v1.Snapshot
+	(*gamev1.Delta)(nil),                    // 37: mmo.game.v1.Delta
+	(*gamev1.Vec3F)(nil),                    // 38: mmo.game.v1.Vec3f
 }
 var file_cell_v1_cell_proto_depIdxs = []int32{
 	0,  // 0: mmo.cell.v1.CellSpec.bounds:type_name -> mmo.cell.v1.Bounds
@@ -2005,39 +2138,41 @@ var file_cell_v1_cell_proto_depIdxs = []int32{
 	11, // 7: mmo.cell.v1.UpdateRequest.export_npc_persist:type_name -> mmo.cell.v1.CellUpdateExportNpcPersist
 	12, // 8: mmo.cell.v1.UpdateRequest.import_npc_persist:type_name -> mmo.cell.v1.CellUpdateImportNpcPersist
 	13, // 9: mmo.cell.v1.ForwardCellUpdateRequest.update:type_name -> mmo.cell.v1.UpdateRequest
-	33, // 10: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
+	35, // 10: mmo.cell.v1.ApplyInputRequest.input:type_name -> mmo.game.v1.ClientInput
 	0,  // 11: mmo.cell.v1.PlanSplitResponseChild.bounds:type_name -> mmo.cell.v1.Bounds
-	26, // 12: mmo.cell.v1.PlanSplitResponse.children:type_name -> mmo.cell.v1.PlanSplitResponseChild
-	34, // 13: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
-	35, // 14: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
-	36, // 15: mmo.cell.v1.MigrationCandidate.position:type_name -> mmo.game.v1.Vec3f
-	31, // 16: mmo.cell.v1.ListMigrationCandidatesResponse.candidates:type_name -> mmo.cell.v1.MigrationCandidate
+	28, // 12: mmo.cell.v1.PlanSplitResponse.children:type_name -> mmo.cell.v1.PlanSplitResponseChild
+	36, // 13: mmo.cell.v1.WorldChunk.snapshot:type_name -> mmo.game.v1.Snapshot
+	37, // 14: mmo.cell.v1.WorldChunk.delta:type_name -> mmo.game.v1.Delta
+	38, // 15: mmo.cell.v1.MigrationCandidate.position:type_name -> mmo.game.v1.Vec3f
+	33, // 16: mmo.cell.v1.ListMigrationCandidatesResponse.candidates:type_name -> mmo.cell.v1.MigrationCandidate
 	2,  // 17: mmo.cell.v1.Registry.Register:input_type -> mmo.cell.v1.RegisterRequest
 	4,  // 18: mmo.cell.v1.Registry.ListCells:input_type -> mmo.cell.v1.ListCellsRequest
 	6,  // 19: mmo.cell.v1.Registry.ResolvePosition:input_type -> mmo.cell.v1.ResolvePositionRequest
 	15, // 20: mmo.cell.v1.Registry.ForwardCellUpdate:input_type -> mmo.cell.v1.ForwardCellUpdateRequest
-	17, // 21: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
-	19, // 22: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
-	24, // 23: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
-	22, // 24: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
-	13, // 25: mmo.cell.v1.Cell.Update:input_type -> mmo.cell.v1.UpdateRequest
-	27, // 26: mmo.cell.v1.Cell.PlanSplit:input_type -> mmo.cell.v1.PlanSplitRequest
-	30, // 27: mmo.cell.v1.Cell.ListMigrationCandidates:input_type -> mmo.cell.v1.ListMigrationCandidatesRequest
-	21, // 28: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
-	3,  // 29: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
-	5,  // 30: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
-	7,  // 31: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
-	16, // 32: mmo.cell.v1.Registry.ForwardCellUpdate:output_type -> mmo.cell.v1.ForwardCellUpdateResponse
-	18, // 33: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
-	20, // 34: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
-	25, // 35: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
-	23, // 36: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
-	14, // 37: mmo.cell.v1.Cell.Update:output_type -> mmo.cell.v1.UpdateResponse
-	28, // 38: mmo.cell.v1.Cell.PlanSplit:output_type -> mmo.cell.v1.PlanSplitResponse
-	32, // 39: mmo.cell.v1.Cell.ListMigrationCandidates:output_type -> mmo.cell.v1.ListMigrationCandidatesResponse
-	29, // 40: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
-	29, // [29:41] is the sub-list for method output_type
-	17, // [17:29] is the sub-list for method input_type
+	17, // 21: mmo.cell.v1.Registry.ForwardNpcHandoff:input_type -> mmo.cell.v1.ForwardNpcHandoffRequest
+	19, // 22: mmo.cell.v1.Cell.Ping:input_type -> mmo.cell.v1.PingRequest
+	21, // 23: mmo.cell.v1.Cell.Join:input_type -> mmo.cell.v1.JoinRequest
+	26, // 24: mmo.cell.v1.Cell.Leave:input_type -> mmo.cell.v1.LeaveRequest
+	24, // 25: mmo.cell.v1.Cell.ApplyInput:input_type -> mmo.cell.v1.ApplyInputRequest
+	13, // 26: mmo.cell.v1.Cell.Update:input_type -> mmo.cell.v1.UpdateRequest
+	29, // 27: mmo.cell.v1.Cell.PlanSplit:input_type -> mmo.cell.v1.PlanSplitRequest
+	32, // 28: mmo.cell.v1.Cell.ListMigrationCandidates:input_type -> mmo.cell.v1.ListMigrationCandidatesRequest
+	23, // 29: mmo.cell.v1.Cell.SubscribeDeltas:input_type -> mmo.cell.v1.SubscribeDeltasRequest
+	3,  // 30: mmo.cell.v1.Registry.Register:output_type -> mmo.cell.v1.RegisterResponse
+	5,  // 31: mmo.cell.v1.Registry.ListCells:output_type -> mmo.cell.v1.ListCellsResponse
+	7,  // 32: mmo.cell.v1.Registry.ResolvePosition:output_type -> mmo.cell.v1.ResolvePositionResponse
+	16, // 33: mmo.cell.v1.Registry.ForwardCellUpdate:output_type -> mmo.cell.v1.ForwardCellUpdateResponse
+	18, // 34: mmo.cell.v1.Registry.ForwardNpcHandoff:output_type -> mmo.cell.v1.ForwardNpcHandoffResponse
+	20, // 35: mmo.cell.v1.Cell.Ping:output_type -> mmo.cell.v1.PingResponse
+	22, // 36: mmo.cell.v1.Cell.Join:output_type -> mmo.cell.v1.JoinResponse
+	27, // 37: mmo.cell.v1.Cell.Leave:output_type -> mmo.cell.v1.LeaveResponse
+	25, // 38: mmo.cell.v1.Cell.ApplyInput:output_type -> mmo.cell.v1.ApplyInputResponse
+	14, // 39: mmo.cell.v1.Cell.Update:output_type -> mmo.cell.v1.UpdateResponse
+	30, // 40: mmo.cell.v1.Cell.PlanSplit:output_type -> mmo.cell.v1.PlanSplitResponse
+	34, // 41: mmo.cell.v1.Cell.ListMigrationCandidates:output_type -> mmo.cell.v1.ListMigrationCandidatesResponse
+	31, // 42: mmo.cell.v1.Cell.SubscribeDeltas:output_type -> mmo.cell.v1.WorldChunk
+	30, // [30:43] is the sub-list for method output_type
+	17, // [17:30] is the sub-list for method input_type
 	17, // [17:17] is the sub-list for extension type_name
 	17, // [17:17] is the sub-list for extension extendee
 	0,  // [0:17] is the sub-list for field type_name
@@ -2056,7 +2191,7 @@ func file_cell_v1_cell_proto_init() {
 		(*UpdateRequest_ExportNpcPersist)(nil),
 		(*UpdateRequest_ImportNpcPersist)(nil),
 	}
-	file_cell_v1_cell_proto_msgTypes[29].OneofWrappers = []any{
+	file_cell_v1_cell_proto_msgTypes[31].OneofWrappers = []any{
 		(*WorldChunk_Snapshot)(nil),
 		(*WorldChunk_Delta)(nil),
 	}
@@ -2066,7 +2201,7 @@ func file_cell_v1_cell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cell_v1_cell_proto_rawDesc), len(file_cell_v1_cell_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   33,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
