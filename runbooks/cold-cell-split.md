@@ -118,6 +118,8 @@ PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=inclus
 
 ## 7. Операторский пайплайн (drain → handoff → инфра)
 
+Сжатый указатель команд и регрессии: [`docs/cells-migration-workflow.md`](../docs/cells-migration-workflow.md).
+
 Краткая последовательность без «ручного копирования Redis», когда дочерние соты уже в каталоге:
 
 1. **Окно и drain:** `forward-update <parent> set-split-drain true` (новые **Join** на родителе отклоняются); дождаться выхода игроков или предупредить о реконнекте (cold-path).
