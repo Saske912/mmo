@@ -74,14 +74,32 @@ docker-build:
 kind-load:
 	kind load docker-image $(DOCKER_IMAGE)
 
+# Docker login в Harbor: удалённый state (tofu output) или переопределение окружения:
+#   HARBOR_REGISTRY_HOSTNAME  HARBOR_DOCKER_USERNAME  HARBOR_DOCKER_PASSWORD
+# Сырое значение output принимается только если похоже на хост/логин (без ANSI и мусора от «No outputs»).
 # Docker login в Harbor: логин/пароль из outputs.mmo.harbor (через tofu output). Нужен рабочий KUBECONFIG и tofu init в staging.
 harbor-login:
 	@cd $(STAGING_DIR) && \
-		HOST=$$(tofu output -raw harbor_registry_hostname) && \
-		USER=$$(tofu output -raw harbor_docker_username) && \
-		PASS=$$(tofu output -raw harbor_docker_password) && \
-		if [ -z "$$USER" ] || [ -z "$$PASS" ]; then \
-			echo "Harbor: пустые учётные данные — проверьте outputs.mmo.harbor в remote state" >&2; exit 1; \
+		_raw_host=$$(tofu output -raw harbor_registry_hostname 2>/dev/null || true); \
+		_raw_host=$${_raw_host//$$'\r'/}; \
+		_raw_host=$${_raw_host//$$'\n'/}; \
+		_raw_user=$$(tofu output -raw harbor_docker_username 2>/dev/null || true); \
+		_raw_user=$${_raw_user//$$'\r'/}; \
+		_raw_user=$${_raw_user//$$'\n'/}; \
+		_raw_pass=$$(tofu output -raw harbor_docker_password 2>/dev/null || true); \
+		_raw_pass=$${_raw_pass//$$'\r'/}; \
+		_raw_pass=$${_raw_pass//$$'\n'/}; \
+		if [ -n "$$HARBOR_REGISTRY_HOSTNAME" ]; then HOST="$$HARBOR_REGISTRY_HOSTNAME"; \
+		elif [ -n "$$_raw_host" ] && [[ "$$_raw_host" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$$ ]]; then HOST="$$_raw_host"; \
+		else HOST=""; fi; \
+		if [ -n "$$HARBOR_DOCKER_USERNAME" ]; then USER="$$HARBOR_DOCKER_USERNAME"; \
+		elif [ -n "$$_raw_user" ] && [[ "$$_raw_user" =~ ^[[:graph:]]+$$ ]]; then USER="$$_raw_user"; \
+		else USER=""; fi; \
+		if [ -n "$$HARBOR_DOCKER_PASSWORD" ]; then PASS="$$HARBOR_DOCKER_PASSWORD"; \
+		elif [ -n "$$_raw_pass" ]; then PASS="$$_raw_pass"; \
+		else PASS=""; fi; \
+		if [ -z "$$HOST" ] || [ -z "$$USER" ] || [ -z "$$PASS" ]; then \
+			echo "Harbor: задайте HARBOR_REGISTRY_HOSTNAME, HARBOR_DOCKER_USERNAME, HARBOR_DOCKER_PASSWORD или проверьте remote state (tofu output harbor_*)" >&2; exit 1; \
 		fi && \
 		printf '%s' "$$PASS" | docker login "$$HOST" -u "$$USER" --password-stdin
 
@@ -102,7 +120,13 @@ staging-tofu-validate:
 
 harbor-push: docker-build staging-image-tfvars harbor-login
 	@cd $(STAGING_DIR) && \
-		HOST=$$(tofu output -raw harbor_registry_hostname) && \
+		HOST="$${HARBOR_REGISTRY_HOSTNAME:-}"; \
+		if [ -z "$$HOST" ]; then \
+			_raw=$$(tofu output -raw harbor_registry_hostname 2>/dev/null || true); \
+			_raw=$${_raw//$$'\r'/}; _raw=$${_raw//$$'\n'/}; \
+			if [ -n "$$_raw" ] && [[ "$$_raw" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$$ ]]; then HOST="$$_raw"; fi; \
+		fi; \
+		if [ -z "$$HOST" ]; then echo "Harbor push: задайте HARBOR_REGISTRY_HOSTNAME или remote state с harbor_registry_hostname" >&2; exit 1; fi; \
 		REF="$$HOST/$(HARBOR_PROJECT)/$(IMAGE_REPOSITORY):$(IMAGE_TAG)" && \
 		docker tag $(DOCKER_IMAGE) "$$REF" && \
 		docker push "$$REF" && \
