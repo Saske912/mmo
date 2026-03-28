@@ -29,7 +29,9 @@ resolve_gateway_public() {
   if [ -d "$STAGING_DIR" ] && command -v tofu >/dev/null 2>&1; then
     local raw
     raw="$(cd "$STAGING_DIR" && tofu output -raw gateway_public_url 2>/dev/null || true)"
-    if [ -n "$raw" ] && [ "$raw" != "null" ]; then
+    raw="${raw//$'\r'/}"
+    raw="${raw//$'\n'/}"
+    if [ -n "$raw" ] && [ "$raw" != "null" ] && [[ "$raw" =~ ^https?:// ]]; then
       printf '%s' "${raw%/}"
       return
     fi
