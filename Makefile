@@ -110,8 +110,7 @@ tofu-plan: staging-image-tfvars
 tofu-apply: staging-image-tfvars staging-tofu-validate
 	cd $(STAGING_DIR) && tofu apply -input=false -auto-approve
 
-# Миграции только из Job: образ с /migrate → kubectl apply -f deploy/staging/goose-job.example.yaml;
-# на gateway выставить GATEWAY_SKIP_DB_MIGRATIONS=true. /readyz отдаёт X-MMO-Goose-Version при успешном чтении goose_db_version.
+# Миграции staging: gateway_migrations.auto.tfvars + goose-migrate-job в deploy-staging.sh; /readyz → X-MMO-Goose-Version.
 #
 # Локальный CI/CD: тест → (коммит при изменениях) → harbor-push → tofu-apply. См. scripts/deploy-staging.sh
 deploy-staging:
