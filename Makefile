@@ -1,4 +1,4 @@
-.PHONY: proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
 
 STAGING_DIR := deploy/terraform/staging
 # OpenTofu подхватывает *.auto.tfvars автоматически; приоритет выше, чем у TF_VAR_ — обновлять перед plan/apply.
@@ -20,6 +20,10 @@ proto:
 	$(PROTOC) -I proto $(PROTO_FILES) \
 		--go_out=. --go_opt=module=mmo \
 		--go-grpc_out=. --go-grpc_opt=module=mmo
+
+# C# для Unity (Google.Protobuf в Unity/Assets/Plugins/GoogleProtobuf).
+unity-proto:
+	bash scripts/generate-unity-proto.sh
 
 build:
 	go build -o bin/grid-manager ./cmd/grid-manager
@@ -112,3 +116,7 @@ tofu-apply: staging-image-tfvars staging-tofu-validate
 # Локальный CI/CD: тест → (коммит при изменениях) → harbor-push → tofu-apply. См. scripts/deploy-staging.sh
 deploy-staging:
 	bash scripts/deploy-staging.sh $(DEPLOY_STAGING_ARGS)
+
+# После harbor-push, до tofu-apply: Job /migrate (нужен gateway_skip_db_migrations=true в TF).
+goose-migrate-job:
+	bash scripts/goose-migrate-job.sh

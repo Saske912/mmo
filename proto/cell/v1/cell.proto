@@ -5,6 +5,7 @@ package mmo.cell.v1;
 import "game/v1/replication.proto";
 
 option go_package = "mmo/gen/cellv1;cellv1";
+option csharp_namespace = "Mmo.Cell.V1";
 
 // Границы соты в плоскости XZ (как в doc.md).
 message Bounds {

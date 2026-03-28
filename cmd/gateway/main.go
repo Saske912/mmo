@@ -772,6 +772,8 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			gatewayCellHandoffMismatch.Inc()
 			w.Header().Set("X-MMO-Last-Cell-Id", rec.CellID)
 			w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
+			http.Error(w, "cell handoff required: call POST /v1/session with updated resolve_x/resolve_z (or GET /v1/me/resolve-preview), then reconnect WebSocket", http.StatusConflict)
+			return
 		}
 	}
 

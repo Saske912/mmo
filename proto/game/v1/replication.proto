@@ -3,6 +3,7 @@ syntax = "proto3";
 package mmo.game.v1;
 
 option go_package = "mmo/gen/gamev1;gamev1";
+option csharp_namespace = "Mmo.Game.V1";
 
 // Vec3f компактнее double для сети (чеклист: пакет < 1400 байт).
 message Vec3f {

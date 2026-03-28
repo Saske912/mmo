@@ -170,6 +170,12 @@ variable "gateway_jwt_secret" {
   sensitive   = true
 }
 
+variable "gateway_skip_db_migrations" {
+  type        = bool
+  description = "Если true — env GATEWAY_SKIP_DB_MIGRATIONS на gateway: DDL только через Job /migrate (см. scripts/goose-migrate-job.sh, deploy/staging/goose-job.example.yaml)."
+  default     = false
+}
+
 variable "harbor_docker_username" {
   type        = string
   description = "Логин Harbor для env секрета приложения и make harbor-login (если непусто — приоритет над outputs.mmo.harbor.docker_login_username)."

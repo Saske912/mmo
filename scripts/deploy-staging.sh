@@ -7,6 +7,11 @@
 #   ./scripts/deploy-staging.sh --no-commit
 #   ./scripts/deploy-staging.sh --no-cache -- "rebuild binaries"
 #
+# Миграции только Job + GATEWAY_SKIP_DB_MIGRATIONS на gateway:
+#   1) В TF: gateway_skip_db_migrations = true (см. gateway_migrations.auto.tfvars.example).
+#   2) STAGING_RUN_GOOSE_JOB=1 ./scripts/deploy-staging.sh
+#      (Job /migrate между harbor-push и tofu-apply).
+#
 # Тег образа пишется в deploy/terraform/staging/image.auto.tfvars (см. Makefile staging-image-tfvars),
 # чтобы tofu plan/apply без ручного TF_VAR_image_tag совпадали с последним деплоем.
 #
@@ -95,10 +100,18 @@ echo "IMAGE_TAG=$TAG"
 echo "== make harbor-push (= docker build + image.auto.tfvars + harbor login/push) =="
 make harbor-push
 
+if [ "${STAGING_RUN_GOOSE_JOB:-0}" = 1 ] || [ "${STAGING_RUN_GOOSE_JOB:-}" = true ]; then
+  echo "== STAGING_RUN_GOOSE_JOB: миграции Job /migrate до выката gateway (ожидается gateway_skip_db_migrations в TF) =="
+  bash scripts/goose-migrate-job.sh
+fi
+
 echo "== make tofu-apply (= staging-tofu-validate + apply) =="
 make tofu-apply
 
 echo ""
 echo "Готово. Образ: harbor (тег $TAG, зафиксирован в deploy/terraform/staging/image.auto.tfvars)."
 echo "Проверка: bash scripts/staging-verify.sh"
-echo "При вынесении миграций в Job: GATEWAY_SKIP_DB_MIGRATIONS=1 и заголовок X-MMO-Goose-Version на GET …/readyz после успешного goose."
+echo "Миграции:"
+echo "  • Вариант A (по умолчанию): gateway сам вызывает goose при старте, /readyz → X-MMO-Goose-Version."
+echo "  • Вариант B (Job-only DDL): в манифест gateway выставить GATEWAY_SKIP_DB_MIGRATIONS; гонять образ с entrypoint /migrate"
+echo "    (см. deploy/staging/goose-job.example.yaml); после Job проверить /readyz и версию goose."

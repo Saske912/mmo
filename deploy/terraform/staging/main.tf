@@ -406,6 +406,14 @@ resource "kubernetes_deployment" "gateway" {
               value = "json"
             }
           }
+
+          dynamic "env" {
+            for_each = var.gateway_skip_db_migrations ? [1] : []
+            content {
+              name  = "GATEWAY_SKIP_DB_MIGRATIONS"
+              value = "true"
+            }
+          }
         }
       }
     }

@@ -1,0 +1,7 @@
+# Скопируйте в gateway_migrations.auto.tfvars и примените вместе с остальными *.auto.tfvars.
+# Порядок деплоя DDL только из Job:
+#   1) Включить gateway_skip_db_migrations = true
+#   2) STAGING_RUN_GOOSE_JOB=1 bash scripts/deploy-staging.sh
+#      (или: make harbor-push && make goose-migrate-job && make tofu-apply)
+
+gateway_skip_db_migrations = true

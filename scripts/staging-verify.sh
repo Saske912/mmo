@@ -195,6 +195,19 @@ if ! curl_public "${GATEWAY_PUBLIC}/readyz" | grep -q ok; then
   exit 1
 fi
 
+if [ "${STAGING_VERIFY_READYZ_GOOSE_HEADER:-0}" = 1 ]; then
+  echo "== /readyz: ожидается заголовок X-MMO-Goose-Version (БД + goose) =="
+  RZ_HDR="$(curl_public -sSI "${GATEWAY_PUBLIC}/readyz" | tr -d '\r' | grep -i '^X-MMO-Goose-Version:' || true)"
+  if [ -z "$RZ_HDR" ]; then
+    echo "нет X-MMO-Goose-Version (пустая БД / gateway без миграций / только что поднятый кластер?)" >&2
+    exit 1
+  fi
+  echo "$RZ_HDR"
+fi
+
+echo "== gateway-api-smoke (session + /v1/me/resolve-preview) =="
+go run ./scripts/gateway-api-smoke -gateway "${GATEWAY_PUBLIC}"
+
 echo "== ws-smoke (Ingress ${GATEWAY_PUBLIC}, первые кадры; второй игрок — resolve в SW для child-sw) =="
 go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3 -second-player ws-smoke-2 -second-session-x -500 -second-session-z -500
 
