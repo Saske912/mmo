@@ -69,12 +69,17 @@ if [ -z "${FIRST_CELL:-}" ]; then
 fi
 echo "$CATALOG_PREVIEW"
 
-echo "== mmoctl migration-dry-run / export-npc-persist (smoke) =="
+echo "== mmoctl migration-dry-run (опционально) / export-npc-persist (smoke) =="
+# migration-dry-run дергает ListMigrationCandidates напрямую по grpc_endpoint из каталога (часто cluster DNS).
+# С хоста с port-forward registry это не резолвится — включайте только если mmoctl видит cell gRPC:
+#   STAGING_VERIFY_MIGRATION_DRY_RUN=1
 MIGRATE_CELL="${STAGING_VERIFY_MIGRATE_CELL:-cell_0_0_0}"
-if echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
+if [ "${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}" = 1 ] && echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
   go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" migration-dry-run "$MIGRATE_CELL"
-else
+elif [ "${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}" = 1 ]; then
   echo "skip migration-dry-run (no ${MIGRATE_CELL} in catalog)"
+else
+  echo "skip migration-dry-run (set STAGING_VERIFY_MIGRATION_DRY_RUN=1 if cell endpoints reachable from this host)"
 fi
 EXP_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" export-npc-persist staging-verify)"
 echo "$EXP_OUT"
