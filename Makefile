@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
 
 STAGING_DIR := deploy/terraform/staging
 # OpenTofu подхватывает *.auto.tfvars автоматически; приоритет выше, чем у TF_VAR_ — обновлять перед plan/apply.
@@ -55,6 +55,10 @@ infra-smoke:
 
 staging-verify:
 	bash scripts/staging-verify.sh
+
+# Лёгкая нагрузка: параллельные POST /v1/session (нагрузка на gateway, не на cell). Переопределить: GATEWAY_PUBLIC_URL N J
+load-smoke:
+	go run ./scripts/gateway-session-burst -gateway "$${GATEWAY_PUBLIC_URL:-https://mmo.pass-k8s.ru}" -n $${LOAD_SMOKE_N:-80} -j $${LOAD_SMOKE_J:-16}
 
 # GET /readyz + заголовок X-MMO-Goose-Version (после Job /migrate или выката gateway).
 verify-readyz-goose:

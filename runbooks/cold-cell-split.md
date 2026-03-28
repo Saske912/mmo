@@ -97,6 +97,25 @@ mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 
 Эквивалент вручную: `kubectl exec -n mmo deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 migration-dry-run <cell_id>`. В смоуке staging: **`STAGING_VERIFY_MIGRATION_DRY_RUN=incluster`** (см. `scripts/staging-verify.sh`).
 
+### Регрессия staging (смоук + handoff, без §5 вывода родителя)
+
+Полный автоматический прогон каталога (в т.ч. export/split-drain, B2 resolve, gateway, ws-smoke) и in-cluster **`migration-dry-run`** — **`scripts/staging-verify.sh`**. После успешного смоука при желании проверить **`ForwardNpcHandoff`**:
+
+```bash
+cd backend
+export GATEWAY_PUBLIC_URL=https://<ingress>   # если `tofu output gateway_public_url` не задан
+STAGING_VERIFY_MIGRATION_DRY_RUN=incluster \
+STAGING_VERIFY_EXPECT_CELL_IDS="cell_0_0_0,cell_-1_-1_1" \
+STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1" \
+STAGING_VERIFY_READYZ_GOOSE_HEADER=1 \
+./scripts/staging-verify.sh
+
+PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=incluster \
+  ./scripts/run-forward-npc-handoff.sh
+```
+
+Подставьте реальные `cell_id`, если в **`cell_instances`** другие имена шардов.
+
 ## 7. Операторский пайплайн (drain → handoff → инфра)
 
 Краткая последовательность без «ручного копирования Redis», когда дочерние соты уже в каталоге:
