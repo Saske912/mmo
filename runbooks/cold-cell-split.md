@@ -73,11 +73,21 @@ cat parent_export.json | mmoctl -registry ... forward-update <child_cell_id> imp
 
 Если на соте есть живые сессии (**`PlayerCount` > 0**), импорт отклоняется — сначала освободите мир (cold-path).
 
-Операторский **dry-run** (каталог → прямой gRPC списка кандидатов + экспорт через registry):
+Операторский **dry-run** (каталог → прямой gRPC списка кандидатов на **cell** + экспорт через registry):
 
 ```bash
 mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 ```
+
+`ListMigrationCandidates` вызывается **напрямую** по `grpc_endpoint` из каталога (обычно `*.svc.cluster.local`). С машины за пределами кластера без split-DNS адрес соты не резолвится. Запуск **из пода с cluster DNS** (после выката образа с бинарём **`/mmoctl`**):
+
+```bash
+# из корня репозитория, kubectl в контекст staging:
+./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 migration-dry-run <cell_id>
+./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 list
+```
+
+Эквивалент вручную: `kubectl exec -n mmo deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 migration-dry-run <cell_id>`. В смоуке staging: **`STAGING_VERIFY_MIGRATION_DRY_RUN=incluster`** (см. `scripts/staging-verify.sh`).
 
 ## Вне этой процедуры
 

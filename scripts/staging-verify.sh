@@ -70,16 +70,26 @@ fi
 echo "$CATALOG_PREVIEW"
 
 echo "== mmoctl migration-dry-run (опционально) / export-npc-persist (smoke) =="
-# migration-dry-run дергает ListMigrationCandidates напрямую по grpc_endpoint из каталога (часто cluster DNS).
-# С хоста с port-forward registry это не резолвится — включайте только если mmoctl видит cell gRPC:
-#   STAGING_VERIFY_MIGRATION_DRY_RUN=1
+# migration-dry-run дергает ListMigrationCandidates напрямую по grpc_endpoint из каталога (cluster DNS).
+# С ноутбука это не работает без резолва *.svc — варианты:
+#   STAGING_VERIFY_MIGRATION_DRY_RUN=1        — go run mmoctl на хосте (если cell gRPC с хоста доступен)
+#   STAGING_VERIFY_MIGRATION_DRY_RUN=incluster — kubectl exec deploy/grid-manager -- /mmoctl (нужен образ с /mmoctl)
 MIGRATE_CELL="${STAGING_VERIFY_MIGRATE_CELL:-cell_0_0_0}"
-if [ "${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}" = 1 ] && echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
-  go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" migration-dry-run "$MIGRATE_CELL"
-elif [ "${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}" = 1 ]; then
-  echo "skip migration-dry-run (no ${MIGRATE_CELL} in catalog)"
+MDR="${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}"
+if [ "$MDR" = "incluster" ] || [ "$MDR" = "cluster" ] || [ "$MDR" = "k8s" ]; then
+  if echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
+    kubectl exec -n "$NS" deploy/grid-manager -- /mmoctl -registry "127.0.0.1:${GM_PORT}" migration-dry-run "$MIGRATE_CELL"
+  else
+    echo "skip migration-dry-run in-cluster (no ${MIGRATE_CELL} in catalog)"
+  fi
+elif [ "$MDR" = "1" ] || [ "$MDR" = "yes" ] || [ "$MDR" = "local" ]; then
+  if echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
+    go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" migration-dry-run "$MIGRATE_CELL"
+  else
+    echo "skip migration-dry-run (no ${MIGRATE_CELL} in catalog)"
+  fi
 else
-  echo "skip migration-dry-run (set STAGING_VERIFY_MIGRATION_DRY_RUN=1 if cell endpoints reachable from this host)"
+  echo "skip migration-dry-run (host: STAGING_VERIFY_MIGRATION_DRY_RUN=1; cluster DNS: =incluster — см. scripts/mmoctl-in-cluster.sh)"
 fi
 EXP_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" forward-update "$FIRST_CELL" export-npc-persist staging-verify)"
 echo "$EXP_OUT"
