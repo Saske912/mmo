@@ -86,6 +86,8 @@ func usage() {
   mmoctl [-registry host:port] forward-update <cell_id> tps <int>
   mmoctl [-registry host:port] forward-update <cell_id> split-prepare [reason]
   mmoctl [-registry host:port] forward-update <cell_id> split-drain <true|false>
+  mmoctl [-registry host:port] forward-update <cell_id> export-npc-persist [reason]
+  mmoctl [-registry host:port] migration-dry-run <cell_id>
   mmoctl plansplit <host:port>
   mmoctl migration-candidates <host:port> [reason]
   mmoctl ping <host:port>
@@ -140,10 +142,10 @@ func runPartitionPlan(args []string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		parent := struct {
-			ParentID string        `json:"parent_id"`
-			Level    int           `json:"level"`
-			Bounds   boundsJSON    `json:"bounds"`
-			Children []childJSON   `json:"children"`
+			ParentID string      `json:"parent_id"`
+			Level    int         `json:"level"`
+			Bounds   boundsJSON  `json:"bounds"`
+			Children []childJSON `json:"children"`
 		}{
 			ParentID: strings.TrimSpace(*id),
 			Level:    *level,
@@ -329,7 +331,7 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			c.Id, c.Level, c.GrpcEndpoint, b.XMin, b.XMax, b.ZMin, b.ZMax)
 	case "forward-update":
 		if len(rest) < 2 {
-			log.Fatal("forward-update: need <cell_id> noop | tps <int> | split-prepare [reason] | split-drain true|false")
+			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist ...")
 		}
 		cellID := rest[0]
 		var upd *cellv1.UpdateRequest
@@ -369,8 +371,16 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_SetSplitDrain{
 				SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: en},
 			}}
+		case "export-npc-persist":
+			reason := "mmoctl"
+			if len(rest) >= 3 {
+				reason = rest[2]
+			}
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_ExportNpcPersist{
+				ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: reason},
+			}}
 		default:
-			log.Fatalf("forward-update: unknown mode %q (use noop, tps, split-prepare, or split-drain)", rest[1])
+			log.Fatalf("forward-update: unknown mode %q", rest[1])
 		}
 		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
@@ -382,7 +392,61 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("ok=%v %s\n", resp.Ok, resp.Message)
+		if resp.GetNpcExportJson() != "" {
+			fmt.Printf("ok=%v %s npc_export_json_bytes=%d\n", resp.Ok, resp.Message, len(resp.GetNpcExportJson()))
+		} else {
+			fmt.Printf("ok=%v %s\n", resp.Ok, resp.Message)
+		}
+	case "migration-dry-run":
+		if len(rest) < 1 {
+			log.Fatal("migration-dry-run: need cell_id")
+		}
+		cellID := strings.TrimSpace(rest[0])
+		rconn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rconn.Close()
+		rcl := cellv1.NewRegistryClient(rconn)
+		list, err := rcl.ListCells(ctx, &cellv1.ListCellsRequest{})
+		if err != nil {
+			log.Fatal(err)
+		}
+		var spec *cellv1.CellSpec
+		for _, c := range list.GetCells() {
+			if c.GetId() == cellID {
+				spec = c
+				break
+			}
+		}
+		if spec == nil {
+			log.Fatalf("migration-dry-run: cell %q not in registry", cellID)
+		}
+		ep := spec.GetGrpcEndpoint()
+		if ep == "" {
+			log.Fatal("migration-dry-run: empty grpc_endpoint")
+		}
+		cconn, err := grpc.NewClient(ep, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cconn.Close()
+		ccl := cellv1.NewCellClient(cconn)
+		mc, err := ccl.ListMigrationCandidates(ctx, &cellv1.ListMigrationCandidatesRequest{Reason: "migration-dry-run"})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ListMigrationCandidates total=%d (cell %s direct gRPC)\n", len(mc.GetCandidates()), cellID)
+		exp, err := rcl.ForwardCellUpdate(ctx, &cellv1.ForwardCellUpdateRequest{
+			CellId: cellID,
+			Update: &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_ExportNpcPersist{
+				ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: "migration-dry-run"},
+			}},
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ForwardCellUpdate export ok=%v %s json_bytes=%d\n", exp.Ok, exp.Message, len(exp.GetNpcExportJson()))
 	case "plansplit":
 		if len(rest) != 1 {
 			log.Fatal("plansplit: need host:port")

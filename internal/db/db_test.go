@@ -88,6 +88,18 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 		t.Fatalf("GetPlayerWallet missing: err=%v ok=%v", err, okWMiss)
 	}
 
+	if err := EnsurePlayerInventory(ctx, pool, "inv-user"); err != nil {
+		t.Fatal(err)
+	}
+	raw, okI, err := GetPlayerInventoryItems(ctx, pool, "inv-user")
+	if err != nil || !okI || string(raw) != "[]" {
+		t.Fatalf("inventory default: %q ok=%v err=%v", string(raw), okI, err)
+	}
+	_, okIMiss, err := GetPlayerInventoryItems(ctx, pool, "no-inv-row-xyz")
+	if err != nil || okIMiss {
+		t.Fatalf("GetPlayerInventoryItems missing: err=%v ok=%v", err, okIMiss)
+	}
+
 	if err := UpsertPlayerLastCell(ctx, pool, "test-last-cell", "cell_0_0_0", 10.5, -20.25); err != nil {
 		t.Fatal(err)
 	}

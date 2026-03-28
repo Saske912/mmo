@@ -60,6 +60,11 @@ message CellUpdateSetSplitDrain {
   bool enabled = 1;
 }
 
+// Экспорт NPC для cold-handoff: JSON game.v1.CellPersist (сущности без игроков), см. runbook cold-cell-split.
+message CellUpdateExportNpcPersist {
+  string reason = 1;
+}
+
 message UpdateRequest {
   oneof payload {
     CellUpdateNoop noop = 1;
@@ -67,12 +72,15 @@ message UpdateRequest {
     int32 set_target_tps = 2;
     CellUpdateSplitPrepare split_prepare = 3;
     CellUpdateSetSplitDrain set_split_drain = 4;
+    CellUpdateExportNpcPersist export_npc_persist = 5;
   }
 }
 
 message UpdateResponse {
   bool ok = 1;
   string message = 2;
+  // При export_npc_persist: JSON mmo.game.v1.CellPersist (NPC-only).
+  string npc_export_json = 3;
 }
 
 // Прокси команды Update на соту по logical id (grid-manager → cell-node).
@@ -84,6 +92,7 @@ message ForwardCellUpdateRequest {
 message ForwardCellUpdateResponse {
   bool ok = 1;
   string message = 2;
+  string npc_export_json = 3;
 }
 
 // Registry — сервис обнаружения сот (заготовка Grid Manager / Consul-роли).

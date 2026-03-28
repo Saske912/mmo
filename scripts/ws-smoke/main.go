@@ -96,15 +96,19 @@ func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error
 }
 
 func runOnce(base, player string, displayName *string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
-	token, hasSt, lvl, xpv, hasWal, gold, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
+	sess, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
 	if err != nil {
 		return err
 	}
-	if hasSt {
-		fmt.Printf("[%s] session stats: level=%d xp=%d\n", player, lvl, xpv)
+	token := sess.Token
+	if sess.Stats != nil {
+		fmt.Printf("[%s] session stats: level=%d xp=%d\n", player, sess.Stats.Level, sess.Stats.XP)
 	}
-	if hasWal {
-		fmt.Printf("[%s] session wallet: gold=%d\n", player, gold)
+	if sess.Wallet != nil {
+		fmt.Printf("[%s] session wallet: gold=%d\n", player, sess.Wallet.Gold)
+	}
+	if len(sess.Inventory) > 0 {
+		fmt.Printf("[%s] session inventory: %s\n", player, string(sess.Inventory))
 	}
 
 	wsURL, err := wsDialURL(base, token)
@@ -164,7 +168,20 @@ func runOnce(base, player string, displayName *string, n, inputs int, verbose bo
 	return nil
 }
 
-func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (token string, hasStats bool, level int, xp int64, hasWallet bool, gold int64, err error) {
+// sessionInfo — поля /v1/session (при наличии БД у gateway).
+type sessionInfo struct {
+	Token string `json:"token"`
+	Stats *struct {
+		Level int   `json:"level"`
+		XP    int64 `json:"xp"`
+	} `json:"stats"`
+	Wallet *struct {
+		Gold int64 `json:"gold"`
+	} `json:"wallet"`
+	Inventory json.RawMessage `json:"inventory"`
+}
+
+func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (sessionInfo, error) {
 	m := map[string]any{"player_id": player}
 	if displayName != nil && *displayName != "" {
 		m["display_name"] = *displayName
@@ -175,42 +192,24 @@ func sessionToken(base, player string, displayName *string, resolveX, resolveZ *
 	}
 	body, err := json.Marshal(m)
 	if err != nil {
-		return "", false, 0, 0, false, 0, err
+		return sessionInfo{}, err
 	}
 	resp, err := http.Post(base+"/v1/session", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return "", false, 0, 0, false, 0, err
+		return sessionInfo{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false, 0, 0, false, 0, fmt.Errorf("session: %s", resp.Status)
+		return sessionInfo{}, fmt.Errorf("session: %s", resp.Status)
 	}
-	var out struct {
-		Token string `json:"token"`
-		Stats *struct {
-			Level int   `json:"level"`
-			XP    int64 `json:"xp"`
-		} `json:"stats"`
-		Wallet *struct {
-			Gold int64 `json:"gold"`
-		} `json:"wallet"`
-	}
+	var out sessionInfo
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", false, 0, 0, false, 0, err
+		return sessionInfo{}, err
 	}
 	if out.Token == "" {
-		return "", false, 0, 0, false, 0, fmt.Errorf("session: empty token")
+		return sessionInfo{}, fmt.Errorf("session: empty token")
 	}
-	if out.Stats != nil {
-		if out.Wallet != nil {
-			return out.Token, true, out.Stats.Level, out.Stats.XP, true, out.Wallet.Gold, nil
-		}
-		return out.Token, true, out.Stats.Level, out.Stats.XP, false, 0, nil
-	}
-	if out.Wallet != nil {
-		return out.Token, false, 0, 0, true, out.Wallet.Gold, nil
-	}
-	return out.Token, false, 0, 0, false, 0, nil
+	return out, nil
 }
 
 func wsDialURL(httpBase, token string) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -153,4 +154,27 @@ func GetPlayerWallet(ctx context.Context, pool *pgxpool.Pool, playerID string) (
 		return 0, false, err
 	}
 	return gold, true, nil
+}
+
+// EnsurePlayerInventory создаёт пустой инвентарь при первой сессии (идемпотентно).
+func EnsurePlayerInventory(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	const q = `
+INSERT INTO mmo_player_inventory (player_id) VALUES ($1)
+ON CONFLICT (player_id) DO NOTHING`
+	_, err := pool.Exec(ctx, q, playerID)
+	return err
+}
+
+// GetPlayerInventoryItems возвращает нормализованный JSON массива предметов для ответа API.
+func GetPlayerInventoryItems(ctx context.Context, pool *pgxpool.Pool, playerID string) (items json.RawMessage, ok bool, err error) {
+	const q = `SELECT items FROM mmo_player_inventory WHERE player_id = $1`
+	var raw []byte
+	err = pool.QueryRow(ctx, q, playerID).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return json.RawMessage(raw), true, nil
 }

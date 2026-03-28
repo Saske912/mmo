@@ -10,10 +10,12 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
 	"mmo/internal/cellsim"
+	"mmo/internal/cellsim/snapshot"
 	"mmo/internal/ecs"
 	"mmo/internal/partition"
 	"mmo/internal/replic"
@@ -255,6 +257,26 @@ func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.U
 			return &cellv1.UpdateResponse{Ok: true, Message: "split_drain enabled"}, nil
 		}
 		return &cellv1.UpdateResponse{Ok: true, Message: "split_drain disabled"}, nil
+	case *cellv1.UpdateRequest_ExportNpcPersist:
+		if s.Sim == nil || s.Sim.World == nil || s.Sim.Loop == nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "no_sim"}, nil
+		}
+		reason := ""
+		if p.ExportNpcPersist != nil {
+			reason = strings.TrimSpace(p.ExportNpcPersist.GetReason())
+		}
+		s.Sim.Mu.Lock()
+		persist := snapshot.Encode(s.Sim, s.isPlayer)
+		s.Sim.Mu.Unlock()
+		raw, err := protojson.Marshal(persist)
+		if err != nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "marshal: " + err.Error()}, nil
+		}
+		msg := fmt.Sprintf("export_npc_persist entities=%d", len(persist.Entities))
+		if reason != "" {
+			msg += " reason=" + reason
+		}
+		return &cellv1.UpdateResponse{Ok: true, Message: msg, NpcExportJson: string(raw)}, nil
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}

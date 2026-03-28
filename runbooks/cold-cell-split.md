@@ -53,8 +53,24 @@ mmoctl -registry <grid-manager:9100> resolve -500 -500
 2. Остановите родительский `cell-node` **gracefully** (SIGTERM): при `CONSUL_HTTP_ADDR` выполнится `ServiceDeregister` по составному id pod (см. [cmd/cell-node/main.go](../cmd/cell-node/main.go)).
 3. При необходимости удалите родителя из `cell_instances` и примените Terraform, чтобы не поднимать разорванный шард снова.
 
+## 6. Экспорт NPC для ручного переноса (MVP)
+
+После **`split_drain`** и осознанного окна можно снять снапшот **только NPC** (как при persist в Redis, без игроков) в JSON **`game.v1.CellPersist`**:
+
+```bash
+mmoctl -registry <grid-manager:9100> forward-update <parent_cell_id> export-npc-persist "handoff-ticket"
+```
+
+Ответ **`ForwardCellUpdate`** содержит **`npc_export_json`** (на стороне grid-manager то же поле проксируется). Оператор может положить полезную нагрузку в ключ Redis дочерней соты `mmo:cell:<child_id>:state` или использовать для отладки. Полный live-handoff без ручных шагов — вне cold-path.
+
+Операторский **dry-run** (каталог → прямой gRPC списка кандидатов + экспорт через registry):
+
+```bash
+mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
+```
+
 ## Вне этой процедуры
 
-- Live-migrate NPC между сотами по gRPC.
+- Автоматический live-migrate NPC между сотами без операторских шагов.
 - Автоматический redirect игрока в gateway при смене покрытия.
 - Один Registry RPC `Unregister` для путей без Consul — не требуется, если сота сама снимает регистрацию при shutdown.

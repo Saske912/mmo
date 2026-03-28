@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -74,6 +76,11 @@ func (s *Server) ResolvePosition(ctx context.Context, req *cellv1.ResolvePositio
 func (s *Server) ForwardCellUpdate(ctx context.Context, req *cellv1.ForwardCellUpdateRequest) (*cellv1.ForwardCellUpdateResponse, error) {
 	start := time.Now()
 	defer func() { observeRPCDuration("ForwardCellUpdate", start) }()
+	ctx, span := otel.Tracer("mmo/grid-manager").Start(ctx, "Registry.ForwardCellUpdate")
+	defer span.End()
+	if req != nil {
+		span.SetAttributes(attribute.String("cell_id", req.GetCellId()))
+	}
 	if req == nil || req.Update == nil {
 		e := status.Error(codes.InvalidArgument, "empty request or update")
 		incRPC("ForwardCellUpdate", e)
@@ -128,5 +135,9 @@ func (s *Server) ForwardCellUpdate(ctx context.Context, req *cellv1.ForwardCellU
 		return nil, e
 	}
 	incRPC("ForwardCellUpdate", nil)
-	return &cellv1.ForwardCellUpdateResponse{Ok: updResp.Ok, Message: updResp.Message}, nil
+	return &cellv1.ForwardCellUpdateResponse{
+		Ok:            updResp.Ok,
+		Message:       updResp.Message,
+		NpcExportJson: updResp.GetNpcExportJson(),
+	}, nil
 }

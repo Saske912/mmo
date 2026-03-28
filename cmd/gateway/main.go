@@ -28,6 +28,9 @@ import (
 	"mmo/internal/config"
 	"mmo/internal/db"
 	"mmo/internal/logging"
+	"mmo/internal/tracing"
+
+	"go.opentelemetry.io/otel"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -42,6 +45,16 @@ func main() {
 	resX := flag.Float64("resolve-x", 0, "координата для ResolvePosition (выбор соты)")
 	resZ := flag.Float64("resolve-z", 0, "")
 	flag.Parse()
+
+	shutdownTrace, err := tracing.Init(context.Background(), "mmo-gateway")
+	if err != nil {
+		log.Fatalf("tracing: %v", err)
+	}
+	defer func() {
+		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		_ = shutdownTrace(ctx)
+	}()
 
 	jwtBytes := []byte(*jwtSecret)
 	if v := strings.TrimSpace(os.Getenv("GATEWAY_JWT_SECRET")); v != "" {
@@ -213,6 +226,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsurePlayerWallet(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session wallet ensure: %v", ierr)
 		}
+		if ierr := db.EnsurePlayerInventory(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session inventory ensure: %v", ierr)
+		}
 		icancel()
 	}
 
@@ -230,6 +246,12 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 			log.Printf("session wallet read: %v", werr)
 		} else if wok {
 			out["wallet"] = map[string]any{"gold": gold}
+		}
+		inv, iok, ierr := db.GetPlayerInventoryItems(sctx, g.db, body.PlayerID)
+		if ierr != nil {
+			log.Printf("session inventory read: %v", ierr)
+		} else if iok {
+			out["inventory"] = inv
 		}
 		scancel()
 	}
@@ -270,8 +292,11 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	defer regCC.Close()
 	reg := cellv1.NewRegistryClient(regCC)
+	tr := otel.Tracer("mmo/gateway")
+	rctx, rspan := tr.Start(ctx, "Registry.ResolvePosition")
 	resolveStart := time.Now()
-	res, err := reg.ResolvePosition(ctx, &cellv1.ResolvePositionRequest{X: rx, Z: rz})
+	res, err := reg.ResolvePosition(rctx, &cellv1.ResolvePositionRequest{X: rx, Z: rz})
+	rspan.End()
 	gatewayRegistryResolveDuration.Observe(time.Since(resolveStart).Seconds())
 	if err != nil {
 		log.Printf("resolve: %v", err)
@@ -303,8 +328,10 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer cellCC.Close()
 	cell := cellv1.NewCellClient(cellCC)
 
+	jctx, jspan := tr.Start(ctx, "Cell.Join")
+	defer jspan.End()
 	joinStart := time.Now()
-	jres, err := cell.Join(ctx, &cellv1.JoinRequest{PlayerId: playerID})
+	jres, err := cell.Join(jctx, &cellv1.JoinRequest{PlayerId: playerID})
 	joinResult := "ok"
 	if err != nil || jres == nil || !jres.Ok {
 		joinResult = "err"

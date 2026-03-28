@@ -2,6 +2,7 @@ package cellsvc
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -140,6 +141,27 @@ func TestUpdateSetSplitDrain(t *testing.T) {
 	j2, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "after_undrain"})
 	if err != nil || !j2.Ok {
 		t.Fatalf("join after undrain: %+v err=%v", j2, err)
+	}
+}
+
+func TestUpdateExportNpcPersist(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "exp1", Sim: sim}
+	ctx := context.Background()
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_ExportNpcPersist{
+			ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: "test"},
+		},
+	})
+	if err != nil || res == nil || !res.Ok {
+		t.Fatalf("export: %+v err=%v", res, err)
+	}
+	if res.NpcExportJson == "" {
+		t.Fatal("expected npc_export_json")
+	}
+	// protojson опускает пустой repeated entities.
+	if !strings.Contains(res.NpcExportJson, "schemaVersion") {
+		t.Fatalf("unexpected json: %s", res.NpcExportJson)
 	}
 }
 

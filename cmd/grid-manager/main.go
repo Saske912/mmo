@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	cellv1 "mmo/gen/cellv1"
@@ -12,10 +14,20 @@ import (
 	"mmo/internal/grpc/registrysvc"
 	"mmo/internal/logging"
 	"mmo/internal/registry"
+	"mmo/internal/tracing"
 )
 
 func main() {
 	logging.SetupFromEnv()
+	shutdownTrace, err := tracing.Init(context.Background(), "mmo-grid-manager")
+	if err != nil {
+		log.Fatalf("tracing: %v", err)
+	}
+	defer func() {
+		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		_ = shutdownTrace(ctx)
+	}()
 	addr := flag.String("listen", "127.0.0.1:9100", "gRPC listen address")
 	metricsListen := flag.String("metrics-listen", "", "HTTP listen для /metrics (например 0.0.0.0:9091); пусто — выкл")
 	backend := flag.String("backend", "auto", "catalog backend: auto | memory | consul")
