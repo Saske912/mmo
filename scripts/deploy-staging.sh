@@ -116,8 +116,14 @@ fi
 echo "== make tofu-apply (= staging-tofu-validate + apply) =="
 make tofu-apply
 
+if [ "${STAGING_VERIFY_READYZ_GOOSE_AFTER_DEPLOY:-0}" = 1 ] || [ "${STAGING_VERIFY_READYZ_GOOSE_AFTER_DEPLOY:-}" = "yes" ]; then
+  echo "== verify-gateway-readyz-goose (STAGING_VERIFY_READYZ_GOOSE_AFTER_DEPLOY) =="
+  bash scripts/verify-gateway-readyz-goose.sh
+fi
+
 echo ""
 echo "Готово. Образ: harbor (тег $TAG, зафиксирован в deploy/terraform/staging/image.auto.tfvars)."
 echo "Проверка: bash scripts/staging-verify.sh"
 echo "Миграции (staging): Job /migrate перед apply при gateway_migrations.auto.tfvars; gateway — GATEWAY_SKIP_DB_MIGRATIONS."
-echo "  Проверка: GET …/readyz → X-MMO-Goose-Version. Отключить Job: STAGING_RUN_GOOSE_JOB=0"
+echo "  Проверка: GET …/readyz → X-MMO-Goose-Version (make verify-readyz-goose или STAGING_VERIFY_READYZ_GOOSE_AFTER_DEPLOY=1)."
+echo "  Отключить Job: STAGING_RUN_GOOSE_JOB=0"

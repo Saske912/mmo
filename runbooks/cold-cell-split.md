@@ -107,6 +107,8 @@ mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 4. **Инфра:** при появлении новых шардов — обновить `cell_instances` в OpenTofu, `tofu apply`; **drain off** на родителе перед выводом: `set-split-drain false`.
 5. **Клиенты:** новые сессии с **resolve** в зоне ребёнка идут на дочернюю соту; уже открытый WebSocket нужно переподнять при смене покрытия (см. §4).
 
+**Скрипт-обёртка:** из корня backend задайте `PARENT`, `CHILD` и при необходимости `MODE=incluster` — [`scripts/run-forward-npc-handoff.sh`](../scripts/run-forward-npc-handoff.sh) (локально: `go run mmoctl`; в кластере: `kubectl exec … /mmoctl`).
+
 Подсказка для клиента после сессии с БД: **GET** `https://<gateway>/v1/me/last-cell` (JWT) — последние **`cell_id`** / **`resolve_x,z`** из `mmo_player_last_cell` для реконнекта без угадывания координат.
 
 ## Вне этой процедуры

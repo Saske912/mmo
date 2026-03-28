@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
 
 STAGING_DIR := deploy/terraform/staging
 # OpenTofu подхватывает *.auto.tfvars автоматически; приоритет выше, чем у TF_VAR_ — обновлять перед plan/apply.
@@ -55,6 +55,10 @@ infra-smoke:
 
 staging-verify:
 	bash scripts/staging-verify.sh
+
+# GET /readyz + заголовок X-MMO-Goose-Version (после Job /migrate или выката gateway).
+verify-readyz-goose:
+	bash scripts/verify-gateway-readyz-goose.sh
 
 # Пример принудительной пересборки бинарей: DOCKER_BUILD_OPTS=--no-cache make harbor-push
 DOCKER_BUILD_OPTS ?=
