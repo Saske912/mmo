@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -10,6 +13,8 @@ import (
 
 	"mmo/internal/cellsim"
 	"mmo/internal/grpc/cellsvc"
+
+	"go.opentelemetry.io/otel"
 )
 
 func wirePrometheus(addr string, cellSvc *cellsvc.Server, sim *cellsim.Runtime) {
@@ -37,7 +42,13 @@ func wirePrometheus(addr string, cellSvc *cellsvc.Server, sim *cellsim.Runtime) 
 		Buckets:   prometheus.DefBuckets,
 	})
 
+	tickOtel := strings.EqualFold(strings.TrimSpace(os.Getenv("MMO_CELL_OTEL_TICK_SPAN")), "1") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("MMO_CELL_OTEL_TICK_SPAN")), "true")
 	sim.OnTick = func() {
+		if tickOtel {
+			_, sp := otel.Tracer("mmo/cell").Start(context.Background(), "Cell.GameLoop.Tick")
+			defer sp.End()
+		}
 		ticks.Inc()
 		if sim.Loop != nil {
 			tickDur.Observe(sim.Loop.Stats.LastTickDur.Seconds())

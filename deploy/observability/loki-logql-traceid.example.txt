@@ -1,0 +1,8 @@
+# Примеры LogQL (Grafana Explore / сохранённые запросы): связка Loki ↔ Tempo по trace_id.
+# Подставьте селекторы из outputs Terraform: loki_logql_base, loki_pod_label_selectors.
+
+# Все JSON-логи gateway за интервал с конкретным trace (после correlate из Tempo):
+{namespace="mmo"} |= "trace_id" | json | trace_id = "<paste_trace_id>"
+
+# События join/resolve по поду gateway (structured logs):
+{namespace="mmo"} | json | msg =~ "registry_resolve_ok|cell_join_ok"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"math"
@@ -72,12 +73,16 @@ func main() {
 		if err != nil {
 			log.Fatalf("database pool: %v", err)
 		}
-		sctx, scancel := context.WithTimeout(context.Background(), 15*time.Second)
-		err = db.RunMigrations(sctx, cfg.DatabaseURLRW)
-		scancel()
-		if err != nil {
-			p.Close()
-			log.Fatalf("database migrations: %v", err)
+		if cfg.GatewaySkipDBMigrations {
+			log.Printf("database: GATEWAY_SKIP_DB_MIGRATIONS set — не применяем goose (ожидается Job /migrate)")
+		} else {
+			sctx, scancel := context.WithTimeout(context.Background(), 15*time.Second)
+			err = db.RunMigrations(sctx, cfg.DatabaseURLRW)
+			scancel()
+			if err != nil {
+				p.Close()
+				log.Fatalf("database migrations: %v", err)
+			}
 		}
 		pgPool = p
 		defer pgPool.Close()
@@ -102,6 +107,8 @@ func main() {
 	mux.HandleFunc("/v1/session", g.session)
 	mux.HandleFunc("/v1/me/quests", g.meQuests)
 	mux.HandleFunc("/v1/me/quest-progress", g.questProgress)
+	mux.HandleFunc("/v1/me/items/add", g.itemsAdd)
+	mux.HandleFunc("/v1/me/last-cell", g.lastCell)
 	mux.HandleFunc("/v1/ws", g.ws)
 
 	log.Printf("gateway http://%s registry=%s resolve=(%.1f,%.1f)", *listen, *registry, *resX, *resZ)
@@ -147,11 +154,18 @@ func (g *gateway) readyz(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	err := g.db.Ping(ctx)
-	cancel()
 	if err != nil {
+		cancel()
 		log.Printf("readyz: %v", err)
 		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 		return
+	}
+	ver, verr := db.LatestAppliedGooseVersion(ctx, g.db)
+	cancel()
+	if verr != nil {
+		log.Printf("readyz goose version: %v", verr)
+	} else if ver > 0 {
+		w.Header().Set("X-MMO-Goose-Version", fmt.Sprintf("%d", ver))
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
@@ -239,6 +253,9 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		if ierr := db.EnsureStarterPlayerItems(ictx, g.db, body.PlayerID); ierr != nil {
 			log.Printf("session starter items: %v", ierr)
 		}
+		if ierr := db.SyncPlayerInventoryJSONB(ictx, g.db, body.PlayerID); ierr != nil {
+			log.Printf("session inventory sync: %v", ierr)
+		}
 		icancel()
 	}
 
@@ -263,13 +280,15 @@ func (g *gateway) session(w http.ResponseWriter, r *http.Request) {
 		} else if iok {
 			out["inventory"] = inv
 		}
-		qrows, qerr := db.ListPlayerQuests(sctx, g.db, body.PlayerID)
+		qrows, qerr := db.ListPlayerQuestsForAPI(sctx, g.db, body.PlayerID)
 		if qerr != nil {
 			log.Printf("session quests read: %v", qerr)
 		} else if len(qrows) > 0 {
 			qarr := make([]map[string]any, 0, len(qrows))
 			for _, q := range qrows {
-				qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State, "progress": q.Progress})
+				qarr = append(qarr, map[string]any{
+					"quest_id": q.QuestID, "state": q.State, "progress": q.Progress, "target_progress": q.TargetProgress,
+				})
 			}
 			out["quests"] = qarr
 		}
@@ -300,12 +319,7 @@ func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	tokenStr := r.Header.Get("Authorization")
-	if strings.HasPrefix(tokenStr, "Bearer ") {
-		tokenStr = strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
-	} else {
-		tokenStr = r.URL.Query().Get("token")
-	}
+	tokenStr := bearerOrQueryToken(r)
 	if tokenStr == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -320,7 +334,7 @@ func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
 	}
 	qctx, qcancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer qcancel()
-	rows, err := db.ListPlayerQuests(qctx, g.db, claims.Subject)
+	rows, err := db.ListPlayerQuestsForAPI(qctx, g.db, claims.Subject)
 	if err != nil {
 		log.Printf("me quests: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -328,7 +342,9 @@ func (g *gateway) meQuests(w http.ResponseWriter, r *http.Request) {
 	}
 	qarr := make([]map[string]any, 0, len(rows))
 	for _, q := range rows {
-		qarr = append(qarr, map[string]any{"quest_id": q.QuestID, "state": q.State, "progress": q.Progress})
+		qarr = append(qarr, map[string]any{
+			"quest_id": q.QuestID, "state": q.State, "progress": q.Progress, "target_progress": q.TargetProgress,
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"quests": qarr})
@@ -343,12 +359,7 @@ func (g *gateway) questProgress(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	tokenStr := r.Header.Get("Authorization")
-	if strings.HasPrefix(tokenStr, "Bearer ") {
-		tokenStr = strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
-	} else {
-		tokenStr = r.URL.Query().Get("token")
-	}
+	tokenStr := bearerOrQueryToken(r)
 	if tokenStr == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -369,15 +380,119 @@ func (g *gateway) questProgress(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `need {"quest_id":"...","progress":n}`, http.StatusBadRequest)
 		return
 	}
-	qctx, qcancel := context.WithTimeout(r.Context(), 2*time.Second)
+	qctx, qcancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer qcancel()
-	if err := db.UpdatePlayerQuestProgress(qctx, g.db, claims.Subject, body.QuestID, body.Progress); err != nil {
+	res, err := db.ApplyPlayerQuestProgress(qctx, g.db, claims.Subject, body.QuestID, body.Progress)
+	if err != nil {
 		log.Printf("quest progress: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	out := map[string]any{
+		"ok": true, "completed": res.Completed, "progress": res.Progress, "target_progress": res.TargetProgress,
+		"already_complete": res.AlreadyComplete,
+	}
+	if res.Completed {
+		out["gold_reward"] = res.GoldReward
+		if len(res.ItemsRewarded) > 0 {
+			ir := make([]map[string]any, 0, len(res.ItemsRewarded))
+			for _, it := range res.ItemsRewarded {
+				ir = append(ir, map[string]any{"item_id": it.ItemID, "quantity": it.Quantity, "display_name": it.DisplayName})
+			}
+			out["items_rewarded"] = ir
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (g *gateway) itemsAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := bearerOrQueryToken(r)
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		ItemID   string `json:"item_id"`
+		Quantity int    `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.ItemID) == "" || body.Quantity <= 0 {
+		http.Error(w, `need {"item_id":"...","quantity":n}`, http.StatusBadRequest)
+		return
+	}
+	actx, acancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer acancel()
+	if err := db.AddPlayerItemQuantity(actx, g.db, claims.Subject, body.ItemID, body.Quantity); err != nil {
+		log.Printf("items add: %v", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (g *gateway) lastCell(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tokenStr := bearerOrQueryToken(r)
+	if tokenStr == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims := &sessionClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return g.jwtSecret, nil
+	})
+	if err != nil || !tok.Valid || claims.Subject == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	lctx, lcancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer lcancel()
+	rec, err := db.GetPlayerLastCellRecord(lctx, g.db, claims.Subject)
+	if err != nil {
+		log.Printf("last cell: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if rec == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{"found": false})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"found": true, "cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
+	})
+}
+
+func bearerOrQueryToken(r *http.Request) string {
+	tokenStr := r.Header.Get("Authorization")
+	if strings.HasPrefix(tokenStr, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
+	}
+	return r.URL.Query().Get("token")
 }
 
 func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {

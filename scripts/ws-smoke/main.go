@@ -34,6 +34,7 @@ func main() {
 	n := flag.Int("n", 5, "сколько кадров WorldChunk вывести и выйти")
 	inputs := flag.Int("inputs", 0, "после первого snapshot отправить столько ClientInput (вперёд, mask=1)")
 	displayName := flag.String("display-name", "", "опционально: display_name в POST /v1/session (пишется в mmo_player_profile при DATABASE_URL_RW)")
+	questComplete := flag.Bool("quest-complete-tutorial", false, "после session: POST /v1/me/quest-progress tutorial_intro progress=3 (награды при наличии БД)")
 	verbose := flag.Bool("verbose", false, "печать позиций из дельт")
 	flag.Parse()
 
@@ -48,7 +49,7 @@ func main() {
 	}
 
 	dn := displayText(*displayName)
-	if err := runOnce(base, *player, dn, *n, *inputs, *verbose, firstRx, firstRz); err != nil {
+	if err := runOnce(base, *player, dn, *n, *inputs, *verbose, firstRx, firstRz, *questComplete); err != nil {
 		log.Fatal(err)
 	}
 	sp := strings.TrimSpace(*second)
@@ -62,7 +63,7 @@ func main() {
 			secRx, secRz = &srx, &srz
 		}
 		fmt.Printf("--- second player %q ---\n", sp)
-		if err := runOnce(base, sp, nil, *n, *inputs, *verbose, secRx, secRz); err != nil {
+		if err := runOnce(base, sp, nil, *n, *inputs, *verbose, secRx, secRz, *questComplete); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -95,7 +96,7 @@ func parseCoordPair(xStr, zStr, label string) (x, z float64, use bool, err error
 	return x, z, true, nil
 }
 
-func runOnce(base, player string, displayName *string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64) error {
+func runOnce(base, player string, displayName *string, n, inputs int, verbose bool, sessionRX, sessionRZ *float64, questCompleteTutorial bool) error {
 	sess, err := sessionToken(base, player, displayName, sessionRX, sessionRZ)
 	if err != nil {
 		return err
@@ -115,6 +116,11 @@ func runOnce(base, player string, displayName *string, n, inputs int, verbose bo
 	}
 	if len(sess.Items) > 0 {
 		fmt.Printf("[%s] session items: %+v\n", player, sess.Items)
+	}
+	if questCompleteTutorial {
+		if err := postQuestProgress(base, token, "tutorial_intro", 3); err != nil {
+			return err
+		}
 	}
 
 	wsURL, err := wsDialURL(base, token)
@@ -186,15 +192,43 @@ type sessionInfo struct {
 	} `json:"wallet"`
 	Inventory json.RawMessage `json:"inventory"`
 	Quests    []struct {
-		QuestID  string `json:"quest_id"`
-		State    string `json:"state"`
-		Progress int    `json:"progress"`
+		QuestID        string `json:"quest_id"`
+		State          string `json:"state"`
+		Progress       int    `json:"progress"`
+		TargetProgress int    `json:"target_progress"`
 	} `json:"quests"`
 	Items []struct {
 		ItemID      string `json:"item_id"`
 		Quantity    int    `json:"quantity"`
 		DisplayName string `json:"display_name"`
 	} `json:"items"`
+}
+
+func postQuestProgress(base, bearerToken, questID string, progress int) error {
+	body, err := json.Marshal(map[string]any{"quest_id": questID, "progress": progress})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/v1/me/quest-progress", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("quest-progress: %s", resp.Status)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	fmt.Printf("[%s] quest-progress response: %+v\n", questID, out)
+	return nil
 }
 
 func sessionToken(base, player string, displayName *string, resolveX, resolveZ *float64) (sessionInfo, error) {

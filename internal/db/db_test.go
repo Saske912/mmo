@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,12 +147,47 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	if err != nil || len(qrows) != 1 || qrows[0].QuestID != "tutorial_intro" || qrows[0].State != "active" || qrows[0].Progress != 0 {
 		t.Fatalf("quest seed: %+v err=%v", qrows, err)
 	}
-	if err := UpdatePlayerQuestProgress(ctx, pool, "quest-user", "tutorial_intro", 3); err != nil {
+	if err := EnsurePlayerWallet(ctx, pool, "quest-user"); err != nil {
 		t.Fatal(err)
 	}
-	qrowsP, err := ListPlayerQuests(ctx, pool, "quest-user")
-	if err != nil || len(qrowsP) != 1 || qrowsP[0].Progress != 3 {
-		t.Fatalf("quest progress: %+v err=%v", qrowsP, err)
+	prog2, err := ApplyPlayerQuestProgress(ctx, pool, "quest-user", "tutorial_intro", 2)
+	if err != nil || prog2.Completed || prog2.Progress != 2 {
+		t.Fatalf("quest step 2: %+v err=%v", prog2, err)
+	}
+	qMid, err := ListPlayerQuests(ctx, pool, "quest-user")
+	if err != nil || len(qMid) != 1 || qMid[0].State != "active" || qMid[0].Progress != 2 {
+		t.Fatalf("quest mid: %+v err=%v", qMid, err)
+	}
+	prog3, err := ApplyPlayerQuestProgress(ctx, pool, "quest-user", "tutorial_intro", 3)
+	if err != nil || !prog3.Completed || prog3.GoldReward != 50 {
+		t.Fatalf("quest complete: %+v err=%v", prog3, err)
+	}
+	qDone, err := ListPlayerQuests(ctx, pool, "quest-user")
+	if err != nil || len(qDone) != 1 || qDone[0].State != "completed" || qDone[0].Progress != 3 {
+		t.Fatalf("quest done row: %+v err=%v", qDone, err)
+	}
+	var gold int64
+	err = pool.QueryRow(ctx, `SELECT gold FROM mmo_player_wallet WHERE player_id = $1`, "quest-user").Scan(&gold)
+	if err != nil || gold != 50 {
+		t.Fatalf("quest reward gold: %d err=%v", gold, err)
+	}
+	coins, err := ListPlayerItemsNormalized(ctx, pool, "quest-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var coinQty int
+	for _, it := range coins {
+		if it.ItemID == "coin_copper" {
+			coinQty = it.Quantity
+			break
+		}
+	}
+	if coinQty != 5 {
+		t.Fatalf("expected 5 coin_copper, got items %+v", coins)
+	}
+	rawInv, okInv, err := GetPlayerInventoryItems(ctx, pool, "quest-user")
+	if err != nil || !okInv || !strings.Contains(string(rawInv), "coin_copper") {
+		t.Fatalf("jsonb inventory sync: %q ok=%v err=%v", string(rawInv), okInv, err)
 	}
 	if err := EnsurePlayerQuestSeed(ctx, pool, "quest-user"); err != nil {
 		t.Fatal(err)
@@ -163,6 +199,14 @@ func TestRunMigrationsAndRecord_integration(t *testing.T) {
 	emptyQuests, err := ListPlayerQuests(ctx, pool, "no-quest-rows-xyz")
 	if err != nil || len(emptyQuests) != 0 {
 		t.Fatalf("quest empty list: %+v err=%v", emptyQuests, err)
+	}
+
+	if err := AddPlayerItemQuantity(ctx, pool, "pickup-user", "coin_copper", 3); err != nil {
+		t.Fatal(err)
+	}
+	pickupItems, err := ListPlayerItemsNormalized(ctx, pool, "pickup-user")
+	if err != nil || len(pickupItems) != 1 || pickupItems[0].ItemID != "coin_copper" || pickupItems[0].Quantity != 3 {
+		t.Fatalf("pickup add: %+v err=%v", pickupItems, err)
 	}
 
 	if err := EnsureStarterPlayerItems(ctx, pool, "item-user"); err != nil {

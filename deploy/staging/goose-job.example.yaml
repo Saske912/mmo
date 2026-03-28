@@ -1,5 +1,6 @@
 # Пример Job: миграции goose без RunMigrations в gateway.
 # Подставьте образ и namespace под свой кластер (тот же образ mmo-backend, что у gateway).
+# На Deployment gateway добавьте env GATEWAY_SKIP_DB_MIGRATIONS=true, чтобы DDL шли только из Job.
 #
 #   kubectl apply -f goose-job.example.yaml
 #   kubectl logs -n mmo job/mmo-goose-migrate

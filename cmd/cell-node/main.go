@@ -26,7 +26,7 @@ import (
 
 func main() {
 	logging.SetupFromEnv()
-	shutdownTrace, err := tracing.Init(context.Background(), "mmo-cell-node")
+	shutdownTrace, err := tracing.Init(context.Background(), "cell-node")
 	if err != nil {
 		log.Fatalf("tracing: %v", err)
 	}

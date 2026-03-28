@@ -215,26 +215,360 @@ func ListPlayerQuests(ctx context.Context, pool *pgxpool.Pool, playerID string) 
 	return out, rows.Err()
 }
 
-// UpdatePlayerQuestProgress обновляет progress для строки квеста (строка должна существовать).
-func UpdatePlayerQuestProgress(ctx context.Context, pool *pgxpool.Pool, playerID, questID string, progress int) error {
-	if progress < 0 {
-		return fmt.Errorf("progress must be >= 0")
+// QuestDef описание квеста (цель и награды) из mmo_quest_def.
+type QuestDef struct {
+	QuestID        string
+	TargetProgress int
+	RewardGold     int64
+	RewardItemID   string // пусто, если награды предметом нет
+	RewardItemQty  int
+}
+
+// QuestProgressApplyResult итог применения прогресса (в т.ч. автозавершение).
+type QuestProgressApplyResult struct {
+	Completed       bool
+	Progress        int
+	TargetProgress  int
+	GoldReward      int64
+	ItemsRewarded   []PlayerItemRow
+	AlreadyComplete bool
+}
+
+// LatestAppliedGooseVersion максимальный применённый version_id из goose_db_version (0, если таблицы нет или пусто).
+func LatestAppliedGooseVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	var v sql.NullInt64
+	err := pool.QueryRow(ctx, `
+SELECT MAX(version_id) FROM goose_db_version WHERE is_applied = true`).Scan(&v)
+	if err != nil {
+		return 0, err
 	}
-	questID = strings.TrimSpace(questID)
-	if questID == "" {
-		return fmt.Errorf("empty quest_id")
+	if !v.Valid {
+		return 0, nil
 	}
-	const q = `
-UPDATE mmo_player_quest SET progress = $3, updated_at = now()
-WHERE player_id = $1 AND quest_id = $2`
-	tag, err := pool.Exec(ctx, q, playerID, questID, progress)
+	return v.Int64, nil
+}
+
+// inventorySlotJSON элемент JSONB-инвентаря (согласован с заготовкой Phase 0).
+type inventorySlotJSON struct {
+	ItemID string `json:"item_id"`
+	Qty    int    `json:"qty"`
+}
+
+// SyncPlayerInventoryJSONB пересобирает mmo_player_inventory.items из mmo_player_item + каталог.
+func SyncPlayerInventoryJSONB(ctx context.Context, pool *pgxpool.Pool, playerID string) error {
+	rows, err := ListPlayerItemsNormalized(ctx, pool, playerID)
+	if err != nil {
+		return err
+	}
+	slots := make([]inventorySlotJSON, 0, len(rows))
+	for _, r := range rows {
+		slots = append(slots, inventorySlotJSON{ItemID: r.ItemID, Qty: r.Quantity})
+	}
+	raw, err := json.Marshal(slots)
+	if err != nil {
+		return err
+	}
+	if err := EnsurePlayerInventory(ctx, pool, playerID); err != nil {
+		return err
+	}
+	const q = `UPDATE mmo_player_inventory SET items = $2::jsonb, updated_at = now() WHERE player_id = $1`
+	tag, err := pool.Exec(ctx, q, playerID, raw)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("quest row not found")
+		return fmt.Errorf("inventory row missing after ensure")
 	}
 	return nil
+}
+
+func loadQuestDefTx(ctx context.Context, tx pgx.Tx, questID string) (QuestDef, bool, error) {
+	var d QuestDef
+	var rewardItem *string
+	const q = `
+SELECT quest_id, target_progress, reward_gold, reward_item_id, reward_item_qty
+FROM mmo_quest_def WHERE quest_id = $1`
+	err := tx.QueryRow(ctx, q, questID).Scan(
+		&d.QuestID, &d.TargetProgress, &d.RewardGold, &rewardItem, &d.RewardItemQty,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return QuestDef{}, false, nil
+		}
+		return QuestDef{}, false, err
+	}
+	if rewardItem != nil {
+		d.RewardItemID = *rewardItem
+	}
+	return d, true, nil
+}
+
+func grantWalletGoldTx(ctx context.Context, tx pgx.Tx, playerID string, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	if delta < 0 {
+		return fmt.Errorf("grant gold: negative delta")
+	}
+	const q = `UPDATE mmo_player_wallet SET gold = gold + $2, updated_at = now() WHERE player_id = $1`
+	tag, err := tx.Exec(ctx, q, playerID, delta)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("wallet row missing")
+	}
+	return nil
+}
+
+func addPlayerItemQuantityTx(ctx context.Context, tx pgx.Tx, playerID, itemID string, qty int) error {
+	if qty <= 0 {
+		return nil
+	}
+	const q = `
+INSERT INTO mmo_player_item (player_id, item_id, quantity) VALUES ($1, $2, $3)
+ON CONFLICT (player_id, item_id) DO UPDATE SET
+  quantity = LEAST(
+    (SELECT stack_max FROM mmo_item_def WHERE id = EXCLUDED.item_id),
+    mmo_player_item.quantity + EXCLUDED.quantity
+  )`
+	_, err := tx.Exec(ctx, q, playerID, itemID, qty)
+	return err
+}
+
+// ApplyPlayerQuestProgress выставляет progress; при достижении target из mmo_quest_def завершает квест и выдаёт награды, синхронизируя JSONB-инвентарь.
+func ApplyPlayerQuestProgress(ctx context.Context, pool *pgxpool.Pool, playerID, questID string, progress int) (*QuestProgressApplyResult, error) {
+	if progress < 0 {
+		return nil, fmt.Errorf("progress must be >= 0")
+	}
+	questID = strings.TrimSpace(questID)
+	if questID == "" {
+		return nil, fmt.Errorf("empty quest_id")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var state string
+	var cur int
+	err = tx.QueryRow(ctx,
+		`SELECT state, progress FROM mmo_player_quest WHERE player_id = $1 AND quest_id = $2 FOR UPDATE`,
+		playerID, questID,
+	).Scan(&state, &cur)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("quest row not found")
+		}
+		return nil, err
+	}
+	if state == "completed" {
+		return &QuestProgressApplyResult{Progress: cur, TargetProgress: 0, AlreadyComplete: true}, nil
+	}
+
+	def, hasDef, err := loadQuestDefTx(ctx, tx, questID)
+	if err != nil {
+		return nil, err
+	}
+	if !hasDef {
+		const qu = `UPDATE mmo_player_quest SET progress = $3, updated_at = now() WHERE player_id = $1 AND quest_id = $2`
+		if _, err := tx.Exec(ctx, qu, playerID, questID, progress); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return &QuestProgressApplyResult{Progress: progress, Completed: false}, nil
+	}
+
+	res := &QuestProgressApplyResult{TargetProgress: def.TargetProgress}
+	if progress < def.TargetProgress {
+		const qu = `UPDATE mmo_player_quest SET progress = $3, updated_at = now() WHERE player_id = $1 AND quest_id = $2`
+		if _, err := tx.Exec(ctx, qu, playerID, questID, progress); err != nil {
+			return nil, err
+		}
+		res.Progress = progress
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
+
+	_, err = tx.Exec(ctx, `INSERT INTO mmo_player_wallet (player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`, playerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := grantWalletGoldTx(ctx, tx, playerID, def.RewardGold); err != nil {
+		return nil, err
+	}
+	if def.RewardItemID != "" && def.RewardItemQty > 0 {
+		if err := addPlayerItemQuantityTx(ctx, tx, playerID, def.RewardItemID, def.RewardItemQty); err != nil {
+			return nil, err
+		}
+	}
+	const quc = `UPDATE mmo_player_quest SET progress = $3, state = 'completed', updated_at = now() WHERE player_id = $1 AND quest_id = $2`
+	if _, err := tx.Exec(ctx, quc, playerID, questID, def.TargetProgress); err != nil {
+		return nil, err
+	}
+	if err := syncPlayerInventoryJSONBTx(ctx, tx, playerID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	res.Completed = true
+	res.Progress = def.TargetProgress
+	res.GoldReward = def.RewardGold
+	if def.RewardItemID != "" && def.RewardItemQty > 0 {
+		rows, err := ListPlayerItemsNormalized(ctx, pool, playerID)
+		if err != nil {
+			return res, nil
+		}
+		for _, row := range rows {
+			if row.ItemID == def.RewardItemID {
+				res.ItemsRewarded = append(res.ItemsRewarded, row)
+				break
+			}
+		}
+		if len(res.ItemsRewarded) == 0 {
+			res.ItemsRewarded = []PlayerItemRow{{ItemID: def.RewardItemID, Quantity: def.RewardItemQty}}
+		}
+	}
+	return res, nil
+}
+
+func listPlayerItemsNormalizedTx(ctx context.Context, tx pgx.Tx, playerID string) ([]PlayerItemRow, error) {
+	const q = `
+SELECT pi.item_id, pi.quantity, d.display_name
+FROM mmo_player_item pi
+JOIN mmo_item_def d ON d.id = pi.item_id
+WHERE pi.player_id = $1
+ORDER BY pi.item_id`
+	rows, err := tx.Query(ctx, q, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlayerItemRow
+	for rows.Next() {
+		var r PlayerItemRow
+		if err := rows.Scan(&r.ItemID, &r.Quantity, &r.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func syncPlayerInventoryJSONBTx(ctx context.Context, tx pgx.Tx, playerID string) error {
+	rows, err := listPlayerItemsNormalizedTx(ctx, tx, playerID)
+	if err != nil {
+		return err
+	}
+	slots := make([]inventorySlotJSON, 0, len(rows))
+	for _, r := range rows {
+		slots = append(slots, inventorySlotJSON{ItemID: r.ItemID, Qty: r.Quantity})
+	}
+	raw, err := json.Marshal(slots)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO mmo_player_inventory (player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`, playerID)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE mmo_player_inventory SET items = $2::jsonb, updated_at = now() WHERE player_id = $1`, playerID, raw)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("inventory row missing after ensure")
+	}
+	return nil
+}
+
+// PlayerQuestAPIRow квест с целевым прогрессом для API.
+type PlayerQuestAPIRow struct {
+	QuestID        string `json:"quest_id"`
+	State          string `json:"state"`
+	Progress       int    `json:"progress"`
+	TargetProgress int    `json:"target_progress"`
+}
+
+// ListPlayerQuestsForAPI объединяет прогресс игрока с mmo_quest_def.
+func ListPlayerQuestsForAPI(ctx context.Context, pool *pgxpool.Pool, playerID string) ([]PlayerQuestAPIRow, error) {
+	const q = `
+SELECT q.quest_id, q.state, q.progress, COALESCE(d.target_progress, 0)
+FROM mmo_player_quest q
+LEFT JOIN mmo_quest_def d ON d.quest_id = q.quest_id
+WHERE q.player_id = $1
+ORDER BY q.quest_id`
+	rows, err := pool.Query(ctx, q, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlayerQuestAPIRow
+	for rows.Next() {
+		var r PlayerQuestAPIRow
+		if err := rows.Scan(&r.QuestID, &r.State, &r.Progress, &r.TargetProgress); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// AddPlayerItemQuantity добавляет предмет (каталог должен содержать item_id) и синхронизирует JSONB-инвентарь.
+func AddPlayerItemQuantity(ctx context.Context, pool *pgxpool.Pool, playerID, itemID string, qty int) error {
+	if qty <= 0 {
+		return fmt.Errorf("quantity must be > 0")
+	}
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return fmt.Errorf("empty item_id")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var one int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM mmo_item_def WHERE id = $1`, itemID).Scan(&one); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("unknown item_id")
+		}
+		return err
+	}
+	if err := addPlayerItemQuantityTx(ctx, tx, playerID, itemID, qty); err != nil {
+		return err
+	}
+	if err := syncPlayerInventoryJSONBTx(ctx, tx, playerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// PlayerLastCellRecord строка mmo_player_last_cell для реконнекта клиента.
+type PlayerLastCellRecord struct {
+	CellID   string
+	ResolveX float64
+	ResolveZ float64
+}
+
+// GetPlayerLastCellRecord возвращает последнюю известную соту игрока.
+func GetPlayerLastCellRecord(ctx context.Context, pool *pgxpool.Pool, playerID string) (*PlayerLastCellRecord, error) {
+	const q = `SELECT cell_id, resolve_x, resolve_z FROM mmo_player_last_cell WHERE player_id = $1`
+	var r PlayerLastCellRecord
+	err := pool.QueryRow(ctx, q, playerID).Scan(&r.CellID, &r.ResolveX, &r.ResolveZ)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
 }
 
 // PlayerItemRow предмет игрока с отображаемым именем из каталога.

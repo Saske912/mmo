@@ -208,9 +208,14 @@ func (s *Server) reportApplyInput(ok bool) {
 }
 
 // Update команды от grid-manager / админки (noop, смена TPS).
-func (s *Server) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.UpdateResponse, error) {
+func (s *Server) Update(ctx context.Context, req *cellv1.UpdateRequest) (*cellv1.UpdateResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.Update")
+	defer span.End()
 	if req == nil {
 		return &cellv1.UpdateResponse{Ok: false, Message: "nil request"}, nil
+	}
+	if req.Payload != nil {
+		span.SetAttributes(attribute.String("update_payload", fmt.Sprintf("%T", req.Payload)))
 	}
 	switch p := req.Payload.(type) {
 	case nil:

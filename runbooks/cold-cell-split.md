@@ -97,6 +97,18 @@ mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 
 Эквивалент вручную: `kubectl exec -n mmo deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 migration-dry-run <cell_id>`. В смоуке staging: **`STAGING_VERIFY_MIGRATION_DRY_RUN=incluster`** (см. `scripts/staging-verify.sh`).
 
+## 7. Операторский пайплайн (drain → handoff → инфра)
+
+Краткая последовательность без «ручного копирования Redis», когда дочерние соты уже в каталоге:
+
+1. **Окно и drain:** `forward-update <parent> set-split-drain true` (новые **Join** на родителе отклоняются); дождаться выхода игроков или предупредить о реконнекте (cold-path).
+2. **Кандидаты (опционально):** `migration-dry-run` / `ListMigrationCandidates` на родителе — сверка сущностей.
+3. **Перенос NPC одним вызовом:** `mmoctl … forward-npc-handoff <parent_cell_id> <child_cell_id> "<ticket>"` (см. §6).
+4. **Инфра:** при появлении новых шардов — обновить `cell_instances` в OpenTofu, `tofu apply`; **drain off** на родителе перед выводом: `set-split-drain false`.
+5. **Клиенты:** новые сессии с **resolve** в зоне ребёнка идут на дочернюю соту; уже открытый WebSocket нужно переподнять при смене покрытия (см. §4).
+
+Подсказка для клиента после сессии с БД: **GET** `https://<gateway>/v1/me/last-cell` (JWT) — последние **`cell_id`** / **`resolve_x,z`** из `mmo_player_last_cell` для реконнекта без угадывания координат.
+
 ## Вне этой процедуры
 
 - Live-migrate **игроков** и автоматический redirect в gateway при смене покрытия (сейчас — только реконнект клиента).

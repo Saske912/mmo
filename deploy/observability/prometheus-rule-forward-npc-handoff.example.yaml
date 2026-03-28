@@ -1,0 +1,24 @@
+# Пример PrometheusRule: p95 latency Registry.ForwardNpcHandoff (как для ForwardCellUpdate в группе mmo-staging).
+# Подставьте namespace и labels под ваш prometheus-operator / Alloys.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mmo-grid-forward-npc-handoff-slo
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: mmo-staging
+      rules:
+        - alert: MMO_GridForwardNpcHandoffP95High
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(mmo_grid_registry_rpc_duration_seconds_bucket{method="ForwardNpcHandoff"}[5m])) by (le)
+            ) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 ForwardNpcHandoff > 0.5s (staging)"
+            description: "Проверить grid-manager, сеть до сот и размер экспорта NPC."
