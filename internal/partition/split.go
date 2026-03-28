@@ -6,7 +6,7 @@ import (
 	cellv1 "mmo/gen/cellv1"
 )
 
-// Mid возвращает середину границ (точка деления на 4 квадранта, как в doc.md).
+// Mid возвращает середину границ (точка деления на 4 квадранта; контекст — docs/archive/stack-design-notes.md).
 func Mid(b *cellv1.Bounds) (mx, mz float64) {
 	if b == nil {
 		return 0, 0
@@ -26,7 +26,7 @@ func SplitFour(parent *cellv1.Bounds) [4]*cellv1.Bounds {
 	}
 }
 
-// Quadrant возвращает индекс дочерней соты 0..3 по правилу границ из doc.md:
+// Quadrant возвращает индекс дочерней соты 0..3 по правилу границ (docs/archive/stack-design-notes.md):
 // при x == mid или z == mid относим к «положительному» квадранту (>= mid).
 func Quadrant(x, z float64, b *cellv1.Bounds) int {
 	mx, mz := Mid(b)

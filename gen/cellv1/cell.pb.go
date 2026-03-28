@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Границы соты в плоскости XZ (как в doc.md).
+// Границы соты в плоскости XZ (см. internal/partition и docs/archive/stack-design-notes.md).
 type Bounds struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	XMin          float64                `protobuf:"fixed64,1,opt,name=x_min,json=xMin,proto3" json:"x_min,omitempty"`
