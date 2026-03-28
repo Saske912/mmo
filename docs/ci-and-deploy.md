@@ -45,6 +45,8 @@ kubectl -n "$NS" rollout status deploy/gateway --timeout=120s
 
 ## Цикл контента, баланса и нагрузки
 
+Контент и награды в Postgres задаются миграциями **goose** в [`internal/db/migrations/`](../internal/db/migrations/): новый файл с меткой времени **позже** последнего по имени в каталоге (формат `YYYYMMDDHHMMSS_*.sql`), затем обычный выкат, чтобы Job **`/migrate`** или gateway применил изменения.
+
 Типовая итерация после правок данных или API:
 
 1. **`bash scripts/deploy-staging.sh`** (или **`--no-commit`** / **`--skip-test`** по необходимости) из корня **`backend/`**.
