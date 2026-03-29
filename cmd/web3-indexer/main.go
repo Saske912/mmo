@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"mmo/internal/db"
 	"mmo/internal/logging"
+	"mmo/internal/web3ingest"
 )
 
 type ingestRequest struct {
@@ -44,6 +46,8 @@ func main() {
 		log.Fatal("DATABASE_URL_RW or DATABASE_URL required")
 	}
 	defaultChainID := parseInt64(os.Getenv("WEB3_INDEXER_CHAIN_ID"), 0)
+	ingestAPIKey := strings.TrimSpace(os.Getenv("WEB3_INDEXER_INGEST_API_KEY"))
+	ingestHMACSecret := strings.TrimSpace(os.Getenv("WEB3_INDEXER_INGEST_HMAC_SECRET"))
 	redisAddr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
 	redisPass := os.Getenv("REDIS_PASSWORD")
 
@@ -81,8 +85,21 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, web3ingest.MaxIngestBodyBytes+1))
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(body) > web3ingest.MaxIngestBodyBytes {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err := web3ingest.CheckIngestAuth(r.Header, body, ingestAPIKey, ingestHMACSecret); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
 		var req ingestRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -95,8 +112,9 @@ func main() {
 			return
 		}
 		if len(req.Events) == 0 {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(`{"ingested":0}`))
+			_ = json.NewEncoder(w).Encode(map[string]any{"ingested": 0, "chain_id": chainID})
 			return
 		}
 		rows := make([]db.ChainEventRow, 0, len(req.Events))

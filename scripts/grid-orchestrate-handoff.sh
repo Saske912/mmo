@@ -9,9 +9,13 @@
 #
 # Примеры:
 #   REGISTRY=127.0.0.1:9100 PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 bash scripts/grid-orchestrate-handoff.sh
-#   EXECUTE=1 REGISTRY=127.0.0.1:9100 PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 bash scripts/grid-orchestrate-handoff.sh
+#   EXECUTE=1 REGISTRY=127.0.0.1:9100 PARENT=... CHILD=... bash scripts/grid-orchestrate-handoff.sh
+#   EXECUTE=1 MODE=incluster PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 bash scripts/grid-orchestrate-handoff.sh
 #
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 
 REGISTRY="${REGISTRY:-127.0.0.1:9100}"
 PARENT="${PARENT:-}"
@@ -20,17 +24,20 @@ REASON="${REASON:-grid-orchestrate-handoff}"
 RUN_DRY_RUN="${RUN_DRY_RUN:-1}"
 UNSET_DRAIN="${UNSET_DRAIN:-1}"
 EXECUTE="${EXECUTE:-0}"
+MODE="${MODE:-local}" # local | incluster | k8s
+K8S_NAMESPACE="${K8S_NAMESPACE:-mmo}"
+REGISTRY_PORT="${REGISTRY_PORT:-9100}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing command: $1" >&2; exit 1; }; }
 need /bin/bash
-need go
 
 if [[ -z "$PARENT" || -z "$CHILD" ]]; then
   cat >&2 <<'EOF'
 usage:
-  REGISTRY=<host:port> PARENT=<cell_id> CHILD=<cell_id> [EXECUTE=1] bash scripts/grid-orchestrate-handoff.sh
+  REGISTRY=<host:port> PARENT=<cell_id> CHILD=<cell_id> [EXECUTE=1] [MODE=local|incluster] bash scripts/grid-orchestrate-handoff.sh
 
 env:
+  MODE=incluster   kubectl exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 …
   RUN_DRY_RUN=1|0  (default: 1)
   UNSET_DRAIN=1|0  (default: 1)
   REASON=<text>    (default: grid-orchestrate-handoff)
@@ -39,25 +46,42 @@ EOF
   exit 2
 fi
 
-run() {
-  echo "+ $*"
+incluster() {
+  [[ "$MODE" == "incluster" || "$MODE" == "k8s" ]]
+}
+
+if incluster; then
+  need kubectl
+else
+  REGISTRY="${REGISTRY:-127.0.0.1:9100}"
+  need go
+fi
+
+run_mmoctl() {
+  local -a cmd
+  if incluster; then
+    cmd=(kubectl -n "$K8S_NAMESPACE" exec deploy/grid-manager -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" "$@")
+  else
+    cmd=(go run ./cmd/mmoctl -registry "$REGISTRY" "$@")
+  fi
+  echo "+ ${cmd[*]}"
   if [[ "$EXECUTE" == "1" ]]; then
-    "$@"
+    "${cmd[@]}"
   fi
 }
 
-echo "registry=$REGISTRY parent=$PARENT child=$CHILD execute=$EXECUTE"
+echo "mode=$MODE registry=$REGISTRY parent=$PARENT child=$CHILD execute=$EXECUTE"
 
-run go run ./cmd/mmoctl -registry "$REGISTRY" forward-update "$PARENT" split-drain true
+run_mmoctl forward-update "$PARENT" split-drain true
 
 if [[ "$RUN_DRY_RUN" == "1" ]]; then
-  run go run ./cmd/mmoctl -registry "$REGISTRY" migration-dry-run "$PARENT"
+  run_mmoctl migration-dry-run "$PARENT"
 fi
 
-run go run ./cmd/mmoctl -registry "$REGISTRY" forward-npc-handoff "$PARENT" "$CHILD" "$REASON"
+run_mmoctl forward-npc-handoff "$PARENT" "$CHILD" "$REASON"
 
 if [[ "$UNSET_DRAIN" == "1" ]]; then
-  run go run ./cmd/mmoctl -registry "$REGISTRY" forward-update "$PARENT" split-drain false
+  run_mmoctl forward-update "$PARENT" split-drain false
 fi
 
 cat <<'EOF'

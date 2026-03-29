@@ -1,0 +1,7 @@
+# Скопируйте в web3_indexer.auto.tfvars (добавьте в .gitignore при необходимости) или задайте через CI.
+# Защита ingest: оба параметра опциональны; если заданы — оба проверяются на POST /v1/indexer/ingest.
+#
+# Ниже — пример с криптографически случайными значениями (сгенерировано для демо). В production задайте свои и ротируйте.
+
+web3_indexer_ingest_api_key       = "cda7716ca3e4fc0a9277e5c6127308188602ac99a612de47"
+web3_indexer_ingest_hmac_secret   = "50d6182510f7fec8a5c165697314f67cd57de96f3aa13e16b9a3acd11ecbb24c"

@@ -10,6 +10,7 @@ deploy/terraform/staging/*.tfstate
 deploy/terraform/staging/*.tfstate.*
 deploy/terraform/staging/.terraform.lock.hcl
 deploy/terraform/staging/image.auto.tfvars
+deploy/terraform/staging/web3_indexer.auto.tfvars
 
 # TLS и секреты (PEM в staging — только на машине / в CI secrets)
 deploy/terraform/staging/certs/

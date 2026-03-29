@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke
 
 # harbor-login и др. рецепты используют bash (подстановки ${var//…}, [[ … ]]).
 SHELL := /bin/bash
@@ -155,3 +155,7 @@ deploy-staging:
 # После harbor-push, до tofu-apply: Job /migrate (нужен gateway_skip_db_migrations=true в TF).
 goose-migrate-job:
 	bash scripts/goose-migrate-job.sh
+
+# Смок ingest web3-indexer + проверка mmo_chain_tx_event (нужны -indexer-url и -database-url или env).
+web3-indexer-ingest-smoke:
+	go run ./scripts/web3-indexer-ingest-smoke $(WEB3_INDEXER_SMOKE_ARGS)

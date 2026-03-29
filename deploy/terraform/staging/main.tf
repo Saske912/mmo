@@ -546,6 +546,22 @@ resource "kubernetes_deployment" "web3_indexer" {
               value = env.value
             }
           }
+
+          dynamic "env" {
+            for_each = length(trimspace(var.web3_indexer_ingest_api_key)) > 0 ? [trimspace(var.web3_indexer_ingest_api_key)] : []
+            content {
+              name  = "WEB3_INDEXER_INGEST_API_KEY"
+              value = env.value
+            }
+          }
+
+          dynamic "env" {
+            for_each = length(trimspace(var.web3_indexer_ingest_hmac_secret)) > 0 ? [trimspace(var.web3_indexer_ingest_hmac_secret)] : []
+            content {
+              name  = "WEB3_INDEXER_INGEST_HMAC_SECRET"
+              value = env.value
+            }
+          }
         }
       }
     }

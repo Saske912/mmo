@@ -244,6 +244,20 @@ variable "web3_indexer_extra_env" {
   default     = {}
 }
 
+variable "web3_indexer_ingest_api_key" {
+  type        = string
+  description = "Если непусто: WEB3_INDEXER_INGEST_API_KEY — заголовок X-MMO-Ingest-Key или Authorization: Bearer."
+  default     = ""
+  sensitive   = true
+}
+
+variable "web3_indexer_ingest_hmac_secret" {
+  type        = string
+  description = "Если непусто: WEB3_INDEXER_INGEST_HMAC_SECRET — заголовок X-MMO-Ingest-Signature (hex HMAC-SHA256 тела)."
+  default     = ""
+  sensitive   = true
+}
+
 variable "service_monitor_enabled" {
   type        = bool
   description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."
