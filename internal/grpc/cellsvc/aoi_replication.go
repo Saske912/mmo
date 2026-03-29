@@ -1,12 +1,22 @@
 package cellsvc
 
 import (
+	"math"
+	"time"
+
 	"mmo/internal/ecs"
 	"mmo/internal/ecs/aoi"
 )
 
 // replicationAOIRadius метров XZ вокруг viewer (см. SpatialGrid.QueryRadius).
 const replicationAOIRadius = 50.0
+
+const (
+	adaptiveReplicationNearDistance = 15.0
+	replicationIntervalNear         = 100 * time.Millisecond
+	replicationIntervalDefault      = 200 * time.Millisecond
+	replicationIntervalFar          = 300 * time.Millisecond
+)
 
 func visibleSetFromSlice(list []ecs.Entity) map[ecs.Entity]struct{} {
 	m := make(map[ecs.Entity]struct{}, len(list))
@@ -37,4 +47,39 @@ func visibleEntitiesAOI(w *ecs.World, grid *aoi.SpatialGrid, viewer ecs.Entity, 
 		out = append(out, e)
 	}
 	return out
+}
+
+// pickAdaptiveReplicationInterval выбирает интервал отправки дельт:
+// ближний контакт в AOI -> чаще, пустой/дальний AOI -> реже.
+func pickAdaptiveReplicationInterval(w *ecs.World, viewer ecs.Entity, visible []ecs.Entity) time.Duration {
+	if w == nil {
+		return replicationIntervalDefault
+	}
+	vp, ok := w.Position(viewer)
+	if !ok {
+		return replicationIntervalDefault
+	}
+	minDist := math.MaxFloat64
+	for _, e := range visible {
+		if e == viewer {
+			continue
+		}
+		p, ok := w.Position(e)
+		if !ok {
+			continue
+		}
+		dx := p.X - vp.X
+		dz := p.Z - vp.Z
+		d := math.Hypot(dx, dz)
+		if d < minDist {
+			minDist = d
+		}
+	}
+	if minDist == math.MaxFloat64 {
+		return replicationIntervalFar
+	}
+	if minDist <= adaptiveReplicationNearDistance {
+		return replicationIntervalNear
+	}
+	return replicationIntervalDefault
 }

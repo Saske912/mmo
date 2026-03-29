@@ -393,8 +393,7 @@ func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cell
 	}
 	ctx, span := otel.Tracer("mmo/cell").Start(stream.Context(), "Cell.SubscribeDeltas")
 	defer span.End()
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
+	interval := replicationIntervalDefault
 
 	isPlayer := func(e ecs.Entity) bool { return s.isPlayer(e) }
 
@@ -410,7 +409,7 @@ func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cell
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-time.After(interval):
 			s.Sim.Mu.Lock()
 			tick := s.Sim.Loop.Stats.TickCount
 			if useAOI {
@@ -425,12 +424,14 @@ func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cell
 					vis := visibleEntitiesAOI(s.Sim.World, grid, viewer, replicationAOIRadius)
 					snap := replic.BuildSnapshotEntities(s.Sim.World, tick, vis, isPlayer)
 					prevVisible = visibleSetFromSlice(vis)
+					interval = pickAdaptiveReplicationInterval(s.Sim.World, viewer, vis)
 					s.Sim.Mu.Unlock()
 					if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Snapshot{Snapshot: snap}}); err != nil {
 						return err
 					}
 				} else {
 					snap := replic.BuildSnapshot(s.Sim.World, tick, isPlayer)
+					interval = replicationIntervalDefault
 					s.Sim.Mu.Unlock()
 					if err := stream.Send(&cellv1.WorldChunk{Kind: &cellv1.WorldChunk_Snapshot{Snapshot: snap}}); err != nil {
 						return err
@@ -444,6 +445,7 @@ func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cell
 			var delta *gamev1.Delta
 			if useAOI && grid != nil {
 				curSlice := visibleEntitiesAOI(s.Sim.World, grid, viewer, replicationAOIRadius)
+				interval = pickAdaptiveReplicationInterval(s.Sim.World, viewer, curSlice)
 				cur := visibleSetFromSlice(curSlice)
 
 				changed := make([]ecs.Entity, 0, len(dirty)+8)
@@ -478,6 +480,7 @@ func (s *Server) SubscribeDeltas(req *cellv1.SubscribeDeltasRequest, stream cell
 				}
 				prevVisible = cur
 			} else {
+				interval = replicationIntervalDefault
 				delta = replic.BuildDelta(s.Sim.World, tick, lastSendTick, dirty, isPlayer)
 			}
 			s.Sim.Mu.Unlock()

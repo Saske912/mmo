@@ -119,14 +119,18 @@ func deleteCellProbeLabels(cellID string) {
 func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 	interval := cellProbeInterval()
 	th := parseLoadThresholds()
+	policy := newLoadPolicyRuntime()
 	log.Printf("cell load probe every %s (MMO_GRID_CELL_PROBE_INTERVAL); thresholds max_players=%d max_entities=%d max_tick_sec=%g (MMO_GRID_THRESHOLD_*)",
 		interval, th.maxPlayers, th.maxEntities, th.maxTickSec)
+	log.Printf("load policy min_breach=%s cooldown=%s auto_split_drain=%t (MMO_GRID_LOAD_POLICY_* / MMO_GRID_AUTO_SPLIT_DRAIN)",
+		policy.cfg.minBreachDuration, policy.cfg.cooldown, policy.cfg.autoSplitDrain)
 	var mu sync.Mutex
 	tracked := make(map[string]struct{})
 
 	t := time.NewTicker(interval)
 	go func() {
 		defer t.Stop()
+		defer policy.close()
 		runRound := func() {
 			mu.Lock()
 			defer mu.Unlock()
@@ -172,11 +176,21 @@ func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 				for _, k := range cellThresholdViolationKinds {
 					cellThresholdViolation.WithLabelValues(id, k).Set(viol[k])
 				}
+				policy.observe(probeCtx, policySample{
+					cellID:     id,
+					endpoint:   ep,
+					reachable:  ok,
+					players:    players,
+					entities:   entities,
+					tickSec:    tickSec,
+					violations: viol,
+				}, within)
 				tracked[id] = struct{}{}
 			}
 			for id := range tracked {
 				if _, still := inCatalog[id]; !still {
 					deleteCellProbeLabels(id)
+					policy.forget(id)
 					delete(tracked, id)
 				}
 			}

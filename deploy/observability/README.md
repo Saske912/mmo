@@ -1,6 +1,7 @@
 # Observability (staging / примеры)
 
 - **Grafana JSON:** [`grafana-dashboard-grid-rpc-p95-by-method.json`](grafana-dashboard-grid-rpc-p95-by-method.json) — дашборд **uid `mmo-grid-rpc-p95`** (p95 **`mmo_grid_registry_rpc_duration_seconds`** по `method`). Реимпорт при новом инстансе Grafana.
+- **Grafana JSON (нагрузка сот):** [`grafana-dashboard-grid-cell-load.json`](grafana-dashboard-grid-cell-load.json) — дашборд **uid `mmo-grid-cell-load`** (players/entities, `cell_within_hard_limits`, `cell_threshold_violation`).
 
 ### Реимпорт дашборда в Grafana
 
@@ -9,6 +10,7 @@
 3. Указать **folder** (например общий для MMO) и при конфликте UID подтвердить **uid `mmo-grid-rpc-p95`** или заменить и обновить закладки/алерты.
 4. Сохранить. Проверить выбор datasource Prometheus в панелях (переменная или дефолт вашего стенда).
 - **Правила Prometheus (пример):** [`prometheus-rule-forward-npc-handoff.example.yaml`](prometheus-rule-forward-npc-handoff.example.yaml); пороги нагрузки сот с grid-manager — [`prometheus-rule-grid-cell-load.example.yaml`](prometheus-rule-grid-cell-load.example.yaml) (`mmo_grid_manager_cell_within_hard_limits`).
+- **Политика нагрузки grid-manager:** action-метрика **`mmo_grid_manager_load_policy_actions_total`** (`action`, `cell_id`, `result`), env: `MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION`, `MMO_GRID_LOAD_POLICY_COOLDOWN`, `MMO_GRID_AUTO_SPLIT_DRAIN`.
 - **LogQL / trace_id:** [`loki-logql-traceid.example.txt`](loki-logql-traceid.example.txt).
 
 ## Per-тик span на cell-node (только под расследование)
