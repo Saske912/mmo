@@ -12,7 +12,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -55,10 +54,9 @@ type mergeWorkflowConfig struct {
 }
 
 type mergeWorkflowRuntime struct {
-	cfg   mergeWorkflowConfig
-	cat   discovery.Catalog
-	nats  *natsbus.Client
-	store *redis.Client
+	cfg  mergeWorkflowConfig
+	cat  discovery.Catalog
+	nats *natsbus.Client
 
 	mu     sync.Mutex
 	active map[string]struct{}
@@ -104,13 +102,6 @@ func newMergeWorkflowRuntime(cat discovery.Catalog) *mergeWorkflowRuntime {
 		active: make(map[string]struct{}),
 	}
 	env := config.FromEnv()
-	if env.RedisAddr != "" {
-		rt.store = redis.NewClient(&redis.Options{
-			Addr:     env.RedisAddr,
-			Password: env.RedisPassword,
-			DB:       0,
-		})
-	}
 	if env.NATSURL != "" {
 		cli, err := natsbus.ConnectResilient(env.NATSURL, natsbus.DefaultReconnectConfig())
 		if err != nil {
@@ -125,9 +116,6 @@ func newMergeWorkflowRuntime(cat discovery.Catalog) *mergeWorkflowRuntime {
 func (r *mergeWorkflowRuntime) close() {
 	if r.nats != nil {
 		r.nats.Close()
-	}
-	if r.store != nil {
-		_ = r.store.Close()
 	}
 }
 
@@ -237,15 +225,12 @@ func (r *mergeWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		ParentCellID: parentCellID,
 		Stage:        "handoff_done",
 		Attempt:      attempt,
-		Message:      "children exported and imported into parent",
+		Message:      "registry ForwardMergeHandoff completed (handoff + topology + redis in registry)",
 		Children:     childrenCSV,
 		AtUnixMs:     time.Now().UnixMilli(),
 		Successful:   true,
 	})
-	if err := r.switchTopologyAndTeardown(ctx, parentCellID, childIDs); err != nil {
-		return err
-	}
-	return r.saveAutomationState(ctx, parentCellID, childIDs)
+	return nil
 }
 
 func (r *mergeWorkflowRuntime) planMergeGroup(ctx context.Context, parentCellID string) (*cellv1.CellSpec, []string, string, error) {
@@ -334,87 +319,6 @@ func (r *mergeWorkflowRuntime) forwardMerge(ctx context.Context, parentCellID st
 		return fmt.Errorf("forward merge not ok: %s", resp.GetMessage())
 	}
 	return nil
-}
-
-func (r *mergeWorkflowRuntime) switchTopologyAndTeardown(ctx context.Context, parentCellID string, childIDs []string) error {
-	for _, childID := range childIDs {
-		if err := discovery.DeregisterLogicalCell(ctx, r.cat, childID); err != nil {
-			return fmt.Errorf("deregister child %s: %w", childID, err)
-		}
-	}
-	if err := r.verifyResolveToParent(ctx, parentCellID); err != nil {
-		return err
-	}
-	if r.nats != nil {
-		for _, childID := range childIDs {
-			req := splitcontrol.RuntimeCellDeleteRequest{
-				Op:     splitcontrol.OpDeleteRuntimeChild,
-				CellID: childID,
-				Reason: "auto-merge topology switched",
-			}
-			raw, err := json.Marshal(req)
-			if err != nil {
-				continue
-			}
-			_ = r.nats.Publish(natsbus.SubjectCellControl, raw)
-		}
-		_ = r.nats.FlushTimeout(400 * time.Millisecond)
-	}
-	r.publish(mergeWorkflowEvent{
-		ParentCellID: parentCellID,
-		Stage:        splitcontrol.StageTopologySwitched,
-		Message:      "children deregistered and teardown requested",
-		Children:     strings.Join(childIDs, ","),
-		AtUnixMs:     time.Now().UnixMilli(),
-		Successful:   true,
-	})
-	return nil
-}
-
-func (r *mergeWorkflowRuntime) verifyResolveToParent(ctx context.Context, parentCellID string) error {
-	parent, ok, err := discovery.FindCellByID(ctx, r.cat, parentCellID)
-	if err != nil {
-		return err
-	}
-	if !ok || parent == nil || parent.GetBounds() == nil {
-		return fmt.Errorf("parent missing after topology switch")
-	}
-	for _, ch := range partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel()) {
-		b := ch.GetBounds()
-		cx := (b.GetXMin() + b.GetXMax()) / 2
-		cz := (b.GetZMin() + b.GetZMax()) / 2
-		got, found, err := r.cat.ResolveMostSpecific(ctx, cx, cz)
-		if err != nil {
-			return err
-		}
-		if !found || got == nil {
-			return fmt.Errorf("resolve miss at child center for %s", ch.GetId())
-		}
-		if got.GetId() != parentCellID {
-			return fmt.Errorf("resolve mismatch at %s: got=%s want=%s", ch.GetId(), got.GetId(), parentCellID)
-		}
-	}
-	return nil
-}
-
-func (r *mergeWorkflowRuntime) saveAutomationState(ctx context.Context, parentCellID string, childIDs []string) error {
-	if r.store == nil {
-		return nil
-	}
-	state := map[string]any{
-		"phase":                   splitcontrol.RetireStatePhaseAutomationComplete,
-		"parent_cell_id":          parentCellID,
-		"removed_children":        childIDs,
-		"topology_switched":       true,
-		"runtime_teardown_queued": true,
-		"at_unix_ms":              time.Now().UnixMilli(),
-	}
-	raw, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	key := "mmo:grid:merge:state:" + strings.TrimSpace(parentCellID)
-	return r.store.Set(ctx, key, raw, maxWorkflowRedisTTL()).Err()
 }
 
 func (r *mergeWorkflowRuntime) setSplitDrain(ctx context.Context, cellID string, enabled bool) error {

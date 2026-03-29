@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,11 +20,94 @@ import (
 	gamev1 "mmo/gen/gamev1"
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/cellsim/snapshot"
+	"mmo/internal/config"
 	"mmo/internal/discovery"
 	"mmo/internal/partition"
+	"mmo/internal/splitcontrol"
 )
 
 const forwardMergeHandoffTimeout = 90 * time.Second
+
+const mergeAutomationRedisTTL = 7 * 24 * time.Hour
+
+func (s *Server) completeMergePostHandoff(ctx context.Context, parentID string, childIDs []string) error {
+	for _, cid := range childIDs {
+		if err := discovery.DeregisterLogicalCell(ctx, s.Store, cid); err != nil {
+			return status.Errorf(codes.Unavailable, "deregister child %s: %v", cid, err)
+		}
+	}
+	parentSpec, ok, err := discovery.FindCellByID(ctx, s.Store, parentID)
+	if err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	if !ok || parentSpec == nil || parentSpec.GetBounds() == nil {
+		return status.Errorf(codes.FailedPrecondition, "parent missing after child deregister")
+	}
+	for _, ch := range partition.ChildSpecsForSplit(parentSpec.GetBounds(), parentSpec.GetLevel()) {
+		b := ch.GetBounds()
+		cx := (b.GetXMin() + b.GetXMax()) / 2
+		cz := (b.GetZMin() + b.GetZMax()) / 2
+		got, found, rerr := s.Store.ResolveMostSpecific(ctx, cx, cz)
+		if rerr != nil {
+			return status.Error(codes.Unavailable, rerr.Error())
+		}
+		if !found || got == nil {
+			return status.Errorf(codes.FailedPrecondition, "resolve miss at center for child %s", ch.GetId())
+		}
+		if got.GetId() != parentID {
+			return status.Errorf(codes.FailedPrecondition, "resolve %s: got %s want %s", ch.GetId(), got.GetId(), parentID)
+		}
+	}
+	if s.NATS != nil {
+		for _, cid := range childIDs {
+			raw, err := json.Marshal(splitcontrol.RuntimeCellDeleteRequest{
+				Op:     splitcontrol.OpDeleteRuntimeChild,
+				CellID: cid,
+				Reason: "merge handoff topology switch",
+			})
+			if err != nil {
+				continue
+			}
+			_ = s.NATS.Publish(natsbus.SubjectCellControl, raw)
+		}
+		_ = s.NATS.FlushTimeout(400 * time.Millisecond)
+	}
+	cfg := config.FromEnv()
+	if cfg.RedisAddr != "" {
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     cfg.RedisAddr,
+			Password: cfg.RedisPassword,
+			DB:       0,
+		})
+		defer rdb.Close()
+		state := map[string]any{
+			"phase":                   splitcontrol.RetireStatePhaseAutomationComplete,
+			"parent_cell_id":          parentID,
+			"removed_children":        childIDs,
+			"topology_switched":       true,
+			"runtime_teardown_queued": true,
+			"at_unix_ms":              time.Now().UnixMilli(),
+		}
+		raw, err := json.Marshal(state)
+		if err != nil {
+			return status.Errorf(codes.Internal, "merge state json: %v", err)
+		}
+		key := "mmo:grid:merge:state:" + strings.TrimSpace(parentID)
+		sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if err := rdb.Set(sctx, key, raw, mergeAutomationRedisTTL).Err(); err != nil {
+			return status.Errorf(codes.Unavailable, "redis merge state: %v", err)
+		}
+	}
+	s.publishMergeWorkflowEvent(mergeWorkflowEvent{
+		ParentCellID: parentID,
+		Stage:        splitcontrol.StageTopologySwitched,
+		Message:      "children deregistered from catalog; teardown requested",
+		AtUnixMs:     time.Now().UnixMilli(),
+		Successful:   true,
+	})
+	return nil
+}
 
 type mergeWorkflowEvent struct {
 	ParentCellID string `json:"parent_cell_id"`
@@ -88,8 +172,8 @@ func (s *Server) pingPlayerCount(ctx context.Context, cellID string) (int32, err
 	return res.GetPlayerCount(), nil
 }
 
-// ForwardMergeHandoff экспортирует NPC со списка child и импортирует объединённый persist в parent.
-// MVP: topology switch/teardown child остаётся операторским шагом после handoff.
+// ForwardMergeHandoff экспортирует NPC с детей, импортирует в parent, затем deregister детей в каталоге,
+// verify Resolve, публикует runtime teardown в NATS и пишет Redis mmo:grid:merge:state:<parent> (если REDIS_ADDR).
 func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMergeHandoffRequest) (*cellv1.ForwardMergeHandoffResponse, error) {
 	start := time.Now()
 	defer observeMergeWorkflowDuration(start)
@@ -306,19 +390,25 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: e.Error(), AtUnixMs: time.Now().UnixMilli()})
 		return nil, e
 	}
+	if err := s.completeMergePostHandoff(hctx, parentID, childIDs); err != nil {
+		incRPC("ForwardMergeHandoff", err)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: err.Error(), AtUnixMs: time.Now().UnixMilli()})
+		return nil, err
+	}
 	incRPC("ForwardMergeHandoff", nil)
 	mergeWorkflowRunsTotal.WithLabelValues("ok").Inc()
 	s.publishMergeWorkflowEvent(mergeWorkflowEvent{
 		ParentCellID: parentID,
 		Stage:        "done",
-		Message:      "merge handoff completed",
+		Message:      "merge handoff and topology completed",
 		AtUnixMs:     time.Now().UnixMilli(),
 		Successful:   true,
 	})
 	logOpDone("ForwardMergeHandoff", "parent_cell_id", parentID, "child_count", len(childIDs), "npc_entities", totalNPC)
 	return &cellv1.ForwardMergeHandoffResponse{
 		Ok:             true,
-		Message:        "merge handoff ok: children exported and parent imported",
+		Message:        "merge ok: handoff, catalog switch, teardown queued",
 		ChildCount:     int32(len(childIDs)),
 		NpcEntityCount: int32(totalNPC),
 	}, nil
