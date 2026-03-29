@@ -12,7 +12,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/grid-manager ./cmd
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cell-node ./cmd/cell-node \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/gateway ./cmd/gateway \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mmoctl ./cmd/mmoctl \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/web3-indexer ./cmd/web3-indexer
 
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG GIT_REVISION=
@@ -22,4 +23,5 @@ COPY --from=build /out/cell-node /cell-node
 COPY --from=build /out/gateway /gateway
 COPY --from=build /out/mmoctl /mmoctl
 COPY --from=build /out/migrate /migrate
+COPY --from=build /out/web3-indexer /web3-indexer
 USER nonroot:nonroot

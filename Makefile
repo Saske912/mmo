@@ -34,6 +34,7 @@ build:
 	go build -o bin/gateway ./cmd/gateway
 	go build -o bin/mmoctl ./cmd/mmoctl
 	go build -o bin/migrate ./cmd/migrate
+	go build -o bin/web3-indexer ./cmd/web3-indexer
 
 test:
 	go test ./...

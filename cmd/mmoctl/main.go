@@ -41,7 +41,7 @@ func main() {
 		runPartitionPlan(args[1:])
 	case "nats":
 		if len(args) < 2 {
-			log.Fatal("nats: need subcommand pub|sub")
+			log.Fatal("nats: need subcommand pub|sub|js-ensure-stream")
 		}
 		sub := args[1]
 		fs := flag.NewFlagSet("nats "+sub, flag.ExitOnError)
@@ -65,6 +65,20 @@ func main() {
 			}
 			nurl := firstNonEmpty(*urlFlag, *natsURLOverride, config.FromEnv().NATSURL)
 			runNATSSub(nurl, pos[0], *wait, *timeout)
+		case "js-ensure-stream":
+			def := natsbus.DefaultJetStreamConfig()
+			stream := fs.String("stream", def.StreamName, "JetStream stream name")
+			subjectsCSV := fs.String("subjects", strings.Join(def.Subjects, ","), "subjects CSV")
+			maxAge := fs.Duration("max-age", def.MaxAge, "stream max age")
+			replicas := fs.Int("replicas", def.Replicas, "stream replicas")
+			_ = fs.Parse(args[2:])
+			nurl := firstNonEmpty(*urlFlag, *natsURLOverride, config.FromEnv().NATSURL)
+			runNATSJetStreamEnsureStream(nurl, natsbus.JetStreamConfig{
+				StreamName: *stream,
+				Subjects:   splitCSV(*subjectsCSV),
+				MaxAge:     *maxAge,
+				Replicas:   *replicas,
+			})
 		default:
 			log.Fatalf("nats: unknown %q", sub)
 		}
@@ -81,6 +95,7 @@ func usage() {
   mmoctl partition-plan [-id s] [-level n] -xmin f -xmax f -zmin f -zmax f [-format text|json] [-tfvars-skeleton]
   mmoctl nats pub  [-url u] <subject> <body>
   mmoctl nats sub  [-url u] [-wait n] [-timeout d] <subject>
+  mmoctl nats js-ensure-stream [-url u] [-stream name] [-subjects csv] [-max-age d] [-replicas n]
   mmoctl [-registry host:port] list
   mmoctl [-registry host:port] resolve <x> <z>
   mmoctl [-registry host:port] forward-update <cell_id> noop
@@ -282,6 +297,26 @@ func runNATSSub(nurl, subject string, wait int, timeout time.Duration) {
 		}
 		fmt.Printf("[%d] %s\n", i+1, string(msg.Data))
 	}
+}
+
+func runNATSJetStreamEnsureStream(nurl string, cfg natsbus.JetStreamConfig) {
+	c, err := natsbus.Connect(nurl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+	js, err := c.JetStream()
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	si, err := natsbus.EnsureStream(ctx, js, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("jetstream stream ready name=%s subjects=%d replicas=%d\n",
+		si.Config.Name, len(si.Config.Subjects), si.Config.Replicas)
 }
 
 func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr string) {
@@ -598,4 +633,21 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+func splitCSV(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

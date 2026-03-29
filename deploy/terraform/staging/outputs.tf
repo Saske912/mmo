@@ -41,6 +41,11 @@ output "gateway_public_url" {
   value       = var.gateway_ingress_enabled ? "https://${var.gateway_ingress_host}" : null
 }
 
+output "web3_indexer_http" {
+  description = "Внутренний URL web3-indexer (ClusterIP); ingest POST /v1/indexer/ingest, health GET /healthz."
+  value       = var.web3_indexer_enabled ? "http://${var.web3_indexer_service_name}.${var.namespace}.svc.cluster.local:${var.web3_indexer_http_port}" : null
+}
+
 output "image_tag" {
   description = "var.image_tag (синхрон с локальным IMAGE_TAG при make tofu-apply / harbor-push)."
   value       = var.image_tag

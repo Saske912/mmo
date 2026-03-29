@@ -214,6 +214,36 @@ variable "grid_manager_extra_env" {
   default     = {}
 }
 
+variable "web3_indexer_enabled" {
+  type        = bool
+  description = "Разворачивать Deployment/Service для ingest-сервиса web3-indexer (тот же образ mmo-backend, entrypoint /web3-indexer)."
+  default     = true
+}
+
+variable "web3_indexer_http_port" {
+  type        = number
+  description = "HTTP-порт web3-indexer в поде и Service (WEB3_INDEXER_LISTEN=0.0.0.0:<port>)."
+  default     = 8091
+}
+
+variable "web3_indexer_service_name" {
+  type        = string
+  description = "Имя ClusterIP Service для web3-indexer."
+  default     = "mmo-web3-indexer"
+}
+
+variable "web3_indexer_chain_id" {
+  type        = number
+  description = "Optional: WEB3_INDEXER_CHAIN_ID (дефолтный chain id для ingest без chain_id в теле). 0 — не передавать в env."
+  default     = 0
+}
+
+variable "web3_indexer_extra_env" {
+  type        = map(string)
+  description = "Дополнительные env для web3-indexer (поверх Secret mmo-backend)."
+  default     = {}
+}
+
 variable "service_monitor_enabled" {
   type        = bool
   description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."

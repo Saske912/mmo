@@ -450,6 +450,132 @@ resource "kubernetes_service" "gateway" {
   }
 }
 
+resource "kubernetes_deployment" "web3_indexer" {
+  count = var.web3_indexer_enabled ? 1 : 0
+
+  metadata {
+    name      = "web3-indexer"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "web3-indexer"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "web3-indexer"
+      }
+    }
+
+    template {
+      metadata {
+        labels = merge(
+          {
+            app = "web3-indexer"
+          },
+          local.mmo_log_pod_labels,
+        )
+      }
+
+      spec {
+        container {
+          name              = "web3-indexer"
+          image             = local.image
+          image_pull_policy = local.pull_policy
+
+          command = ["/web3-indexer"]
+
+          env {
+            name  = "WEB3_INDEXER_LISTEN"
+            value = "0.0.0.0:${var.web3_indexer_http_port}"
+          }
+
+          dynamic "env" {
+            for_each = var.web3_indexer_chain_id > 0 ? [var.web3_indexer_chain_id] : []
+            content {
+              name  = "WEB3_INDEXER_CHAIN_ID"
+              value = tostring(env.value)
+            }
+          }
+
+          port {
+            name           = "http"
+            container_port = var.web3_indexer_http_port
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/healthz"
+              port = "http"
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 15
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/healthz"
+              port = "http"
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+            failure_threshold     = 3
+          }
+
+          env_from {
+            secret_ref {
+              name = kubernetes_secret.mmo_backend.metadata[0].name
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.mmo_structured_logs ? [1] : []
+            content {
+              name  = "MMO_LOG_FORMAT"
+              value = "json"
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.web3_indexer_extra_env
+            content {
+              name  = env.key
+              value = env.value
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "web3_indexer" {
+  count = var.web3_indexer_enabled ? 1 : 0
+
+  metadata {
+    name      = var.web3_indexer_service_name
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "web3-indexer"
+    }
+  }
+
+  spec {
+    selector = {
+      app = "web3-indexer"
+    }
+
+    port {
+      name        = "http"
+      port        = var.web3_indexer_http_port
+      target_port = var.web3_indexer_http_port
+    }
+  }
+}
+
 # TLS из PEM в каталоге certs/ (Let's Encrypt / certbot; см. certs/README).
 resource "kubernetes_secret" "gateway_tls" {
   count = var.gateway_ingress_enabled ? 1 : 0

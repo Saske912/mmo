@@ -1,8 +1,10 @@
 package natsbus
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +18,28 @@ type Client struct {
 	conn            *nats.Conn
 	reconnectCount  atomic.Int64
 	disconnectCount atomic.Int64
+}
+
+// JetStreamConfig задаёт минимальные параметры bootstrap stream.
+type JetStreamConfig struct {
+	StreamName string
+	Subjects   []string
+	MaxAge     time.Duration
+	Replicas   int
+}
+
+// DefaultJetStreamConfig покрывает базовые subjects из Phase 0.1.
+func DefaultJetStreamConfig() JetStreamConfig {
+	return JetStreamConfig{
+		StreamName: "MMO_EVENTS",
+		Subjects: []string{
+			SubjectCellEvents,
+			SubjectCellMigration + ".*",
+			SubjectGridCommands,
+		},
+		MaxAge:   24 * time.Hour,
+		Replicas: 1,
+	}
 }
 
 // Connect устанавливает соединение (NATS_URL или собранный URL из config).
@@ -99,6 +123,39 @@ func (c *Client) Close() {
 
 func (c *Client) Conn() *nats.Conn {
 	return c.conn
+}
+
+// JetStream возвращает контекст JetStream поверх текущего подключения.
+func (c *Client) JetStream() (nats.JetStreamContext, error) {
+	return c.conn.JetStream()
+}
+
+// EnsureStream создаёт stream, если он отсутствует.
+func EnsureStream(ctx context.Context, js nats.JetStreamContext, cfg JetStreamConfig) (*nats.StreamInfo, error) {
+	if strings.TrimSpace(cfg.StreamName) == "" {
+		return nil, fmt.Errorf("jetstream stream name is empty")
+	}
+	if len(cfg.Subjects) == 0 {
+		return nil, fmt.Errorf("jetstream subjects are empty")
+	}
+	if cfg.MaxAge <= 0 {
+		cfg.MaxAge = 24 * time.Hour
+	}
+	if cfg.Replicas <= 0 {
+		cfg.Replicas = 1
+	}
+
+	if si, err := js.StreamInfo(cfg.StreamName, nats.Context(ctx)); err == nil {
+		return si, nil
+	}
+	return js.AddStream(&nats.StreamConfig{
+		Name:      cfg.StreamName,
+		Subjects:  cfg.Subjects,
+		Storage:   nats.FileStorage,
+		Retention: nats.LimitsPolicy,
+		MaxAge:    cfg.MaxAge,
+		Replicas:  cfg.Replicas,
+	}, nats.Context(ctx))
 }
 
 // ReconnectStats текстовый статус для смоук/диагностики.

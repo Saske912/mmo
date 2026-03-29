@@ -226,12 +226,12 @@ type QuestDef struct {
 
 // QuestProgressApplyResult итог применения прогресса (в т.ч. автозавершение).
 type QuestProgressApplyResult struct {
-	Completed         bool
-	Progress          int
-	TargetProgress    int
-	GoldReward        int64
-	ItemsRewarded     []PlayerItemRow
-	AlreadyComplete   bool
+	Completed           bool
+	Progress            int
+	TargetProgress      int
+	GoldReward          int64
+	ItemsRewarded       []PlayerItemRow
+	AlreadyComplete     bool
 	NewlyUnlockedQuests []string // квесты, выданные после завершения (цепочка по prerequisite)
 }
 
@@ -741,5 +741,86 @@ INSERT INTO mmo_player_item (player_id, item_id, quantity)
 VALUES ($1, 'tutorial_shard', 1)
 ON CONFLICT (player_id, item_id) DO NOTHING`
 	_, err := pool.Exec(ctx, q, playerID)
+	return err
+}
+
+// ChainEventRow событие, приходящее из внешнего индексатора/релея в Phase C.
+type ChainEventRow struct {
+	ChainID         int64
+	BlockNumber     int64
+	BlockHash       string
+	TxHash          string
+	LogIndex        int32
+	ContractAddress string
+	EventName       string
+	Payload         json.RawMessage
+}
+
+// UpsertChainCursor обновляет последний обработанный блок для chain_id.
+func UpsertChainCursor(ctx context.Context, pool *pgxpool.Pool, chainID, blockNumber int64, blockHash string) error {
+	const q = `
+INSERT INTO mmo_chain_cursor (chain_id, last_block_number, last_block_hash)
+VALUES ($1, $2, $3)
+ON CONFLICT (chain_id) DO UPDATE SET
+  last_block_number = GREATEST(mmo_chain_cursor.last_block_number, EXCLUDED.last_block_number),
+  last_block_hash = CASE
+    WHEN EXCLUDED.last_block_number >= mmo_chain_cursor.last_block_number THEN EXCLUDED.last_block_hash
+    ELSE mmo_chain_cursor.last_block_hash
+  END,
+  updated_at = now()`
+	_, err := pool.Exec(ctx, q, chainID, blockNumber, strings.TrimSpace(blockHash))
+	return err
+}
+
+// InsertChainEvents сохраняет batch событий идемпотентно (unique chain_id/tx_hash/log_index).
+func InsertChainEvents(ctx context.Context, pool *pgxpool.Pool, events []ChainEventRow) error {
+	if len(events) == 0 {
+		return nil
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	const q = `
+INSERT INTO mmo_chain_tx_event (
+  chain_id, block_number, block_hash, tx_hash, log_index, contract_address, event_name, payload
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+ON CONFLICT (chain_id, tx_hash, log_index) DO UPDATE SET
+  block_number = EXCLUDED.block_number,
+  block_hash = EXCLUDED.block_hash,
+  contract_address = EXCLUDED.contract_address,
+  event_name = EXCLUDED.event_name,
+  payload = EXCLUDED.payload`
+	for _, ev := range events {
+		payload := ev.Payload
+		if len(payload) == 0 {
+			payload = json.RawMessage(`{}`)
+		}
+		if _, err := tx.Exec(ctx, q,
+			ev.ChainID, ev.BlockNumber, strings.TrimSpace(ev.BlockHash), strings.TrimSpace(ev.TxHash), ev.LogIndex,
+			strings.TrimSpace(ev.ContractAddress), strings.TrimSpace(ev.EventName), payload,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// UpsertPlayerWalletAddress сохраняет связку player_id -> onchain address.
+func UpsertPlayerWalletAddress(ctx context.Context, pool *pgxpool.Pool, playerID, walletAddress string, chainID int64) error {
+	playerID = strings.TrimSpace(playerID)
+	walletAddress = strings.TrimSpace(walletAddress)
+	if playerID == "" || walletAddress == "" || chainID <= 0 {
+		return nil
+	}
+	const q = `
+INSERT INTO mmo_player_wallet_address (player_id, wallet_address, chain_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (player_id) DO UPDATE SET
+  wallet_address = EXCLUDED.wallet_address,
+  chain_id = EXCLUDED.chain_id,
+  updated_at = now()`
+	_, err := pool.Exec(ctx, q, playerID, walletAddress, chainID)
 	return err
 }

@@ -32,7 +32,8 @@ cd backend && bash scripts/grid-auto-split-drain-rehearsal.sh
 ## После репетиции
 
 - Проверьте алерты/Grafana.
-- При реальном инциденте следуйте runbook (§6 export/import NPC, **ForwardNpcHandoff**, §5 вывод родителя и т.д.).
+- Для типового B3 handoff используйте `scripts/grid-orchestrate-handoff.sh` (drain → dry-run → handoff → undrain).
+- Полный §5 runbook (вывод родителя) держите как редкий инфраструктурный сценарий.
 
 ## Чеклист оператора после автоматического `split_drain`
 
@@ -42,6 +43,6 @@ cd backend && bash scripts/grid-auto-split-drain-rehearsal.sh
 2. **Зафиксировать соту:** какой **`cell_id`** ушёл в drain (логи grid-manager / событие policy / `mmoctl -registry … list` / resolve).
 3. **Дальше по cold-path** — [runbook `cold-cell-split.md` §6–7](../runbooks/cold-cell-split.md): окно, при необходимости **`migration-dry-run`**, **`forward-npc-handoff`** (или пошаговый export/import из §6), обновление **`cell_instances`** и **`tofu apply`**, если появлялись новые шарды; полная последовательность — [`docs/cells-migration-workflow.md`](cells-migration-workflow.md).
 4. **Снять drain**, когда мир и каталог согласованы и дальнейшие Join на этой соте допустимы:  
-   `mmoctl -registry <grid-manager:9100> forward-update <cell_id> set-split-drain false`  
+   `mmoctl -registry <grid-manager:9100> forward-update <cell_id> split-drain false`  
    (из пода: см. `scripts/mmoctl-in-cluster.sh` / репетицию [`scripts/grid-auto-split-drain-rehearsal.sh`](../scripts/grid-auto-split-drain-rehearsal.sh)).
 5. **Регрессия кластера** при крупных изменениях: [`scripts/staging-verify.sh`](../scripts/staging-verify.sh).

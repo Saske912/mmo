@@ -21,6 +21,7 @@
 5. Клиенты: реконнект WS при смене покрытия.
 
 Обёртка: [scripts/run-forward-npc-handoff.sh](../scripts/run-forward-npc-handoff.sh) (`PARENT`, `CHILD`, `MODE=incluster`).
+Альтернатива для registry-first цикла (drain/dry-run/handoff/undrain): [scripts/grid-orchestrate-handoff.sh](../scripts/grid-orchestrate-handoff.sh) (`REGISTRY`, `PARENT`, `CHILD`).
 
 ### Репетиция §7 без вывода родителя (§5 не выполнять)
 
@@ -46,3 +47,7 @@
 ## Live-миграция игроков
 
 Полный **live-handoff** игроков без реконнекта — вне текущего scope (см. конец runbook). Для планирования переноса сущностей на уровне соты реализованы **`ListMigrationCandidates`** (gRPC **cell**) и **`migration-dry-run`** в [cmd/mmoctl](../cmd/mmoctl/main.go).
+
+## Приоритет исполнения B3 (операторский)
+
+Для ежедневной эксплуатации приоритет: **grid-manager orchestration** (auto split-drain + scripted handoff), а полный §5 runbook (вывод родителя из каталога) выполнять только когда действительно меняется топология и требуется инфраструктурный вывод parent.
