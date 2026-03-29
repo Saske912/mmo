@@ -93,6 +93,49 @@ func TestResolveChildProbeReasons_avoidsForeignDeeperOverlap(t *testing.T) {
 	}
 }
 
+// Та же ветка (1,-1): точка внутри L2 — Resolve возвращает более глубокий id, это допустимо.
+func TestResolveChildProbeReasons_sameBranchDeeperWinnerOK(t *testing.T) {
+	ctx := context.Background()
+	cat := discovery.NewMemoryCatalog(registry.NewMemory())
+	for _, c := range []*cellv1.CellSpec{
+		{
+			Id:           "cell_0_0_0",
+			Level:        0,
+			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+			GrpcEndpoint: "r0:50051",
+		},
+		{
+			Id:           "cell_1_-1_1",
+			Level:        1,
+			Bounds:       &cellv1.Bounds{XMin: 0, XMax: 1000, ZMin: -1000, ZMax: 0},
+			GrpcEndpoint: "r1:50051",
+		},
+		{
+			Id:           "cell_1_-1_2",
+			Level:        2,
+			Bounds:       &cellv1.Bounds{XMin: 500, XMax: 1000, ZMin: -500, ZMax: 0},
+			GrpcEndpoint: "r2:50051",
+		},
+	} {
+		if err := cat.RegisterCell(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	specs := []splitcontrol.ChildCellSpec{{
+		ID:    "cell_1_-1_1",
+		Level: 1,
+		XMin:  0, XMax: 1000, ZMin: -1000, ZMax: 0,
+	}}
+	listed, err := cat.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := resolveChildProbeReasons(ctx, cat, specs, listed)
+	if len(got) != 0 {
+		t.Fatalf("expected no resolve errors, got %v", got)
+	}
+}
+
 func TestResolveChildProbeReasons_wrongWinner(t *testing.T) {
 	ctx := context.Background()
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())

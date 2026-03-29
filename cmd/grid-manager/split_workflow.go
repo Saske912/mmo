@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,23 @@ import (
 	"mmo/internal/partition"
 	"mmo/internal/splitcontrol"
 )
+
+// cellGridIDRe: cell_-1_-1_1 / cell_1_1_2 — пара (qx,qz) задаёт «ветку» квадранта, последнее число — level.
+var cellGridIDRe = regexp.MustCompile(`^cell_(-?\d+)_(-?\d+)_(\d+)$`)
+
+func parseCellGridID(id string) (qx, qz int, level int32, ok bool) {
+	m := cellGridIDRe.FindStringSubmatch(strings.TrimSpace(id))
+	if len(m) != 4 {
+		return 0, 0, 0, false
+	}
+	qx, err1 := strconv.Atoi(m[1])
+	qz, err2 := strconv.Atoi(m[2])
+	lv, err3 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0, false
+	}
+	return qx, qz, int32(lv), true
+}
 
 var (
 	splitWorkflowRunsTotal = promauto.NewCounterVec(
@@ -771,7 +789,12 @@ func postRetirePreflightReasons(ctx context.Context, cat discovery.Catalog, pare
 	return dedupeReasons(reasons)
 }
 
+// pointInForeignDeeperCell — точка под чужим более глубоким шардом: другая пара (qx,qz), не потомок той же ветки.
 func pointInForeignDeeperCell(cx, cz float64, selfID string, selfLevel int32, cells []*cellv1.CellSpec) bool {
+	sqx, sqz, _, sok := parseCellGridID(selfID)
+	if !sok {
+		return false
+	}
 	for _, c := range cells {
 		if c == nil || c.Bounds == nil {
 			continue
@@ -780,6 +803,10 @@ func pointInForeignDeeperCell(cx, cz float64, selfID string, selfLevel int32, ce
 			continue
 		}
 		if c.Level <= selfLevel {
+			continue
+		}
+		cqx, cqz, _, cok := parseCellGridID(c.Id)
+		if cok && cqx == sqx && cqz == sqz {
 			continue
 		}
 		if partition.Contains(c.Bounds, cx, cz) {
@@ -834,9 +861,15 @@ func resolveChildProbeReasons(ctx context.Context, cat discovery.Catalog, specs 
 			reasons = append(reasons, fmt.Sprintf("resolve_%s:no_match", id))
 			continue
 		}
-		if got.GetId() != id {
-			reasons = append(reasons, fmt.Sprintf("resolve_%s:want_got_%s", id, got.GetId()))
+		if got.GetId() == id {
+			continue
 		}
+		sqx, sqz, _, sok := parseCellGridID(id)
+		gqx, gqz, gl, gok := parseCellGridID(got.GetId())
+		if sok && gok && gl > sp.Level && gqx == sqx && gqz == sqz {
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("resolve_%s:want_got_%s", id, got.GetId()))
 	}
 	return reasons
 }
