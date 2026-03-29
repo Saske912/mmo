@@ -15,6 +15,7 @@ import (
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
 	natsbus "mmo/internal/bus/nats"
+	"mmo/internal/cellsim/snapshot"
 	"mmo/internal/discovery"
 	"mmo/internal/partition"
 )
@@ -171,7 +172,7 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		}
 	}()
 
-	merged := &gamev1.CellPersist{}
+	merged := &gamev1.CellPersist{SchemaVersion: snapshot.SchemaVersion}
 	totalNPC := 0
 	for _, cid := range childIDs {
 		exp, err := s.doForwardCellUpdate(hctx, cid, &cellv1.UpdateRequest{
