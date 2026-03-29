@@ -151,6 +151,7 @@ func (r *splitWorkflowRuntime) maybeStart(ctx context.Context, cellID string) {
 
 func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 	start := time.Now()
+	slog.Info("split workflow: start", "cell_id", cellID, "max_retries", r.cfg.maxRetries)
 	defer func() {
 		splitWorkflowDurationSeconds.Observe(time.Since(start).Seconds())
 		r.mu.Lock()
@@ -168,6 +169,7 @@ func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 	for attempt := 1; attempt <= r.cfg.maxRetries; attempt++ {
 		err := r.runOnce(ctx, cellID, attempt)
 		if err == nil {
+			slog.Info("split workflow: done", "cell_id", cellID, "attempt", attempt)
 			splitWorkflowRunsTotal.WithLabelValues("ok").Inc()
 			r.publish(splitWorkflowEvent{
 				CellID:     cellID,
@@ -190,6 +192,7 @@ func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 			return
 		}
 		lastErr = err
+		slog.Warn("split workflow: retry", "cell_id", cellID, "attempt", attempt, "err", err)
 		r.publish(splitWorkflowEvent{
 			CellID:   cellID,
 			Stage:    "retrying",
@@ -208,6 +211,7 @@ func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 		}
 		select {
 		case <-ctx.Done():
+			slog.Warn("split workflow: cancelled", "cell_id", cellID)
 			splitWorkflowRunsTotal.WithLabelValues("cancelled").Inc()
 			return
 		case <-time.After(backoff):
@@ -218,6 +222,7 @@ func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 		}
 	}
 	splitWorkflowRunsTotal.WithLabelValues("failed").Inc()
+	slog.Error("split workflow: failed", "cell_id", cellID, "err", lastErr)
 	r.publish(splitWorkflowEvent{
 		CellID:   cellID,
 		Stage:    "failed",

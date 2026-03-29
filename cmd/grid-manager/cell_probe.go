@@ -176,7 +176,9 @@ func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 				for _, k := range cellThresholdViolationKinds {
 					cellThresholdViolation.WithLabelValues(id, k).Set(viol[k])
 				}
-				policy.observe(probeCtx, policySample{
+				// Workflow split должен жить дольше одного probe-раунда: используем корневой ctx,
+				// а не probeCtx (который отменяется в конце runRound).
+				policy.observe(ctx, policySample{
 					cellID:     id,
 					endpoint:   ep,
 					reachable:  ok,
