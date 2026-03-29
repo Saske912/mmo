@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,11 +20,14 @@ import (
 	gamev1 "mmo/gen/gamev1"
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/cellsim/snapshot"
+	"mmo/internal/config"
 	"mmo/internal/discovery"
 	"mmo/internal/partition"
+	"mmo/internal/splitcontrol"
 )
 
 const forwardMergeHandoffTimeout = 90 * time.Second
+const mergeAutomationRedisTTL = 7 * 24 * time.Hour
 
 type mergeWorkflowEvent struct {
 	ParentCellID string `json:"parent_cell_id"`
@@ -86,6 +90,38 @@ func (s *Server) pingPlayerCount(ctx context.Context, cellID string) (int32, err
 		return 0, err
 	}
 	return res.GetPlayerCount(), nil
+}
+
+func (s *Server) saveMergeAutomationState(ctx context.Context, parentID string, childIDs []string) error {
+	cfg := config.FromEnv()
+	if cfg.RedisAddr == "" {
+		return nil
+	}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       0,
+	})
+	defer rdb.Close()
+	state := map[string]any{
+		"phase":                   splitcontrol.RetireStatePhaseAutomationComplete,
+		"parent_cell_id":          parentID,
+		"removed_children":        childIDs,
+		"topology_switched":       true,
+		"runtime_teardown_queued": true,
+		"at_unix_ms":              time.Now().UnixMilli(),
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return status.Errorf(codes.Internal, "merge state json: %v", err)
+	}
+	key := "mmo:grid:merge:state:" + strings.TrimSpace(parentID)
+	wctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := rdb.Set(wctx, key, raw, mergeAutomationRedisTTL).Err(); err != nil {
+		return status.Errorf(codes.Unavailable, "redis merge state: %v", err)
+	}
+	return nil
 }
 
 // ForwardMergeHandoff экспортирует NPC со списка child и импортирует объединённый persist в parent.
@@ -305,6 +341,12 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: e.Error(), AtUnixMs: time.Now().UnixMilli()})
 		return nil, e
+	}
+	if err := s.saveMergeAutomationState(hctx, parentID, childIDs); err != nil {
+		incRPC("ForwardMergeHandoff", err)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: err.Error(), AtUnixMs: time.Now().UnixMilli()})
+		return nil, err
 	}
 	incRPC("ForwardMergeHandoff", nil)
 	mergeWorkflowRunsTotal.WithLabelValues("ok").Inc()
