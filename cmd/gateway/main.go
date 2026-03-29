@@ -772,7 +772,21 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			gatewayCellHandoffMismatch.Inc()
 			w.Header().Set("X-MMO-Last-Cell-Id", rec.CellID)
 			w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
-			http.Error(w, "cell handoff required: call POST /v1/session with updated resolve_x/resolve_z (or GET /v1/me/resolve-preview), then reconnect WebSocket", http.StatusConflict)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":   "cell_handoff_required",
+				"message": "last_cell in DB does not match registry resolve for this session; update resolve in POST /v1/session (or GET /v1/me/resolve-preview), then reconnect WebSocket",
+				"last_cell": map[string]any{
+					"cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
+				},
+				"resolved": map[string]any{
+					"cell_id": cellID, "grpc_endpoint": ep,
+				},
+				"session_resolve_x": rx,
+				"session_resolve_z": rz,
+				"hint":              "Prefer coordinates from last_cell or from resolved cell for the desired shard; JWT mmo_rx/mmo_rz must match before /v1/ws",
+			})
 			return
 		}
 	}

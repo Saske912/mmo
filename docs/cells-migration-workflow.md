@@ -39,7 +39,7 @@
 
 | Область | Что ещё открыто |
 |---------|------------------|
-| **Игроки** | Автоперенос сессии без реконнекта **нет**; есть `GET /v1/me/resolve-preview`, **409** на `/v1/ws` при расхождении last_cell ↔ resolve — реконнект по [runbook §4](../runbooks/cold-cell-split.md). |
+| **Игроки** | Автоперенос сессии без реконнекта **нет**; есть `GET /v1/me/resolve-preview`, **409** на `/v1/ws` с **JSON** (`cell_handoff_required`, `last_cell` / `resolved`) при расхождении last_cell ↔ resolve — реконнект по [runbook §4](../runbooks/cold-cell-split.md). |
 | **Вывод родителя** | Полный вывод из каталога (в т.ч. §5 runbook): graceful shutdown → deregister; при необходимости убрать соту из [`cell_instances.auto.tfvars`](../deploy/terraform/staging/cell_instances.auto.tfvars) и `tofu apply`. |
 | **NPC / миграции** | **`ForwardNpcHandoff`** / **`mmoctl forward-npc-handoff`** — [runbook §6–7](../runbooks/cold-cell-split.md); операторский цикл §7 — выше в этом файле. Репетиция §7 без §5 — см. подраздел выше. |
 

@@ -46,6 +46,7 @@ mmoctl -registry <grid-manager:9100> resolve -500 -500
 
 - Запланируйте окно: отключить клиентов или предупредить о реконнекте.
 - После того как дети в Consul и `resolve` корректен для целевых координат, новые WebSocket-сессии пойдут на правильный endpoint (при согласованных флагах gateway с позицией игрока).
+- Если **`mmo_player_last_cell`** не совпадает с сотой, которую даёт **`ResolvePosition`** для координат из JWT сессии, **`GET /v1/ws`** возвращает **409** с заголовками **`X-MMO-Last-Cell-Id`** / **`X-MMO-Resolved-Cell-Id`** и **JSON-телом** (`error: cell_handoff_required`, поля **`last_cell`**, **`resolved`**, **`session_resolve_x/z`**, **`hint`**) — клиент может вызвать **`POST /v1/session`** с новыми **`resolve_x`/`resolve_z`** и переподнять WebSocket без разбора текста ошибки.
 
 ## 5. Вывод родителя (cold)
 
