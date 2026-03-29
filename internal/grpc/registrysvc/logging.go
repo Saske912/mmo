@@ -38,6 +38,8 @@ func updateKind(upd *cellv1.UpdateRequest) string {
 		return "export_npc_persist"
 	case *cellv1.UpdateRequest_ImportNpcPersist:
 		return "import_npc_persist"
+	case *cellv1.UpdateRequest_MergePrepare:
+		return "merge_prepare"
 	default:
 		return "unknown"
 	}

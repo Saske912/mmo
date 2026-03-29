@@ -325,6 +325,24 @@ func (s *Server) Update(ctx context.Context, req *cellv1.UpdateRequest) (*cellv1
 			msg += " reason=" + reason
 		}
 		return &cellv1.UpdateResponse{Ok: true, Message: msg}, nil
+	case *cellv1.UpdateRequest_MergePrepare:
+		if s.Bounds == nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "no bounds on cell server"}, nil
+		}
+		children := []*cellv1.CellSpec(nil)
+		reason := ""
+		if p.MergePrepare != nil {
+			children = p.MergePrepare.GetChildren()
+			reason = strings.TrimSpace(p.MergePrepare.GetReason())
+		}
+		if err := partition.ValidateMergeChildren(s.Bounds, s.Level, children); err != nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "merge_prepare invalid: " + err.Error()}, nil
+		}
+		msg := fmt.Sprintf("merge_prepare ok children=%d", len(children))
+		if reason != "" {
+			msg += " reason=" + reason
+		}
+		return &cellv1.UpdateResponse{Ok: true, Message: msg}, nil
 	default:
 		return &cellv1.UpdateResponse{Ok: true, Message: "noop"}, nil
 	}

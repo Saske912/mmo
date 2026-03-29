@@ -1,7 +1,7 @@
 # ADR: merge / unsplit для scale-in
 
 Дата: 2026-03-29  
-Статус: Proposed
+Статус: Accepted for MVP scope (phase 0-1)
 
 ## Контекст
 
@@ -18,6 +18,14 @@ Scale-out (split) автоматизирован: load policy -> split workflow 
 
 Не внедрять merge как ad-hoc логику.  
 Вести как отдельный эпик с обязательным протоколом и тестовым контуром.
+
+### MVP scope (первая итерация)
+
+1. Инициатор merge — только операторский/manual trigger (через `mmoctl`/registry RPC).
+2. Merge разрешён только для ровной группы из 4 sibling-child одного parent (зеркало `PlanSplit`).
+3. Модель игроков в MVP — cold-path: merge blocked при активных player-сессиях на child.
+4. В MVP автоматический low-load auto-merge не включается.
+5. В MVP runtime merge покрывает handoff NPC parent <- children и восстановление `split_drain=false`; полный topology retire/teardown child остаётся операторским шагом.
 
 ## Предварительный контракт (черновик)
 
@@ -52,4 +60,4 @@ Scale-out (split) автоматизирован: load policy -> split workflow 
 
 ## Последствия
 
-Пока ADR не принят и протокол не реализован, scale-in остаётся операторским и вне auto-path.
+До полной реализации topology switch/teardown, scale-in остаётся частично операторским: автоматизируется только orchestrated handoff NPC и подготовка к merge.

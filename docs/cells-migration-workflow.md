@@ -87,3 +87,15 @@ Guardrails для controlled scale-out:
 - проверяет **`automation_complete`** в JSON `split-retire-state` для родителя (переменная **`GRID_SPLIT_PARENT_CELL_ID`**, по умолчанию `cell_0_0_0`).
 
 В [`scripts/staging-verify.sh`](../scripts/staging-verify.sh) при наличии **`cell_-1_-1_1`** в каталоге проверяется `automation_complete` в Redis; отключение: **`STAGING_VERIFY_POST_HANDOFF_STATE=0`**.
+
+## Merge handoff (MVP, manual trigger)
+
+Для scale-in MVP добавлен ручной orchestrated merge handoff NPC (`children -> parent`) через registry RPC:
+
+```bash
+kubectl -n mmo exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 \
+  forward-merge-handoff cell_0_0_0 cell_-1_-1_1,cell_1_-1_1,cell_-1_1_1,cell_1_1_1 "ticket"
+```
+
+События публикуются в NATS `grid.merge.workflow`, метрики: `mmo_grid_manager_merge_workflow_*`.
+Полный topology switch/teardown child после handoff остаётся операторским шагом (см. ADR merge).

@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke split-e2e-smoke
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke split-e2e-smoke merge-e2e-smoke
 
 # harbor-login и др. рецепты используют bash (подстановки ${var//…}, [[ … ]]).
 SHELL := /bin/bash
@@ -164,3 +164,6 @@ web3-indexer-ingest-smoke:
 # Auto split workflow smoke: rehearsal + workflow metrics.
 split-e2e-smoke:
 	bash scripts/grid-auto-split-e2e.sh
+
+merge-e2e-smoke:
+	bash scripts/grid-merge-e2e.sh

@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Registry_Register_FullMethodName          = "/mmo.cell.v1.Registry/Register"
-	Registry_ListCells_FullMethodName         = "/mmo.cell.v1.Registry/ListCells"
-	Registry_ResolvePosition_FullMethodName   = "/mmo.cell.v1.Registry/ResolvePosition"
-	Registry_ForwardCellUpdate_FullMethodName = "/mmo.cell.v1.Registry/ForwardCellUpdate"
-	Registry_ForwardNpcHandoff_FullMethodName = "/mmo.cell.v1.Registry/ForwardNpcHandoff"
+	Registry_Register_FullMethodName            = "/mmo.cell.v1.Registry/Register"
+	Registry_ListCells_FullMethodName           = "/mmo.cell.v1.Registry/ListCells"
+	Registry_ResolvePosition_FullMethodName     = "/mmo.cell.v1.Registry/ResolvePosition"
+	Registry_ForwardCellUpdate_FullMethodName   = "/mmo.cell.v1.Registry/ForwardCellUpdate"
+	Registry_ForwardNpcHandoff_FullMethodName   = "/mmo.cell.v1.Registry/ForwardNpcHandoff"
+	Registry_ForwardMergeHandoff_FullMethodName = "/mmo.cell.v1.Registry/ForwardMergeHandoff"
 )
 
 // RegistryClient is the client API for Registry service.
@@ -37,6 +38,7 @@ type RegistryClient interface {
 	ResolvePosition(ctx context.Context, in *ResolvePositionRequest, opts ...grpc.CallOption) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(ctx context.Context, in *ForwardCellUpdateRequest, opts ...grpc.CallOption) (*ForwardCellUpdateResponse, error)
 	ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHandoffRequest, opts ...grpc.CallOption) (*ForwardNpcHandoffResponse, error)
+	ForwardMergeHandoff(ctx context.Context, in *ForwardMergeHandoffRequest, opts ...grpc.CallOption) (*ForwardMergeHandoffResponse, error)
 }
 
 type registryClient struct {
@@ -97,6 +99,16 @@ func (c *registryClient) ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHa
 	return out, nil
 }
 
+func (c *registryClient) ForwardMergeHandoff(ctx context.Context, in *ForwardMergeHandoffRequest, opts ...grpc.CallOption) (*ForwardMergeHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardMergeHandoffResponse)
+	err := c.cc.Invoke(ctx, Registry_ForwardMergeHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RegistryServer is the server API for Registry service.
 // All implementations must embed UnimplementedRegistryServer
 // for forward compatibility.
@@ -108,6 +120,7 @@ type RegistryServer interface {
 	ResolvePosition(context.Context, *ResolvePositionRequest) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(context.Context, *ForwardCellUpdateRequest) (*ForwardCellUpdateResponse, error)
 	ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error)
+	ForwardMergeHandoff(context.Context, *ForwardMergeHandoffRequest) (*ForwardMergeHandoffResponse, error)
 	mustEmbedUnimplementedRegistryServer()
 }
 
@@ -132,6 +145,9 @@ func (UnimplementedRegistryServer) ForwardCellUpdate(context.Context, *ForwardCe
 }
 func (UnimplementedRegistryServer) ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForwardNpcHandoff not implemented")
+}
+func (UnimplementedRegistryServer) ForwardMergeHandoff(context.Context, *ForwardMergeHandoffRequest) (*ForwardMergeHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForwardMergeHandoff not implemented")
 }
 func (UnimplementedRegistryServer) mustEmbedUnimplementedRegistryServer() {}
 func (UnimplementedRegistryServer) testEmbeddedByValue()                  {}
@@ -244,6 +260,24 @@ func _Registry_ForwardNpcHandoff_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Registry_ForwardMergeHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardMergeHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServer).ForwardMergeHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Registry_ForwardMergeHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServer).ForwardMergeHandoff(ctx, req.(*ForwardMergeHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Registry_ServiceDesc is the grpc.ServiceDesc for Registry service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -270,6 +304,10 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForwardNpcHandoff",
 			Handler:    _Registry_ForwardNpcHandoff_Handler,
+		},
+		{
+			MethodName: "ForwardMergeHandoff",
+			Handler:    _Registry_ForwardMergeHandoff_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

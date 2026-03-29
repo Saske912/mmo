@@ -72,6 +72,12 @@ message CellUpdateImportNpcPersist {
   string reason = 2;
 }
 
+// Подготовка merge на parent-соте: валидация ожидаемой четверки child для обратного split.
+message CellUpdateMergePrepare {
+  string reason = 1;
+  repeated CellSpec children = 2;
+}
+
 message UpdateRequest {
   oneof payload {
     CellUpdateNoop noop = 1;
@@ -81,6 +87,7 @@ message UpdateRequest {
     CellUpdateSetSplitDrain set_split_drain = 4;
     CellUpdateExportNpcPersist export_npc_persist = 5;
     CellUpdateImportNpcPersist import_npc_persist = 6;
+    CellUpdateMergePrepare merge_prepare = 7;
   }
 }
 
@@ -117,6 +124,20 @@ message ForwardNpcHandoffResponse {
   int32 npc_entity_count = 3;
 }
 
+// Оркестрация merge handoff NPC: экспорт с children и импорт в parent.
+message ForwardMergeHandoffRequest {
+  string parent_cell_id = 1;
+  repeated string child_cell_ids = 2;
+  string reason = 3;
+}
+
+message ForwardMergeHandoffResponse {
+  bool ok = 1;
+  string message = 2;
+  int32 child_count = 3;
+  int32 npc_entity_count = 4;
+}
+
 // Registry — сервис обнаружения сот (заготовка Grid Manager / Consul-роли).
 service Registry {
   rpc Register(RegisterRequest) returns (RegisterResponse);
@@ -124,6 +145,7 @@ service Registry {
   rpc ResolvePosition(ResolvePositionRequest) returns (ResolvePositionResponse);
   rpc ForwardCellUpdate(ForwardCellUpdateRequest) returns (ForwardCellUpdateResponse);
   rpc ForwardNpcHandoff(ForwardNpcHandoffRequest) returns (ForwardNpcHandoffResponse);
+  rpc ForwardMergeHandoff(ForwardMergeHandoffRequest) returns (ForwardMergeHandoffResponse);
 }
 
 message PingRequest {

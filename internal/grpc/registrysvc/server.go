@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	cellv1 "mmo/gen/cellv1"
+	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/discovery"
 )
 
@@ -20,6 +21,7 @@ const forwardCellDialTimeout = 5 * time.Second
 type Server struct {
 	cellv1.UnimplementedRegistryServer
 	Store discovery.Catalog
+	NATS  *natsbus.Client
 }
 
 var errBadRequest = errors.New("bad request")

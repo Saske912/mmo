@@ -263,6 +263,48 @@ func TestUpdateSplitPrepare(t *testing.T) {
 	}
 }
 
+func TestUpdateMergePrepare(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
+	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	ctx := context.Background()
+	childrenPlan := partition.ChildSpecsForSplit(parent, 0)
+	children := make([]*cellv1.CellSpec, 0, len(childrenPlan))
+	for _, c := range childrenPlan {
+		children = append(children, &cellv1.CellSpec{
+			Id:     c.GetId(),
+			Level:  c.GetLevel(),
+			Bounds: c.GetBounds(),
+		})
+	}
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_MergePrepare{
+			MergePrepare: &cellv1.CellUpdateMergePrepare{Reason: "test", Children: children},
+		},
+	})
+	if err != nil || res == nil || !res.Ok {
+		t.Fatalf("merge_prepare: %+v err=%v", res, err)
+	}
+}
+
+func TestUpdateMergePrepare_InvalidChildren(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
+	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	ctx := context.Background()
+	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_MergePrepare{
+			MergePrepare: &cellv1.CellUpdateMergePrepare{Reason: "test", Children: []*cellv1.CellSpec{{Id: "bad", Level: 1, Bounds: parent}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil || res.Ok {
+		t.Fatalf("expected failed merge_prepare, got %+v", res)
+	}
+}
+
 func TestLeaveIdempotent(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	srv := &Server{CellID: "t02", Sim: sim}

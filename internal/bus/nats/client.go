@@ -38,6 +38,7 @@ func DefaultJetStreamConfig() JetStreamConfig {
 			SubjectCellControl,
 			SubjectGridCommands,
 			SubjectGridSplitWorkflow,
+			SubjectGridMergeWorkflow,
 		},
 		MaxAge:   24 * time.Hour,
 		Replicas: 1,

@@ -2,6 +2,7 @@ package partition
 
 import (
 	"fmt"
+	"strings"
 
 	cellv1 "mmo/gen/cellv1"
 )
@@ -81,4 +82,62 @@ func ChildSpecsForSplit(parent *cellv1.Bounds, parentLevel int32) []*cellv1.Plan
 		})
 	}
 	return out
+}
+
+func boundsEqual(a, b *cellv1.Bounds) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.XMin == b.XMin && a.XMax == b.XMax && a.ZMin == b.ZMin && a.ZMax == b.ZMax
+}
+
+// ValidateMergeChildren проверяет, что children образуют ровно «обратный split» для parent:
+// - ровно 4 child;
+// - каждый child уровня parentLevel+1;
+// - child IDs и bounds совпадают с ChildSpecsForSplit(parent, parentLevel).
+func ValidateMergeChildren(parent *cellv1.Bounds, parentLevel int32, children []*cellv1.CellSpec) error {
+	if parent == nil {
+		return fmt.Errorf("parent bounds is nil")
+	}
+	if len(children) != 4 {
+		return fmt.Errorf("need 4 children, got %d", len(children))
+	}
+	expected := ChildSpecsForSplit(parent, parentLevel)
+	expByID := make(map[string]*cellv1.PlanSplitResponseChild, len(expected))
+	for _, e := range expected {
+		if e == nil {
+			continue
+		}
+		expByID[e.GetId()] = e
+	}
+	seen := make(map[string]struct{}, 4)
+	for _, c := range children {
+		if c == nil {
+			return fmt.Errorf("child spec is nil")
+		}
+		id := strings.TrimSpace(c.GetId())
+		if id == "" {
+			return fmt.Errorf("child has empty id")
+		}
+		exp, ok := expByID[id]
+		if !ok {
+			return fmt.Errorf("child id %s is not expected for parent level %d", id, parentLevel)
+		}
+		if c.GetLevel() != parentLevel+1 {
+			return fmt.Errorf("child %s level=%d want=%d", id, c.GetLevel(), parentLevel+1)
+		}
+		if !boundsEqual(c.GetBounds(), exp.GetBounds()) {
+			return fmt.Errorf("child %s bounds mismatch", id)
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("duplicate child id %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+	for id := range expByID {
+		if _, ok := seen[id]; !ok {
+			return fmt.Errorf("missing expected child id %s", id)
+		}
+	}
+	return nil
 }

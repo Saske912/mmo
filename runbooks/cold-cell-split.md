@@ -151,3 +151,13 @@ PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=inclus
 - Live-migrate **игроков** и автоматический redirect в gateway при смене покрытия (сейчас — только реконнект клиента).
 - Один Registry RPC `Unregister` для путей без Consul — не требуется, если сота сама снимает регистрацию при shutdown.
 - Scale-in merge/unsplit: отдельный эпик, см. [`adr-merge-unsplit.md`](../docs/adr-merge-unsplit.md).
+
+### Merge handoff smoke (MVP)
+
+Для staging-проверки ручного merge handoff (children -> parent, без auto teardown child):
+
+```bash
+cd backend && make merge-e2e-smoke
+```
+
+Скрипт: [`scripts/grid-merge-e2e.sh`](../scripts/grid-merge-e2e.sh).

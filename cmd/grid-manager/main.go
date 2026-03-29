@@ -11,6 +11,8 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	cellv1 "mmo/gen/cellv1"
+	natsbus "mmo/internal/bus/nats"
+	"mmo/internal/config"
 	"mmo/internal/discovery"
 	"mmo/internal/grpc/registrysvc"
 	"mmo/internal/logging"
@@ -48,8 +50,19 @@ func main() {
 		startCellLoadProbe(ctxProbe, store)
 	}
 
+	var natsCli *natsbus.Client
+	if natsURL := config.FromEnv().NATSURL; natsURL != "" {
+		cli, err := natsbus.ConnectResilient(natsURL, natsbus.DefaultReconnectConfig())
+		if err != nil {
+			log.Printf("registry nats connect failed: %v", err)
+		} else {
+			natsCli = cli
+			defer natsCli.Close()
+		}
+	}
+
 	srv := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
-	cellv1.RegisterRegistryServer(srv, &registrysvc.Server{Store: store})
+	cellv1.RegisterRegistryServer(srv, &registrysvc.Server{Store: store, NATS: natsCli})
 
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {

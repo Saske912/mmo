@@ -107,7 +107,9 @@ func usage() {
   mmoctl [-registry host:port] forward-update <cell_id> split-drain <true|false>
   mmoctl [-registry host:port] forward-update <cell_id> export-npc-persist [reason]
   mmoctl [-registry host:port] forward-update <cell_id> import-npc-persist <path|-> [reason]
+  mmoctl [-registry host:port] forward-update <cell_id> merge-prepare <child_csv> [reason]
   mmoctl [-registry host:port] forward-npc-handoff <parent_cell_id> <child_cell_id> [reason]
+  mmoctl [-registry host:port] forward-merge-handoff <parent_cell_id> <child_csv> [reason]
   mmoctl [-registry host:port] migration-dry-run <cell_id>
   mmoctl plansplit <host:port>
   mmoctl migration-candidates <host:port> [reason]
@@ -395,9 +397,35 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 			log.Fatal(err)
 		}
 		fmt.Printf("ok=%v npc_entities=%d %s\n", resp.GetOk(), resp.GetNpcEntityCount(), resp.GetMessage())
+	case "forward-merge-handoff":
+		if len(rest) < 2 {
+			log.Fatal("forward-merge-handoff: need <parent_cell_id> <child_csv> [reason]")
+		}
+		parentID := strings.TrimSpace(rest[0])
+		childIDs := splitCSV(rest[1])
+		reason := "mmoctl"
+		if len(rest) >= 3 {
+			reason = rest[2]
+		}
+		conn, err := grpc.NewClient(regAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+		cl := cellv1.NewRegistryClient(conn)
+		resp, err := cl.ForwardMergeHandoff(ctx, &cellv1.ForwardMergeHandoffRequest{
+			ParentCellId: parentID,
+			ChildCellIds: childIDs,
+			Reason:       reason,
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ok=%v children=%d npc_entities=%d %s\n",
+			resp.GetOk(), resp.GetChildCount(), resp.GetNpcEntityCount(), resp.GetMessage())
 	case "forward-update":
 		if len(rest) < 2 {
-			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist | import-npc-persist ...")
+			log.Fatal("forward-update: need <cell_id> noop | tps | split-prepare | split-drain | export-npc-persist | import-npc-persist | merge-prepare ...")
 		}
 		cellID := rest[0]
 		var upd *cellv1.UpdateRequest
@@ -468,6 +496,25 @@ func runRegistryOrPing(ctx context.Context, cmd string, rest []string, regAddr s
 				ImportNpcPersist: &cellv1.CellUpdateImportNpcPersist{
 					NpcImportJson: string(body),
 					Reason:        reason,
+				},
+			}}
+		case "merge-prepare":
+			if len(rest) < 3 {
+				log.Fatal("forward-update: merge-prepare needs <child_csv> [reason]")
+			}
+			childIDs := splitCSV(rest[2])
+			reason := "mmoctl"
+			if len(rest) >= 4 {
+				reason = rest[3]
+			}
+			children := make([]*cellv1.CellSpec, 0, len(childIDs))
+			for _, id := range childIDs {
+				children = append(children, &cellv1.CellSpec{Id: id})
+			}
+			upd = &cellv1.UpdateRequest{Payload: &cellv1.UpdateRequest_MergePrepare{
+				MergePrepare: &cellv1.CellUpdateMergePrepare{
+					Reason:   reason,
+					Children: children,
 				},
 			}}
 		default:

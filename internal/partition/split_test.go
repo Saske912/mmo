@@ -76,3 +76,59 @@ func TestChildSpecsForSplit_nilParent(t *testing.T) {
 		t.Fatal("want nil")
 	}
 }
+
+func TestValidateMergeChildren_OK(t *testing.T) {
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	ch := ChildSpecsForSplit(parent, 0)
+	in := make([]*cellv1.CellSpec, 0, len(ch))
+	for _, c := range ch {
+		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: c.GetLevel(), Bounds: c.GetBounds()})
+	}
+	if err := ValidateMergeChildren(parent, 0, in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateMergeChildren_BadShape(t *testing.T) {
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	ch := ChildSpecsForSplit(parent, 0)
+	in := make([]*cellv1.CellSpec, 0, len(ch))
+	for _, c := range ch[:3] {
+		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: c.GetLevel(), Bounds: c.GetBounds()})
+	}
+	if err := ValidateMergeChildren(parent, 0, in); err == nil {
+		t.Fatal("expected error for len != 4")
+	}
+}
+
+func TestValidateMergeChildren_BadLevel(t *testing.T) {
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	ch := ChildSpecsForSplit(parent, 0)
+	in := make([]*cellv1.CellSpec, 0, len(ch))
+	for i, c := range ch {
+		lvl := c.GetLevel()
+		if i == 0 {
+			lvl = 99
+		}
+		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: lvl, Bounds: c.GetBounds()})
+	}
+	if err := ValidateMergeChildren(parent, 0, in); err == nil {
+		t.Fatal("expected error for level mismatch")
+	}
+}
+
+func TestValidateMergeChildren_BadBounds(t *testing.T) {
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	ch := ChildSpecsForSplit(parent, 0)
+	in := make([]*cellv1.CellSpec, 0, len(ch))
+	for i, c := range ch {
+		b := c.GetBounds()
+		if i == 1 {
+			b = &cellv1.Bounds{XMin: b.XMin + 1, XMax: b.XMax, ZMin: b.ZMin, ZMax: b.ZMax}
+		}
+		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: c.GetLevel(), Bounds: b})
+	}
+	if err := ValidateMergeChildren(parent, 0, in); err == nil {
+		t.Fatal("expected error for bounds mismatch")
+	}
+}
