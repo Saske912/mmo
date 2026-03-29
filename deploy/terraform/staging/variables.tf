@@ -11,8 +11,8 @@ variable "remote_state_namespace" {
 }
 
 variable "remote_state_secret_suffix" {
-  type        = string
-  default     = "terraform"
+  type    = string
+  default = "terraform"
 }
 
 variable "namespace" {
@@ -197,7 +197,7 @@ variable "mmo_structured_logs" {
 }
 
 variable "mmo_loki_log_labels" {
-  type = map(string)
+  type        = map(string)
   description = <<EOT
 Дополнительные Pod labels при mmo_structured_logs=true: задайте ключи, по которым ваш кластерный сборщик логов (Grafana Alloy, Promtail, агент k8s-monitoring) отбирает потоки из namespace приложения.
 EOT
@@ -211,6 +211,18 @@ EOT
 variable "grid_manager_extra_env" {
   type        = map(string)
   description = "Дополнительные переменные окружения для grid-manager (поверх Secret mmo-backend). Пример: включить авто split_drain при load policy — MMO_GRID_AUTO_SPLIT_DRAIN = \"true\". См. grid_manager.auto.tfvars.example и scripts/grid-auto-split-drain-rehearsal.sh."
+  default     = {}
+}
+
+variable "cell_controller_enabled" {
+  type        = bool
+  description = "Разворачивать cell-controller (control-plane для materialize child-cell по событиям split workflow)."
+  default     = true
+}
+
+variable "cell_controller_extra_env" {
+  type        = map(string)
+  description = "Дополнительные env для cell-controller."
   default     = {}
 }
 

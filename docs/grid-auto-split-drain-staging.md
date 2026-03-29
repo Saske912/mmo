@@ -37,6 +37,8 @@ E2E вариант с проверкой workflow-метрик:
 cd backend && bash scripts/grid-auto-split-e2e.sh
 ```
 
+Перед прогоном скрипт по умолчанию удаляет runtime child (`cell-node-auto-*`, `mmo-cell-auto-*`), чтобы не копился хвост подов; отключить: `RESET_AUTO_CHILDREN_BEFORE_TEST=0`. Перед **`staging-verify.sh`** при «грязном» кластере: **`STAGING_VERIFY_RESET_AUTO_CELLS=1`**.
+
 ## После репетиции
 
 - Проверьте алерты/Grafana.
@@ -49,7 +51,7 @@ cd backend && bash scripts/grid-auto-split-e2e.sh
 
 1. **Подтвердить контекст:** Grafana (дашборд grid/cell load), при необходимости Loki по подам **grid-manager** и затронутой **cell** — нет ли шума, ожидаемо ли нарушение порога.
 2. **Зафиксировать соту:** какой **`cell_id`** ушёл в drain (логи grid-manager / событие policy / `mmoctl -registry … list` / resolve).
-3. **Дальше по cold-path** — [runbook `cold-cell-split.md` §6–7](../runbooks/cold-cell-split.md): окно, при необходимости **`migration-dry-run`**, **`forward-npc-handoff`** (или пошаговый export/import из §6), обновление **`cell_instances`** и **`tofu apply`**, если появлялись новые шарды; полная последовательность — [`docs/cells-migration-workflow.md`](cells-migration-workflow.md).
+3. **Дальше по cold-path** — [runbook `cold-cell-split.md` §6–7](../runbooks/cold-cell-split.md): окно, при необходимости **`migration-dry-run`**, **`forward-npc-handoff`** (или пошаговый export/import из §6), затем проверка materialized child-cell (catalog + readiness + метрики); полная последовательность — [`docs/cells-migration-workflow.md`](cells-migration-workflow.md).
 4. **Снять drain**, когда мир и каталог согласованы и дальнейшие Join на этой соте допустимы:  
    `mmoctl -registry <grid-manager:9100> forward-update <cell_id> split-drain false`  
    (из пода: см. `scripts/mmoctl-in-cluster.sh` / репетицию [`scripts/grid-auto-split-drain-rehearsal.sh`](../scripts/grid-auto-split-drain-rehearsal.sh)).

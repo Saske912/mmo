@@ -29,4 +29,15 @@
 
 По умолчанию **`web3_indexer_enabled = true`**: Deployment `web3-indexer` и Service **`mmo-web3-indexer`** (HTTP, ingest). Переменные см. в `variables.tf` (`web3_indexer_http_port`, `web3_indexer_chain_id`, `web3_indexer_extra_env`, **`web3_indexer_ingest_api_key`**, **`web3_indexer_ingest_hmac_secret`**). Пример секретов без коммита: [`web3_indexer.auto.tfvars.example`](web3_indexer.auto.tfvars.example). Документация: [`docs/web3-indexer.md`](../../docs/web3-indexer.md).
 
-CRD/controller foundation для lifecycle сот: [`../staging/cell-crd.example.yaml`](../../staging/cell-crd.example.yaml), [`../staging/cell-controller.example.yaml`](../../staging/cell-controller.example.yaml).
+## Cell-controller (split control-plane)
+
+По умолчанию **`cell_controller_enabled = true`**: Terraform поднимает `ServiceAccount`, `Role`, `RoleBinding` и `Deployment` `cell-controller` в `mmo`. Контроллер слушает:
+- `grid.split.workflow` (для `retire_ready` marker),
+- `cell.control` (запросы на materialize child-cell runtime).
+
+Дополнительные env можно прокинуть через `cell_controller_extra_env`.
+
+CRD/controller reference-манифесты для ручного старта/отладки:
+- [`../staging/cell-crd.example.yaml`](../../staging/cell-crd.example.yaml)
+- [`../staging/cell-controller.example.yaml`](../../staging/cell-controller.example.yaml)
+- [`../staging/cell-controller-rbac.example.yaml`](../../staging/cell-controller-rbac.example.yaml)

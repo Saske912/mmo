@@ -85,8 +85,8 @@ if [[ "$UNSET_DRAIN" == "1" ]]; then
 fi
 
 cat <<'EOF'
-next steps (manual, out of this script):
-  1) update deploy/terraform/staging/cell_instances.auto.tfvars if topology changed
-  2) tofu apply in deploy/terraform/staging
-  3) run scripts/staging-verify.sh
+next steps:
+  1) check split workflow / cell-controller logs (children created + ready)
+  2) run scripts/staging-verify.sh
+  3) keep Terraform cell_instances focused on baseline primary topology
 EOF

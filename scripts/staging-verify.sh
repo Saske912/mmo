@@ -6,6 +6,8 @@
 # Опционально (после cold-split / нескольких шардов):
 #   STAGING_VERIFY_EXPECT_CELL_IDS="cell_0_0_0,cell_-1_-1_1" — все эти id должны быть в list
 #   STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1;500,-500,cell_1_-1_1" — точка x,z → ожидаемый id
+# Перед проверкой убрать runtime child-соты от cell-controller (иначе «34 pod» после split-e2e):
+#   STAGING_VERIFY_RESET_AUTO_CELLS=1  (default: 0 — не трогать кластер)
 set -euo pipefail
 
 NS="${K8S_NAMESPACE:-mmo}"
@@ -48,6 +50,24 @@ curl_public() {
     curl -fsS "$@"
   fi
 }
+
+reset_auto_child_workloads() {
+  echo "== STAGING_VERIFY_RESET_AUTO_CELLS: delete cell-node-auto Deployments + mmo-cell-auto Services =="
+  local d s
+  d="$(kubectl -n "$NS" get deploy -o name 2>/dev/null | grep -E '^deployment\.apps/cell-node-auto-' || true)"
+  s="$(kubectl -n "$NS" get svc -o name 2>/dev/null | grep -E '^service/mmo-cell-auto-' || true)"
+  if [ -n "$d" ]; then
+    echo "$d" | xargs -r kubectl -n "$NS" delete --ignore-not-found >/dev/null
+  fi
+  if [ -n "$s" ]; then
+    echo "$s" | xargs -r kubectl -n "$NS" delete --ignore-not-found >/dev/null
+  fi
+  kubectl -n "$NS" wait --for=delete pod -l 'app=cell-node,cell_shard!=primary' --timeout=120s >/dev/null 2>&1 || true
+}
+
+if [ "${STAGING_VERIFY_RESET_AUTO_CELLS:-0}" = 1 ] || [ "${STAGING_VERIFY_RESET_AUTO_CELLS:-0}" = true ]; then
+  reset_auto_child_workloads
+fi
 
 echo "== kubectl -n $NS pods =="
 kubectl get pods -n "$NS" -o wide
@@ -129,7 +149,8 @@ echo "== mmoctl resolve (-500,-500) =="
 LIST_OUT="$CATALOG_PREVIEW"
 RESOLVE_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500 -500)"
 echo "$RESOLVE_OUT"
-# Если в кластере зарегистрирована дочерняя сота из PlanSplit (пример cell_instances.auto.tfvars.example), точка (-500,-500) должна резолвиться в неё, а не в родителя level=0.
+# Если в кластере зарегистрирована дочерняя сота из PlanSplit (обычно runtime-create через cell-controller),
+# точка (-500,-500) должна резолвиться в неё, а не в родителя level=0.
 if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
   if ! echo "$RESOLVE_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
     echo "B2 staging: в каталоге есть cell_-1_-1_1, но resolve (-500,-500) не вернул её" >&2
@@ -139,7 +160,7 @@ if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
   fi
   echo "B2 staging: resolve SW-квадранта в дочернюю соту — OK"
 else
-  echo "B2 staging: одна сота в каталоге; полный кластерный тест добавьте шард child-sw в cell_instances (см. deploy/terraform/staging/cell_instances.auto.tfvars.example)"
+  echo "B2 staging: одна сота в каталоге; child пока не materialized (проверьте split-e2e / cell-controller)."
 fi
 
 if [ -n "${STAGING_VERIFY_EXPECT_CELL_IDS:-}" ]; then

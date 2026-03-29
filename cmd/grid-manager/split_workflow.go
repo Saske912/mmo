@@ -21,6 +21,7 @@ import (
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/config"
 	"mmo/internal/discovery"
+	"mmo/internal/splitcontrol"
 )
 
 var (
@@ -50,6 +51,7 @@ type splitWorkflowConfig struct {
 	maxRetries     int
 	initialBackoff time.Duration
 	maxBackoff     time.Duration
+	waitChildren   time.Duration
 }
 
 type splitWorkflowRuntime struct {
@@ -84,6 +86,7 @@ func parseSplitWorkflowConfig() splitWorkflowConfig {
 		maxRetries:     4,
 		initialBackoff: 1 * time.Second,
 		maxBackoff:     12 * time.Second,
+		waitChildren:   90 * time.Second,
 	}
 	if n := parseIntWithDefault(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_MAX_RETRIES"), cfg.maxRetries); n >= 1 {
 		cfg.maxRetries = n
@@ -93,6 +96,9 @@ func parseSplitWorkflowConfig() splitWorkflowConfig {
 	}
 	if d := parseDurationWithDefault(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_MAX_BACKOFF"), cfg.maxBackoff); d > 0 {
 		cfg.maxBackoff = d
+	}
+	if d := parseDurationWithDefault(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_WAIT_CHILDREN"), cfg.waitChildren); d > 0 {
+		cfg.waitChildren = d
 	}
 	return cfg
 }
@@ -240,7 +246,7 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		AtUnixMs: time.Now().UnixMilli(),
 	})
 
-	children, err := r.discoverChildCandidates(ctx, parentCellID)
+	children, err := r.planSplitChildren(ctx, parentCellID)
 	if err != nil {
 		return err
 	}
@@ -249,18 +255,34 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 	}
 	r.publish(splitWorkflowEvent{
 		CellID:   parentCellID,
-		Stage:    "children_ready",
+		Stage:    "children_creating",
 		Attempt:  attempt,
-		Message:  fmt.Sprintf("candidate children=%d", len(children)),
+		Message:  fmt.Sprintf("request create children=%d", len(children)),
 		AtUnixMs: time.Now().UnixMilli(),
-		Attrs:    map[string]string{"children": strings.Join(children, ",")},
+	})
+	for _, ch := range children {
+		if err := r.requestChildCreate(ctx, parentCellID, ch, attempt); err != nil {
+			return err
+		}
+	}
+	readyChildren, err := r.waitChildrenReady(ctx, children)
+	if err != nil {
+		return err
+	}
+	r.publish(splitWorkflowEvent{
+		CellID:   parentCellID,
+		Stage:    "children_wait_ready",
+		Attempt:  attempt,
+		Message:  fmt.Sprintf("children ready=%d", len(readyChildren)),
+		AtUnixMs: time.Now().UnixMilli(),
+		Attrs:    map[string]string{"children": strings.Join(readyChildren, ",")},
 	})
 
 	if err := r.runMigrationDryRun(ctx, parentCellID); err != nil {
 		return err
 	}
 
-	for _, child := range children {
+	for _, child := range readyChildren {
 		r.publish(splitWorkflowEvent{
 			CellID:    parentCellID,
 			ChildCell: child,
@@ -295,7 +317,7 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 	return fmt.Errorf("handoff failed for all child candidates")
 }
 
-func (r *splitWorkflowRuntime) discoverChildCandidates(ctx context.Context, parentCellID string) ([]string, error) {
+func (r *splitWorkflowRuntime) planSplitChildren(ctx context.Context, parentCellID string) ([]splitcontrol.ChildCellSpec, error) {
 	parent, ok, err := discovery.FindCellByID(ctx, r.cat, parentCellID)
 	if err != nil {
 		return nil, err
@@ -310,27 +332,10 @@ func (r *splitWorkflowRuntime) discoverChildCandidates(ctx context.Context, pare
 	if len(childrenFromPlan) == 0 {
 		return nil, fmt.Errorf("PlanSplit returned no children for %s", parentCellID)
 	}
-	cells, err := r.cat.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]struct{}, len(cells))
-	for _, c := range cells {
-		if c == nil {
-			continue
-		}
-		byID[c.GetId()] = struct{}{}
-	}
-	out := make([]string, 0, len(childrenFromPlan))
-	for _, id := range childrenFromPlan {
-		if _, ok := byID[id]; ok {
-			out = append(out, id)
-		}
-	}
-	return out, nil
+	return childrenFromPlan, nil
 }
 
-func (r *splitWorkflowRuntime) planSplit(ctx context.Context, endpoint string) ([]string, error) {
+func (r *splitWorkflowRuntime) planSplit(ctx context.Context, endpoint string) ([]splitcontrol.ChildCellSpec, error) {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -343,13 +348,93 @@ func (r *splitWorkflowRuntime) planSplit(ctx context.Context, endpoint string) (
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(resp.GetChildren()))
+	out := make([]splitcontrol.ChildCellSpec, 0, len(resp.GetChildren()))
 	for _, ch := range resp.GetChildren() {
-		if id := strings.TrimSpace(ch.GetId()); id != "" {
-			out = append(out, id)
+		id := strings.TrimSpace(ch.GetId())
+		if id == "" || ch.GetBounds() == nil {
+			continue
 		}
+		b := ch.GetBounds()
+		out = append(out, splitcontrol.ChildCellSpec{
+			ID:    id,
+			Level: ch.GetLevel(),
+			XMin:  b.GetXMin(),
+			XMax:  b.GetXMax(),
+			ZMin:  b.GetZMin(),
+			ZMax:  b.GetZMax(),
+		})
 	}
 	return out, nil
+}
+
+func (r *splitWorkflowRuntime) requestChildCreate(ctx context.Context, parentCellID string, ch splitcontrol.ChildCellSpec, attempt int) error {
+	if r.nats == nil {
+		return fmt.Errorf("nats client is required for child create request")
+	}
+	req := splitcontrol.ChildCellCreateRequest{
+		ParentCellID: parentCellID,
+		RequestID:    fmt.Sprintf("%s-a%d-%d", parentCellID, attempt, time.Now().UnixMilli()),
+		Child:        ch,
+	}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if err := r.nats.Publish(natsbus.SubjectCellControl, raw); err != nil {
+		return err
+	}
+	return r.nats.FlushTimeout(400 * time.Millisecond)
+}
+
+func (r *splitWorkflowRuntime) waitChildrenReady(ctx context.Context, children []splitcontrol.ChildCellSpec) ([]string, error) {
+	deadline := time.Now().Add(r.cfg.waitChildren)
+	want := make(map[string]splitcontrol.ChildCellSpec, len(children))
+	for _, ch := range children {
+		want[ch.ID] = ch
+	}
+	for {
+		cells, err := r.cat.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ready := make([]string, 0, len(children))
+		for _, c := range cells {
+			if c == nil {
+				continue
+			}
+			id := c.GetId()
+			if _, ok := want[id]; !ok {
+				continue
+			}
+			if endpoint := strings.TrimSpace(c.GetGrpcEndpoint()); endpoint != "" && isCellReachable(ctx, endpoint) {
+				ready = append(ready, id)
+			}
+		}
+		if len(ready) == len(children) {
+			return ready, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("children not ready in time: have=%d want=%d", len(ready), len(children))
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+func isCellReachable(ctx context.Context, endpoint string) bool {
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cl := cellv1.NewCellClient(conn)
+	_, err = cl.Ping(pctx, &cellv1.PingRequest{ClientId: "grid-workflow"})
+	return err == nil
 }
 
 func (r *splitWorkflowRuntime) runMigrationDryRun(ctx context.Context, parentCellID string) error {

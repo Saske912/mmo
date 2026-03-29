@@ -4,6 +4,8 @@ package natsbus
 const (
 	SubjectCellEvents    = "cell.events"
 	SubjectCellMigration = "cell.migration"
+	// SubjectCellControl — управляющие команды lifecycle сот (controller plane).
+	SubjectCellControl = "cell.control"
 	SubjectGridCommands  = "grid.commands"
 	// SubjectGridSplitWorkflow — события оркестрации split из grid-manager.
 	SubjectGridSplitWorkflow = "grid.split.workflow"

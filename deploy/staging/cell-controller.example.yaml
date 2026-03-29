@@ -13,6 +13,7 @@ spec:
       labels:
         app: cell-controller
     spec:
+      serviceAccountName: cell-controller
       containers:
         - name: cell-controller
           image: harbor.pass-k8s.ru/library/mmo-backend:latest
@@ -24,3 +25,9 @@ spec:
           env:
             - name: MMO_CELL_CONTROLLER_SUBJECT
               value: grid.split.workflow
+            - name: MMO_CELL_CONTROLLER_CONTROL_SUBJECT
+              value: cell.control
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace

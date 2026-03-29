@@ -53,3 +53,18 @@
 Для ежедневной эксплуатации приоритет: **grid-manager orchestration** (auto split-drain + scripted handoff), а полный §5 runbook (вывод родителя из каталога) выполнять только когда действительно меняется топология и требуется инфраструктурный вывод parent.
 
 Для state-machine workflow в grid-manager: `MMO_GRID_AUTO_SPLIT_WORKFLOW=true` (дополнительно к `MMO_GRID_AUTO_SPLIT_DRAIN=true`), метрики `mmo_grid_manager_split_workflow_*`, события `grid.split.workflow`.
+
+## Split control-plane (staging)
+
+Текущий путь авто-split в staging:
+
+1. `grid-manager` на breach включает `split_drain`.
+2. Делает `PlanSplit` и публикует `cell.control` запросы на создание child-cell.
+3. `cell-controller` materialize child-cell как Kubernetes `Service` + `Deployment`.
+4. Workflow ждёт, пока children появятся в каталоге и пройдут `Ping` reachability.
+5. После readiness выполняется `ForwardNpcHandoff`, parent получает `retire_ready` marker (без auto-delete в этом спринте).
+
+Проверка end-to-end: [`scripts/grid-auto-split-e2e.sh`](../scripts/grid-auto-split-e2e.sh)
+- проверяет `mmo_grid_manager_split_workflow_runs_total{result="ok"}`,
+- проверяет рост числа сот в каталоге,
+- проверяет `retire_ready_set` в логах `cell-controller`.

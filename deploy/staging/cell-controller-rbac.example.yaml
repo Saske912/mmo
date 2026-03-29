@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cell-controller
+  namespace: mmo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cell-controller
+  namespace: mmo
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cell-controller
+  namespace: mmo
+subjects:
+  - kind: ServiceAccount
+    name: cell-controller
+    namespace: mmo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cell-controller

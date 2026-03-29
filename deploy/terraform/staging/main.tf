@@ -51,17 +51,17 @@ locals {
 
   # Строки для Secret (совпадают с mmo_remote_state.tf.example и internal/config).
   secret_strings = {
-    CONSUL_HTTP_ADDR = try(local.consul.http_api_base_url, "")
-    CONSUL_DNS_ADDR  = try(local.consul.dns_addr, "")
-    NATS_URL         = try(local.nats.urls, "")
-    DATABASE_URL_RW  = try(local.pg.url_rw, "")
-    REDIS_ADDR       = try(local.redis.redis_addr, "")
-    REDIS_PASSWORD   = try(local.redis.password, "")
-    LOKI_PUSH_URL    = try(local.mon.loki.push_url, "")
-    TEMPO_OTLP_GRPC  = try(local.mon.tempo.otlp_grpc, "")
-    HARBOR_REGISTRY  = local.registry_host_raw
-    HARBOR_USER      = local.harbor_user
-    HARBOR_PASSWORD  = local.harbor_pass
+    CONSUL_HTTP_ADDR   = try(local.consul.http_api_base_url, "")
+    CONSUL_DNS_ADDR    = try(local.consul.dns_addr, "")
+    NATS_URL           = try(local.nats.urls, "")
+    DATABASE_URL_RW    = try(local.pg.url_rw, "")
+    REDIS_ADDR         = try(local.redis.redis_addr, "")
+    REDIS_PASSWORD     = try(local.redis.password, "")
+    LOKI_PUSH_URL      = try(local.mon.loki.push_url, "")
+    TEMPO_OTLP_GRPC    = try(local.mon.tempo.otlp_grpc, "")
+    HARBOR_REGISTRY    = local.registry_host_raw
+    HARBOR_USER        = local.harbor_user
+    HARBOR_PASSWORD    = local.harbor_pass
     GATEWAY_JWT_SECRET = var.gateway_jwt_secret
   }
 
@@ -174,6 +174,141 @@ resource "kubernetes_deployment" "grid_manager" {
       }
     }
   }
+}
+
+resource "kubernetes_service_account" "cell_controller" {
+  count = var.cell_controller_enabled ? 1 : 0
+
+  metadata {
+    name      = "cell-controller"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+}
+
+resource "kubernetes_role" "cell_controller" {
+  count = var.cell_controller_enabled ? 1 : 0
+
+  metadata {
+    name      = "cell-controller"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["services"]
+    verbs      = ["get", "list", "create", "update", "patch"]
+  }
+
+  rule {
+    api_groups = ["apps"]
+    resources  = ["deployments"]
+    verbs      = ["get", "list", "create", "update", "patch"]
+  }
+}
+
+resource "kubernetes_role_binding" "cell_controller" {
+  count = var.cell_controller_enabled ? 1 : 0
+
+  metadata {
+    name      = "cell-controller"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.cell_controller[0].metadata[0].name
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.cell_controller[0].metadata[0].name
+  }
+}
+
+resource "kubernetes_deployment" "cell_controller" {
+  count = var.cell_controller_enabled ? 1 : 0
+
+  metadata {
+    name      = "cell-controller"
+    namespace = kubernetes_namespace.mmo.metadata[0].name
+    labels = {
+      app = "cell-controller"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "cell-controller"
+      }
+    }
+
+    template {
+      metadata {
+        labels = merge(
+          {
+            app = "cell-controller"
+          },
+          local.mmo_log_pod_labels,
+        )
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account.cell_controller[0].metadata[0].name
+
+        container {
+          name              = "cell-controller"
+          image             = local.image
+          image_pull_policy = local.pull_policy
+
+          command = ["/cell-controller"]
+
+          env {
+            name  = "MMO_CELL_CONTROLLER_SUBJECT"
+            value = "grid.split.workflow"
+          }
+          env {
+            name  = "MMO_CELL_CONTROLLER_CONTROL_SUBJECT"
+            value = "cell.control"
+          }
+          env {
+            name  = "POD_NAMESPACE"
+            value = kubernetes_namespace.mmo.metadata[0].name
+          }
+
+          env_from {
+            secret_ref {
+              name = kubernetes_secret.mmo_backend.metadata[0].name
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.mmo_structured_logs ? [1] : []
+            content {
+              name  = "MMO_LOG_FORMAT"
+              value = "json"
+            }
+          }
+
+          dynamic "env" {
+            for_each = var.cell_controller_extra_env
+            content {
+              name  = env.key
+              value = env.value
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    kubernetes_role_binding.cell_controller,
+  ]
 }
 
 resource "kubernetes_deployment" "cell_node" {
@@ -619,7 +754,7 @@ resource "kubernetes_ingress_v1" "gateway" {
     namespace = kubernetes_namespace.mmo.metadata[0].name
     annotations = {
       # Долгоживущий WebSocket через NGINX Ingress Controller.
-      "nginx.ingress.kubernetes.io/proxy-read-timeout"  = "3600"
+      "nginx.ingress.kubernetes.io/proxy-read-timeout"    = "3600"
       "nginx.ingress.kubernetes.io/proxy-send-timeout"    = "3600"
       "nginx.ingress.kubernetes.io/proxy-connect-timeout" = "60"
     }

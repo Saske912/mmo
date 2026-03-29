@@ -35,6 +35,7 @@ func DefaultJetStreamConfig() JetStreamConfig {
 		Subjects: []string{
 			SubjectCellEvents,
 			SubjectCellMigration + ".*",
+			SubjectCellControl,
 			SubjectGridCommands,
 			SubjectGridSplitWorkflow,
 		},

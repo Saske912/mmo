@@ -1,6 +1,7 @@
-# Пример второй соты (квадрант SW после PlanSplit для cell_0_0_0 [-1000,1000]²): раскомментируйте и сольите с вашим *.auto.tfvars.
-# Ключ шарда — только RFC 1123 (без «_»): например child-sw, не child_sw.
-# После tofu apply scripts/staging-verify.sh проверит: при наличии cell_-1_-1_1 в list, resolve -500 -500 обязан вернуть эту соту.
+# Legacy-режим: ручное добавление child-соты через Terraform.
+# По текущему control-plane пути это обычно НЕ нужно: child materialize делает cell-controller.
+# Оставлено только как fallback/отладка.
+# Ключ шарда — RFC 1123 (без «_»): например child-sw, не child_sw.
 #
 # cell_instances = {
 #   primary = {

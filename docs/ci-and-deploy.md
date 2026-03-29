@@ -21,7 +21,7 @@
 3. Из корня **`backend`:** **`bash scripts/import-staging-tofu-state.sh`** (переменная **`K8S_IMPORT_NAMESPACE`** при отличии от **`mmo`**).
 4. **`tofu plan`**, затем обычный цикл [**`deploy-staging.sh`**](../scripts/deploy-staging.sh).
 
-Если ключи шардов в **`cell_instances`** не **`primary`** / **`child-sw`**, имена Deployment/импорта в скрипте нужно поправить вручную под ваш **`*.auto.tfvars`**.
+Если вы используете legacy-режим с несколькими статическими шардaми в **`cell_instances`**, имена Deployment/импорта в скрипте нужно поправить вручную под ваш **`*.auto.tfvars`**.
 
 ### Запасной выкат только образа (`kubectl set image`)
 
@@ -36,8 +36,8 @@ IMG=harbor.example/library/mmo-backend:YOUR_TAG
 kubectl -n "$NS" set image deploy/gateway gateway="$IMG"
 kubectl -n "$NS" set image deploy/grid-manager grid-manager="$IMG"
 kubectl -n "$NS" set image deploy/cell-node cell-node="$IMG"
-# Дочерние шарды: имя Deployment = cell-node-<ключ_из_cell_instances>, контейнер = cell-node
-kubectl -n "$NS" set image deploy/cell-node-child-sw cell-node="$IMG"
+# Legacy static child-шарды: имя Deployment = cell-node-<ключ_из_cell_instances>, контейнер = cell-node
+# kubectl -n "$NS" set image deploy/cell-node-child-sw cell-node="$IMG"
 kubectl -n "$NS" rollout status deploy/gateway --timeout=120s
 ```
 
