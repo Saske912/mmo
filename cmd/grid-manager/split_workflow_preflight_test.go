@@ -10,7 +10,7 @@ import (
 	"mmo/internal/splitcontrol"
 )
 
-func TestResolveChildCenterReasons_parentChildOverlap(t *testing.T) {
+func TestResolveChildProbeReasons_parentChildOverlap(t *testing.T) {
 	ctx := context.Background()
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	parent := &cellv1.CellSpec{
@@ -37,13 +37,63 @@ func TestResolveChildCenterReasons_parentChildOverlap(t *testing.T) {
 		Level: 1,
 		XMin:  -1000, XMax: 0, ZMin: -1000, ZMax: 0,
 	}}
-	got := resolveChildCenterReasons(ctx, cat, specs)
+	cells, err := cat.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := resolveChildProbeReasons(ctx, cat, specs, cells)
 	if len(got) != 0 {
 		t.Fatalf("expected no resolve errors, got %v", got)
 	}
 }
 
-func TestResolveChildCenterReasons_wrongWinner(t *testing.T) {
+// Level-2 из «другой ветки» пересекает квадрант level-1 (не покрывает его целиком):
+// прежняя одна точка у края часто попадала под чужой shard; перебор проб находит зону только под целевым L1.
+func TestResolveChildProbeReasons_avoidsForeignDeeperOverlap(t *testing.T) {
+	ctx := context.Background()
+	cat := discovery.NewMemoryCatalog(registry.NewMemory())
+	cells := []*cellv1.CellSpec{
+		{
+			Id:           "cell_0_0_0",
+			Level:        0,
+			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+			GrpcEndpoint: "r0:50051",
+		},
+		{
+			Id:           "cell_1_-1_1",
+			Level:        1,
+			Bounds:       &cellv1.Bounds{XMin: 0, XMax: 1000, ZMin: -1000, ZMax: 0},
+			GrpcEndpoint: "r1:50051",
+		},
+		{
+			Id:     "cell_-1_-1_2",
+			Level:  2,
+			Bounds: &cellv1.Bounds{XMin: 50, XMax: 450, ZMin: -450, ZMax: -150},
+			// Пересечение с квадрантом cell_1_-1_1; id как «чужой» deeper level.
+			GrpcEndpoint: "deep:50051",
+		},
+	}
+	for _, c := range cells {
+		if err := cat.RegisterCell(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	specs := []splitcontrol.ChildCellSpec{{
+		ID:    "cell_1_-1_1",
+		Level: 1,
+		XMin:  0, XMax: 1000, ZMin: -1000, ZMax: 0,
+	}}
+	listed, err := cat.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := resolveChildProbeReasons(ctx, cat, specs, listed)
+	if len(got) != 0 {
+		t.Fatalf("expected no resolve errors, got %v", got)
+	}
+}
+
+func TestResolveChildProbeReasons_wrongWinner(t *testing.T) {
 	ctx := context.Background()
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	parent := &cellv1.CellSpec{
@@ -61,7 +111,11 @@ func TestResolveChildCenterReasons_wrongWinner(t *testing.T) {
 		Level: 1,
 		XMin:  -1000, XMax: 0, ZMin: -1000, ZMax: 0,
 	}}
-	got := resolveChildCenterReasons(ctx, cat, specs)
+	cells, err := cat.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := resolveChildProbeReasons(ctx, cat, specs, cells)
 	if len(got) == 0 {
 		t.Fatal("expected resolve error when child missing from catalog")
 	}

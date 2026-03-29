@@ -21,6 +21,7 @@ import (
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/config"
 	"mmo/internal/discovery"
+	"mmo/internal/partition"
 	"mmo/internal/splitcontrol"
 )
 
@@ -761,29 +762,69 @@ func postRetirePreflightReasons(ctx context.Context, cat discovery.Catalog, pare
 			reasons = append(reasons, fmt.Sprintf("child_%s_unreachable", id))
 		}
 	}
-	reasons = append(reasons, resolveChildCenterReasons(ctx, cat, specs)...)
+	cells, lerr := cat.List(ctx)
+	if lerr != nil {
+		reasons = append(reasons, "catalog_list:"+lerr.Error())
+		return dedupeReasons(reasons)
+	}
+	reasons = append(reasons, resolveChildProbeReasons(ctx, cat, specs, cells)...)
 	return dedupeReasons(reasons)
 }
 
-// resolveInsetFrac — доля от min по каждой оси внутрь bounds; не геометрический центр,
-// иначе при полном наборе вложенных сот в каталоге Resolve чаще выбирает более глубокий level.
-const resolveInsetFrac = 0.12
+func pointInForeignDeeperCell(cx, cz float64, selfID string, selfLevel int32, cells []*cellv1.CellSpec) bool {
+	for _, c := range cells {
+		if c == nil || c.Bounds == nil {
+			continue
+		}
+		if c.Id == selfID {
+			continue
+		}
+		if c.Level <= selfLevel {
+			continue
+		}
+		if partition.Contains(c.Bounds, cx, cz) {
+			return true
+		}
+	}
+	return false
+}
 
-func resolveChildCenterReasons(ctx context.Context, cat discovery.Catalog, specs []splitcontrol.ChildCellSpec) []string {
+func pickResolveProbe(sp splitcontrol.ChildCellSpec, cells []*cellv1.CellSpec) (cx, cz float64, ok bool) {
+	id := strings.TrimSpace(sp.ID)
+	xw := sp.XMax - sp.XMin
+	zw := sp.ZMax - sp.ZMin
+	if xw <= 0 || zw <= 0 || id == "" {
+		return 0, 0, false
+	}
+	fr := []float64{0.12, 0.28, 0.44, 0.58, 0.72, 0.88}
+	for _, fx := range fr {
+		for _, fz := range fr {
+			cx := sp.XMin + xw*fx
+			cz := sp.ZMin + zw*fz
+			if !partition.Contains(&cellv1.Bounds{XMin: sp.XMin, XMax: sp.XMax, ZMin: sp.ZMin, ZMax: sp.ZMax}, cx, cz) {
+				continue
+			}
+			if pointInForeignDeeperCell(cx, cz, id, sp.Level, cells) {
+				continue
+			}
+			return cx, cz, true
+		}
+	}
+	return 0, 0, false
+}
+
+func resolveChildProbeReasons(ctx context.Context, cat discovery.Catalog, specs []splitcontrol.ChildCellSpec, cells []*cellv1.CellSpec) []string {
 	var reasons []string
 	for _, sp := range specs {
 		id := strings.TrimSpace(sp.ID)
 		if id == "" {
 			continue
 		}
-		xw := sp.XMax - sp.XMin
-		zw := sp.ZMax - sp.ZMin
-		if xw <= 0 || zw <= 0 {
-			reasons = append(reasons, fmt.Sprintf("resolve_%s:bad_bounds", id))
+		cx, cz, found := pickResolveProbe(sp, cells)
+		if !found {
+			reasons = append(reasons, fmt.Sprintf("resolve_%s:no_probe_point", id))
 			continue
 		}
-		cx := sp.XMin + xw*resolveInsetFrac
-		cz := sp.ZMin + zw*resolveInsetFrac
 		got, ok, err := cat.ResolveMostSpecific(ctx, cx, cz)
 		if err != nil {
 			reasons = append(reasons, fmt.Sprintf("resolve_%s:%v", id, err))
