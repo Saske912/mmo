@@ -37,6 +37,8 @@ func main() {
 	switch cmd {
 	case "split-retire-state":
 		runSplitRetireState(args[1:])
+	case "merge-state":
+		runMergeState(args[1:])
 	case "infra-print":
 		printInfra()
 	case "partition-plan":
@@ -94,6 +96,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   mmoctl split-retire-state <parent_cell_id>   (needs REDIS_ADDR; JSON from mmo:grid:split:retire_state:*)
+  mmoctl merge-state <parent_cell_id>          (needs REDIS_ADDR; JSON from mmo:grid:merge:state:*)
   mmoctl infra-print
   mmoctl partition-plan [-id s] [-level n] -xmin f -xmax f -zmin f -zmax f [-format text|json] [-tfvars-skeleton]
   mmoctl nats pub  [-url u] <subject> <body>

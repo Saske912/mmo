@@ -99,3 +99,17 @@ kubectl -n mmo exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 \
 
 События публикуются в NATS `grid.merge.workflow`, метрики: `mmo_grid_manager_merge_workflow_*`.
 Полный topology switch/teardown child после handoff остаётся операторским шагом (см. ADR merge).
+
+## Auto merge workflow (feature-flag)
+
+В `grid-manager` добавлен флаговый `auto merge` контур:
+- `MMO_GRID_AUTO_MERGE_WORKFLOW=true` — включает запуск merge workflow из load policy.
+- `MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION` / `MMO_GRID_MERGE_COOLDOWN` — hysteresis/cooldown для scale-in.
+- `MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS|MAX_ENTITIES|MAX_TICK_SECONDS` — low-load пороги для sibling-группы.
+
+Состояние автоматизации merge пишется в Redis:
+- `mmo:grid:merge:state:<parent_cell_id>`
+- чтение: `mmoctl merge-state <parent_cell_id>`
+
+Для смоука с проверкой Redis-маркера:
+- `make merge-auto-e2e-smoke` (включает `MERGE_VERIFY_AUTOMATION_STATE=1`).

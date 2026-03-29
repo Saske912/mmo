@@ -67,6 +67,51 @@ func (c *ConsulCatalog) Deregister(ctx context.Context, serviceID string) error 
 	return c.client.Agent().ServiceDeregister(serviceID)
 }
 
+// DeregisterLogicalCell снимает все consul service instances для логического cell_id.
+func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID string) error {
+	logicalCellID = strings.TrimSpace(logicalCellID)
+	if logicalCellID == "" {
+		return fmt.Errorf("empty logical cell id")
+	}
+	q := &api.QueryOptions{}
+	if ctx != nil {
+		q = q.WithContext(ctx)
+	}
+	rows, _, err := c.client.Health().Service(ServiceNameMMOCell, "", false, q)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	removed := 0
+	for _, row := range rows {
+		if row == nil || row.Service == nil {
+			continue
+		}
+		svcID := strings.TrimSpace(row.Service.ID)
+		metaID := strings.TrimSpace(row.Service.Meta[MetaCellLogicalID])
+		if metaID == "" {
+			metaID = svcID
+		}
+		if metaID != logicalCellID && svcID != logicalCellID {
+			continue
+		}
+		if derr := c.client.Agent().ServiceDeregister(svcID); derr != nil {
+			if firstErr == nil {
+				firstErr = derr
+			}
+			continue
+		}
+		removed++
+	}
+	if removed == 0 && firstErr == nil {
+		// Fallback: для memory-like поведения, если serviceID совпадает с logical id.
+		if derr := c.client.Agent().ServiceDeregister(logicalCellID); derr != nil {
+			return derr
+		}
+	}
+	return firstErr
+}
+
 func (c *ConsulCatalog) List(ctx context.Context) ([]*cellv1.CellSpec, error) {
 	q := &api.QueryOptions{}
 	if ctx != nil {

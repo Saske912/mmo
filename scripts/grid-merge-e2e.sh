@@ -62,4 +62,18 @@ if ! echo "$M" | grep -q 'mmo_grid_manager_merge_workflow_runs_total{result="ok"
   exit 1
 fi
 
+if [[ "${MERGE_VERIFY_AUTOMATION_STATE:-0}" == "1" || "${MERGE_VERIFY_AUTOMATION_STATE:-0}" == "true" ]]; then
+  echo "== verify merge automation state (optional) =="
+  MS="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl merge-state "$PARENT_CELL" 2>/dev/null || true)"
+  echo "$MS"
+  if [[ "$MS" == "{}" ]]; then
+    echo "ERROR: merge-state is empty (expected automation_complete state)" >&2
+    exit 1
+  fi
+  echo "$MS" | grep -qE '"topology_switched"[[:space:]]*:[[:space:]]*true' || {
+    echo "ERROR: merge-state missing topology_switched=true" >&2
+    exit 1
+  }
+fi
+
 echo "OK: merge e2e smoke finished"

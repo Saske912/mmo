@@ -24,6 +24,10 @@ func (m *MemoryCatalog) Deregister(ctx context.Context, serviceID string) error 
 	return m.mem.Deregister(ctx, serviceID)
 }
 
+func (m *MemoryCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID string) error {
+	return m.mem.Deregister(ctx, logicalCellID)
+}
+
 func (m *MemoryCatalog) List(ctx context.Context) ([]*cellv1.CellSpec, error) {
 	return m.mem.List(ctx), nil
 }

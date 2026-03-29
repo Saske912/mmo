@@ -6,9 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -58,6 +61,31 @@ func uniqueCellIDs(in []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func (s *Server) pingPlayerCount(ctx context.Context, cellID string) (int32, error) {
+	spec, ok, err := discovery.FindCellByID(ctx, s.Store, cellID)
+	if err != nil {
+		return 0, status.Error(codes.Unavailable, err.Error())
+	}
+	if !ok || spec == nil || strings.TrimSpace(spec.GetGrpcEndpoint()) == "" {
+		return 0, status.Errorf(codes.NotFound, "cell not found or endpoint empty: %s", cellID)
+	}
+	conn, err := grpc.NewClient(spec.GetGrpcEndpoint(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		return 0, status.Errorf(codes.Unavailable, "dial %s: %v", cellID, err)
+	}
+	defer conn.Close()
+	pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	res, err := cellv1.NewCellClient(conn).Ping(pctx, &cellv1.PingRequest{ClientId: "grid-merge-guard"})
+	if err != nil {
+		return 0, err
+	}
+	return res.GetPlayerCount(), nil
 }
 
 // ForwardMergeHandoff экспортирует NPC со списка child и импортирует объединённый persist в parent.
@@ -146,6 +174,46 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 		return nil, e
 	}
+	parentPlayers, err := s.pingPlayerCount(hctx, parentID)
+	if err != nil {
+		incRPC("ForwardMergeHandoff", err)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		return nil, err
+	}
+	if parentPlayers > 0 {
+		e := status.Errorf(codes.FailedPrecondition, "merge blocked: parent has active players=%d", parentPlayers)
+		incRPC("ForwardMergeHandoff", e)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		return nil, e
+	}
+	for _, cid := range childIDs {
+		players, err := s.pingPlayerCount(hctx, cid)
+		if err != nil {
+			incRPC("ForwardMergeHandoff", err)
+			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+			return nil, err
+		}
+		if players > 0 {
+			e := status.Errorf(codes.FailedPrecondition, "merge blocked: child %s has active players=%d", cid, players)
+			incRPC("ForwardMergeHandoff", e)
+			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+			return nil, e
+		}
+	}
+
+	// Parent также переводим в drain на merge-окно.
+	_, _ = s.doForwardCellUpdate(hctx, parentID, &cellv1.UpdateRequest{
+		Payload: &cellv1.UpdateRequest_SetSplitDrain{
+			SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: true},
+		},
+	})
+	defer func() {
+		_, _ = s.doForwardCellUpdate(context.Background(), parentID, &cellv1.UpdateRequest{
+			Payload: &cellv1.UpdateRequest_SetSplitDrain{
+				SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: false},
+			},
+		})
+	}()
 
 	// Включаем drain на child и гарантируем best-effort rollback.
 	for _, cid := range childIDs {

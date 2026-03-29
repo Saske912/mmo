@@ -124,6 +124,14 @@ func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 		interval, th.maxPlayers, th.maxEntities, th.maxTickSec)
 	log.Printf("load policy min_breach=%s cooldown=%s auto_split_drain=%t (MMO_GRID_LOAD_POLICY_* / MMO_GRID_AUTO_SPLIT_DRAIN)",
 		policy.cfg.minBreachDuration, policy.cfg.cooldown, policy.cfg.autoSplitDrain)
+	log.Printf("merge policy low_load_for=%s cooldown=%s auto_merge_workflow=%t merge_max_players=%g merge_max_entities=%g merge_max_tick_sec=%g (MMO_GRID_MERGE_*)",
+		policy.cfg.mergeLowLoadFor,
+		policy.cfg.mergeCooldown,
+		policy.cfg.autoMergeWorkflow,
+		policy.cfg.mergeMaxPlayers,
+		policy.cfg.mergeMaxEntities,
+		policy.cfg.mergeMaxTickSec,
+	)
 	var mu sync.Mutex
 	tracked := make(map[string]struct{})
 
@@ -142,6 +150,7 @@ func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 				return
 			}
 			inCatalog := make(map[string]struct{}, len(cells))
+			roundSamples := make(map[string]policySample, len(cells))
 			for _, spec := range cells {
 				if spec == nil {
 					continue
@@ -181,14 +190,26 @@ func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 				policy.observe(ctx, policySample{
 					cellID:     id,
 					endpoint:   ep,
+					level:      spec.GetLevel(),
 					reachable:  ok,
 					players:    players,
 					entities:   entities,
 					tickSec:    tickSec,
 					violations: viol,
 				}, within)
+				roundSamples[id] = policySample{
+					cellID:     id,
+					endpoint:   ep,
+					level:      spec.GetLevel(),
+					reachable:  ok,
+					players:    players,
+					entities:   entities,
+					tickSec:    tickSec,
+					violations: viol,
+				}
 				tracked[id] = struct{}{}
 			}
+			policy.observeMergeCandidates(ctx, cells, roundSamples)
 			for id := range tracked {
 				if _, still := inCatalog[id]; !still {
 					deleteCellProbeLabels(id)

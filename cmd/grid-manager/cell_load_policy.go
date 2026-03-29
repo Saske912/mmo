@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/config"
 	"mmo/internal/discovery"
+	"mmo/internal/partition"
 )
 
 const (
@@ -38,10 +40,26 @@ var loadPolicyActionsTotal = promauto.NewCounterVec(
 	[]string{"action", "cell_id", "result"},
 )
 
+var mergePolicyDecisionsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "grid_manager",
+		Name:      "merge_policy_decisions_total",
+		Help:      "Total merge policy decisions emitted by grid-manager",
+	},
+	[]string{"decision", "parent_cell_id", "reason"},
+)
+
 type loadPolicyConfig struct {
 	minBreachDuration time.Duration
 	cooldown          time.Duration
 	autoSplitDrain    bool
+	autoMergeWorkflow bool
+	mergeLowLoadFor   time.Duration
+	mergeCooldown     time.Duration
+	mergeMaxPlayers   float64
+	mergeMaxEntities  float64
+	mergeMaxTickSec   float64
 }
 
 type cellPolicyState struct {
@@ -52,6 +70,7 @@ type cellPolicyState struct {
 type policySample struct {
 	cellID     string
 	endpoint   string
+	level      int32
 	reachable  bool
 	players    float64
 	entities   float64
@@ -75,6 +94,8 @@ type loadPolicyEvent struct {
 type loadPolicyRuntime struct {
 	cfg      loadPolicyConfig
 	state    map[string]cellPolicyState
+	merge    *mergeWorkflowRuntime
+	mgState  map[string]cellPolicyState
 	nats     *natsbus.Client
 	natsSubj string
 	split    *splitWorkflowRuntime
@@ -96,6 +117,12 @@ func parseLoadPolicyConfig() loadPolicyConfig {
 		}
 	}
 	cfg.autoSplitDrain = envBool("MMO_GRID_AUTO_SPLIT_DRAIN")
+	cfg.autoMergeWorkflow = envBool("MMO_GRID_AUTO_MERGE_WORKFLOW")
+	cfg.mergeLowLoadFor = parseDurationWithDefault(os.Getenv("MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION"), 3*time.Minute)
+	cfg.mergeCooldown = parseDurationWithDefault(os.Getenv("MMO_GRID_MERGE_COOLDOWN"), 6*time.Minute)
+	cfg.mergeMaxPlayers = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS"), 0)
+	cfg.mergeMaxEntities = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_ENTITIES"), 300)
+	cfg.mergeMaxTickSec = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_TICK_SECONDS"), 0.01)
 	return cfg
 }
 
@@ -109,8 +136,10 @@ func newLoadPolicyRuntime(cat discovery.Catalog) *loadPolicyRuntime {
 	rt := &loadPolicyRuntime{
 		cfg:      cfg,
 		state:    make(map[string]cellPolicyState),
+		mgState:  make(map[string]cellPolicyState),
 		natsSubj: natsbus.SubjectGridCommands,
 		split:    newSplitWorkflowRuntime(cat),
+		merge:    newMergeWorkflowRuntime(cat),
 	}
 	if subj := strings.TrimSpace(os.Getenv("MMO_GRID_POLICY_NATS_SUBJECT")); subj != "" {
 		rt.natsSubj = subj
@@ -133,6 +162,9 @@ func (r *loadPolicyRuntime) close() {
 	}
 	if r.split != nil {
 		r.split.close()
+	}
+	if r.merge != nil {
+		r.merge.close()
 	}
 }
 
@@ -218,6 +250,145 @@ func (r *loadPolicyRuntime) observe(ctx context.Context, sample policySample, wi
 	r.state[sample.cellID] = st
 }
 
+func (r *loadPolicyRuntime) observeMergeCandidates(ctx context.Context, cells []*cellv1.CellSpec, samples map[string]policySample) {
+	if !r.cfg.autoMergeWorkflow || r.merge == nil {
+		return
+	}
+	now := time.Now()
+	seenParent := make(map[string]struct{})
+	specByID := make(map[string]*cellv1.CellSpec, len(cells))
+	for _, c := range cells {
+		if c == nil {
+			continue
+		}
+		specByID[strings.TrimSpace(c.GetId())] = c
+	}
+	for _, parent := range cells {
+		if parent == nil || parent.GetBounds() == nil {
+			continue
+		}
+		parentID := strings.TrimSpace(parent.GetId())
+		if parentID == "" {
+			continue
+		}
+		seenParent[parentID] = struct{}{}
+		children := partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+		if len(children) != 4 {
+			delete(r.mgState, parentID)
+			continue
+		}
+		low, reason, childrenCSV, aggPlayers, aggEntities := r.mergeGroupLowLoad(cells, specByID, samples, parent.GetLevel(), children)
+		st := r.mgState[parentID]
+		if !low {
+			st.breachSince = time.Time{}
+			r.mgState[parentID] = st
+			mergePolicyDecisionsTotal.WithLabelValues("skip", parentID, reason).Inc()
+			continue
+		}
+		if st.breachSince.IsZero() {
+			st.breachSince = now
+			r.mgState[parentID] = st
+			mergePolicyDecisionsTotal.WithLabelValues("candidate", parentID, "low_load_started").Inc()
+			continue
+		}
+		if now.Sub(st.breachSince) < r.cfg.mergeLowLoadFor {
+			r.mgState[parentID] = st
+			mergePolicyDecisionsTotal.WithLabelValues("candidate", parentID, "low_load_window").Inc()
+			continue
+		}
+		if !st.lastAction.IsZero() && now.Sub(st.lastAction) < r.cfg.mergeCooldown {
+			r.mgState[parentID] = st
+			mergePolicyDecisionsTotal.WithLabelValues("skip", parentID, "cooldown").Inc()
+			continue
+		}
+		r.merge.maybeStart(ctx, parentID)
+		mergePolicyDecisionsTotal.WithLabelValues("start", parentID, "ok").Inc()
+		r.publish(ctx, loadPolicyEvent{
+			CellID:            parentID,
+			Action:            "merge_start",
+			Reachable:         true,
+			Players:           aggPlayers,
+			Entities:          aggEntities,
+			TickSeconds:       0,
+			Violations:        map[string]float64{"unreachable": 0},
+			MinBreachDuration: r.cfg.mergeLowLoadFor.String(),
+			Cooldown:          r.cfg.mergeCooldown.String(),
+			AtUnixMs:          now.UnixMilli(),
+		})
+		slog.Info("grid merge policy action",
+			"parent_cell_id", parentID,
+			"children", childrenCSV,
+			"players_total", aggPlayers,
+			"entities_total", aggEntities,
+		)
+		st.lastAction = now
+		st.breachSince = time.Time{}
+		r.mgState[parentID] = st
+	}
+	for parentID := range r.mgState {
+		if _, ok := seenParent[parentID]; !ok {
+			delete(r.mgState, parentID)
+		}
+	}
+}
+
+func (r *loadPolicyRuntime) mergeGroupLowLoad(
+	cells []*cellv1.CellSpec,
+	specByID map[string]*cellv1.CellSpec,
+	samples map[string]policySample,
+	parentLevel int32,
+	children []*cellv1.PlanSplitResponseChild,
+) (ok bool, reason string, childrenCSV string, playersTotal, entitiesTotal float64) {
+	ids := make([]string, 0, len(children))
+	childLevel := parentLevel + 1
+	for _, ch := range children {
+		id := strings.TrimSpace(ch.GetId())
+		if id == "" {
+			return false, "child_id_empty", "", 0, 0
+		}
+		ids = append(ids, id)
+		spec := specByID[id]
+		if spec == nil || spec.GetBounds() == nil {
+			return false, "child_missing", strings.Join(ids, ","), 0, 0
+		}
+		if spec.GetLevel() != childLevel {
+			return false, "child_level_mismatch", strings.Join(ids, ","), 0, 0
+		}
+		smp, has := samples[id]
+		if !has || !smp.reachable {
+			return false, "child_unreachable", strings.Join(ids, ","), 0, 0
+		}
+		if r.cfg.mergeMaxPlayers >= 0 && smp.players > r.cfg.mergeMaxPlayers {
+			return false, "players_high", strings.Join(ids, ","), 0, 0
+		}
+		if r.cfg.mergeMaxEntities >= 0 && smp.entities > r.cfg.mergeMaxEntities {
+			return false, "entities_high", strings.Join(ids, ","), 0, 0
+		}
+		if r.cfg.mergeMaxTickSec >= 0 && smp.tickSec > r.cfg.mergeMaxTickSec {
+			return false, "tick_high", strings.Join(ids, ","), 0, 0
+		}
+		playersTotal += smp.players
+		entitiesTotal += smp.entities
+	}
+	for _, c := range cells {
+		if c == nil {
+			continue
+		}
+		id := strings.TrimSpace(c.GetId())
+		qx, qz, lv, parsed := parseCellGridID(id)
+		if !parsed || lv <= childLevel {
+			continue
+		}
+		for _, childID := range ids {
+			cx, cz, cl, ok := parseCellGridID(childID)
+			if ok && cl == childLevel && qx == cx && qz == cz {
+				return false, "child_has_descendants", strings.Join(ids, ","), 0, 0
+			}
+		}
+	}
+	return true, "ok", strings.Join(ids, ","), playersTotal, entitiesTotal
+}
+
 func (r *loadPolicyRuntime) publish(_ context.Context, event loadPolicyEvent) {
 	if r.nats == nil {
 		return
@@ -231,6 +402,18 @@ func (r *loadPolicyRuntime) publish(_ context.Context, event loadPolicyEvent) {
 		return
 	}
 	_ = r.nats.FlushTimeout(300 * time.Millisecond)
+}
+
+func parseFloat64WithDefault(raw string, fallback float64) float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func setCellSplitDrain(ctx context.Context, endpoint string, enabled bool) error {

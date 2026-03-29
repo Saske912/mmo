@@ -20,6 +20,8 @@ const (
 	StageAutomationComplete = "automation_complete"
 	// StagePostHandoffPreflightFailed — гейты не прошли; см. retire_state.preflight_blocked_reasons.
 	StagePostHandoffPreflightFailed = "post_handoff_preflight_failed"
+	// StageTopologySwitched — для merge path: child удалены из каталога, parent winner.
+	StageTopologySwitched = "topology_switched"
 )
 
 // NextActionOperatorFinalRetire — следующий шаг только оператору: §5 runbook / Terraform baseline parent.

@@ -28,15 +28,16 @@ import (
 	"mmo/internal/splitcontrol"
 )
 
-type splitWorkflowEvent struct {
-	CellID     string            `json:"cell_id"`
-	Stage      string            `json:"stage"`
-	Attempt    int               `json:"attempt"`
-	Message    string            `json:"message"`
-	ChildCell  string            `json:"child_cell,omitempty"`
-	Attrs      map[string]string `json:"attrs,omitempty"`
-	AtUnixMs   int64             `json:"at_unix_ms"`
-	Successful bool              `json:"successful"`
+type workflowEvent struct {
+	CellID       string            `json:"cell_id"`
+	ParentCellID string            `json:"parent_cell_id"`
+	Stage        string            `json:"stage"`
+	Attempt      int               `json:"attempt"`
+	Message      string            `json:"message"`
+	ChildCell    string            `json:"child_cell,omitempty"`
+	Attrs        map[string]string `json:"attrs,omitempty"`
+	AtUnixMs     int64             `json:"at_unix_ms"`
+	Successful   bool              `json:"successful"`
 }
 
 func main() {
@@ -77,6 +78,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if subj != natsbus.SubjectGridMergeWorkflow {
+		_, err = client.Subscribe(natsbus.SubjectGridMergeWorkflow, func(msg *nats.Msg) {
+			handleWorkflowEvent(msg.Data, rdb)
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 	ctrlSubj := strings.TrimSpace(os.Getenv("MMO_CELL_CONTROLLER_CONTROL_SUBJECT"))
 	if ctrlSubj == "" {
 		ctrlSubj = natsbus.SubjectCellControl
@@ -95,14 +104,19 @@ func main() {
 }
 
 func handleWorkflowEvent(raw []byte, rdb *redis.Client) {
-	var ev splitWorkflowEvent
+	var ev workflowEvent
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		slog.Warn("cell-controller: bad event", "err", err)
 		return
 	}
-	if ev.CellID == "" {
+	cellID := strings.TrimSpace(ev.CellID)
+	if cellID == "" {
+		cellID = strings.TrimSpace(ev.ParentCellID)
+	}
+	if cellID == "" {
 		return
 	}
+	ev.CellID = cellID
 	slog.Info("cell-controller event", "cell_id", ev.CellID, "stage", ev.Stage, "attempt", ev.Attempt)
 	if rdb == nil {
 		return
@@ -116,10 +130,12 @@ func handleWorkflowEvent(raw []byte, rdb *redis.Client) {
 		writeRetireReadyState(ctx, rdb, ev)
 	case ev.Successful && ev.Stage == splitcontrol.StageAutomationComplete:
 		writeAutomationCompleteState(ctx, rdb, ev)
+	case ev.Successful && ev.Stage == splitcontrol.StageTopologySwitched:
+		writeMergeAutomationState(ctx, rdb, ev)
 	}
 }
 
-func writeAutomationCompleteState(ctx context.Context, rdb *redis.Client, ev splitWorkflowEvent) {
+func writeAutomationCompleteState(ctx context.Context, rdb *redis.Client, ev workflowEvent) {
 	if rdb == nil {
 		return
 	}
@@ -142,7 +158,7 @@ func writeAutomationCompleteState(ctx context.Context, rdb *redis.Client, ev spl
 	slog.Info("cell-controller automation_complete_set", "cell_id", ev.CellID)
 }
 
-func writeRetireReadyState(ctx context.Context, rdb *redis.Client, ev splitWorkflowEvent) {
+func writeRetireReadyState(ctx context.Context, rdb *redis.Client, ev workflowEvent) {
 	if rdb == nil {
 		return
 	}
@@ -166,6 +182,30 @@ func writeRetireReadyState(ctx context.Context, rdb *redis.Client, ev splitWorkf
 	_ = rdb.Set(ctx, "mmo:cell-controller:retire:"+ev.CellID, string(raw), ttl).Err()
 	_ = rdb.Set(ctx, "mmo:cell-controller:retire_ready:"+ev.CellID, raw, ttl).Err()
 	slog.Info("cell-controller retire_ready_set", "cell_id", ev.CellID, "stage", ev.Stage)
+}
+
+func writeMergeAutomationState(ctx context.Context, rdb *redis.Client, ev workflowEvent) {
+	if rdb == nil {
+		return
+	}
+	payload := map[string]any{
+		"phase":        "automation_complete",
+		"parent_id":    ev.CellID,
+		"stage":        ev.Stage,
+		"at_unix_ms":   ev.AtUnixMs,
+		"workflow_msg": ev.Message,
+	}
+	if len(ev.Attrs) > 0 {
+		payload["attrs"] = ev.Attrs
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	ttl := 7 * 24 * time.Hour
+	key := "mmo:cell-controller:merge:automation_complete:" + ev.CellID
+	_ = rdb.Set(ctx, key, raw, ttl).Err()
+	slog.Info("cell-controller merge_automation_complete_set", "cell_id", ev.CellID)
 }
 
 func handleControlMessage(raw []byte, rdb *redis.Client, nc *natsbus.Client, k8s *kubernetes.Clientset, ns string) {

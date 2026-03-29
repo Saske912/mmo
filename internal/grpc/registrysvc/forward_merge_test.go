@@ -20,6 +20,10 @@ type mergeCell struct {
 	lastImport string
 }
 
+func (m *mergeCell) Ping(_ context.Context, _ *cellv1.PingRequest) (*cellv1.PingResponse, error) {
+	return &cellv1.PingResponse{CellId: "test", PlayerCount: 0, EntityCount: 0}, nil
+}
+
 func (m *mergeCell) Update(_ context.Context, req *cellv1.UpdateRequest) (*cellv1.UpdateResponse, error) {
 	switch p := req.Payload.(type) {
 	case *cellv1.UpdateRequest_ExportNpcPersist:

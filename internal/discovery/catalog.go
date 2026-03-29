@@ -29,6 +29,11 @@ type Catalog interface {
 	ResolveMostSpecific(ctx context.Context, x, z float64) (*cellv1.CellSpec, bool, error)
 }
 
+// LogicalCellDeregisterer позволяет удалить все инстансы по логическому CellID.
+type LogicalCellDeregisterer interface {
+	DeregisterLogicalCell(ctx context.Context, logicalCellID string) error
+}
+
 // PickBestCell возвращает соту с максимальным level среди содержащих точку (как registry.Memory).
 // FindCellByID ищет соту по CellSpec.id (сканирование каталога через List).
 func FindCellByID(ctx context.Context, c Catalog, id string) (*cellv1.CellSpec, bool, error) {
@@ -76,4 +81,15 @@ func cloneSpec(s *cellv1.CellSpec) *cellv1.CellSpec {
 		out.Bounds = &b
 	}
 	return &out
+}
+
+// DeregisterLogicalCell удаляет логическую соту (возможны несколько runtime инстансов).
+func DeregisterLogicalCell(ctx context.Context, c Catalog, logicalCellID string) error {
+	if c == nil {
+		return nil
+	}
+	if ex, ok := c.(LogicalCellDeregisterer); ok {
+		return ex.DeregisterLogicalCell(ctx, logicalCellID)
+	}
+	return c.Deregister(ctx, logicalCellID)
 }
