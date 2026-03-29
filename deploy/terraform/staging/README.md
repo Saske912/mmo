@@ -30,6 +30,8 @@
   - `MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=<N>` — ограничить число одновременно активных workflow;
   - `MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=cell_a,cell_b` — CSV блоклист `cell_id`.
 
+Для auto merge workflow (scale-in): **`MMO_GRID_AUTO_MERGE_WORKFLOW=true`** и при необходимости **`MMO_GRID_MERGE_*`** (длительность low-load, cooldown, пороги нагрузки группы — см. [`docs/cells-migration-workflow.md`](../../docs/cells-migration-workflow.md)). Текущие значения в [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars) совпадают с дефолтами в `cell_load_policy` в коде.
+
 ## Web3 indexer
 
 По умолчанию **`web3_indexer_enabled = true`**: Deployment `web3-indexer` и Service **`mmo-web3-indexer`** (HTTP, ingest). Переменные см. в `variables.tf` (`web3_indexer_http_port`, `web3_indexer_chain_id`, `web3_indexer_extra_env`, **`web3_indexer_ingest_api_key`**, **`web3_indexer_ingest_hmac_secret`**). Пример секретов без коммита: [`web3_indexer.auto.tfvars.example`](web3_indexer.auto.tfvars.example). Документация: [`docs/web3-indexer.md`](../../docs/web3-indexer.md).

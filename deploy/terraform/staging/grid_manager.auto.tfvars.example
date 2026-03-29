@@ -20,4 +20,12 @@
 #   # MMO_GRID_SPLIT_MAX_LEVEL                = "3"              # не запускать split workflow для cell level >= 3
 #   # MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS = "2"              # ограничить параллельные workflow
 #   # MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST       = "cell_0_0_0"     # CSV cell_id, для которых workflow запрещён
+#
+#   # Auto merge (scale-in), см. docs/cells-migration-workflow.md
+#   MMO_GRID_AUTO_MERGE_WORKFLOW              = "true"
+#   MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION      = "3m"
+#   MMO_GRID_MERGE_COOLDOWN                   = "6m"
+#   MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS      = "0"
+#   MMO_GRID_MERGE_THRESHOLD_MAX_ENTITIES     = "300"
+#   MMO_GRID_MERGE_THRESHOLD_MAX_TICK_SECONDS = "0.01"
 # }

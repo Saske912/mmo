@@ -6,4 +6,12 @@ grid_manager_extra_env = {
   # Guardrails split workflow (см. docs/grid-auto-split-drain-staging.md)
   MMO_GRID_SPLIT_MAX_LEVEL                  = "8"
   MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS  = "4"
+
+  # Auto merge (scale-in) из load policy — см. docs/cells-migration-workflow.md
+  MMO_GRID_AUTO_MERGE_WORKFLOW              = "true"
+  MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION      = "3m"
+  MMO_GRID_MERGE_COOLDOWN                   = "6m"
+  MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS      = "0"
+  MMO_GRID_MERGE_THRESHOLD_MAX_ENTITIES     = "300"
+  MMO_GRID_MERGE_THRESHOLD_MAX_TICK_SECONDS = "0.01"
 }
