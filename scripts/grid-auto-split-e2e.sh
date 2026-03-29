@@ -3,11 +3,14 @@
 #  1) включает env grid-manager (AUTO_SPLIT_DRAIN + AUTO_SPLIT_WORKFLOW) + тестовые пороги
 #  2) ждёт срабатывания load policy и split workflow
 #  3) проверяет runs_total{result="ok"} в /metrics
-#  4) cleanup: снимает тестовые пороги и split_drain=false на всех сотах
+#  4) cleanup: снимает тестовые пороги, возвращает MMO_GRID_REGISTRY_ADDR (как в Terraform),
+#     split_drain=false на всех сотах
 set -euo pipefail
 
 NS="${NAMESPACE:-mmo}"
 GRID_DEPLOY="${GRID_DEPLOY:-grid-manager}"
+# После смоука подставляется обратно (kubelet DNS); переопределить: MMO_GRID_REGISTRY_ADDR_RESTORE=host:port
+RESTORE_REGISTRY_ADDR="${MMO_GRID_REGISTRY_ADDR_RESTORE:-mmo-grid-manager.${NS}.svc.cluster.local:9100}"
 METRICS_LOCAL_PORT="${METRICS_LOCAL_PORT:-19093}"
 METRICS_REMOTE_PORT="${GRID_METRICS_CONTAINER_PORT:-9091}"
 WAIT_SECONDS="${WAIT_SECONDS:-70}"
@@ -34,6 +37,9 @@ cleanup() {
     MMO_GRID_LOAD_POLICY_COOLDOWN- \
     MMO_GRID_CELL_PROBE_INTERVAL- >/dev/null
   # Не трогаем MMO_GRID_SPLIT_* guardrails — они из Terraform/ops и должны пережить смоук.
+  echo "== restore MMO_GRID_REGISTRY_ADDR -> ${RESTORE_REGISTRY_ADDR} =="
+  kubectl -n "$NS" set env "deployment/$GRID_DEPLOY" \
+    "MMO_GRID_REGISTRY_ADDR=${RESTORE_REGISTRY_ADDR}" >/dev/null
   kubectl -n "$NS" rollout status "deployment/$GRID_DEPLOY" --timeout=120s >/dev/null || true
   LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list 2>/dev/null || true)"
   while IFS= read -r line; do

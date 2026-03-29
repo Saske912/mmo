@@ -39,6 +39,8 @@ E2E вариант с проверкой workflow-метрик:
 cd backend && bash scripts/grid-auto-split-e2e.sh
 ```
 
+На время прогона скрипт выставляет `MMO_GRID_REGISTRY_ADDR=127.0.0.1:9100` (self-call из пода). В **`cleanup`** значение **восстанавливается** на `mmo-grid-manager.<namespace>.svc.cluster.local:9100` (override: **`MMO_GRID_REGISTRY_ADDR_RESTORE`**), чтобы не расходиться с Terraform до следующего `tofu apply`.
+
 Для проверки рекурсивного сценария (ожидать, что появится уровень `>=2`):
 
 ```bash
