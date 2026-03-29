@@ -29,8 +29,15 @@ func EntityState(w *ecs.World, e ecs.Entity, isPlayer bool) *gamev1.EntityState 
 
 // BuildSnapshot полный снимок всех сущностей с позицией.
 func BuildSnapshot(w *ecs.World, tick uint64, isPlayer func(ecs.Entity) bool) *gamev1.Snapshot {
-	out := &gamev1.Snapshot{Tick: tick}
+	ents := make([]ecs.Entity, 0, len(w.Alive()))
 	for e := range w.Alive() {
+		if _, ok := w.Position(e); ok {
+			ents = append(ents, e)
+		}
+	}
+	SortEntitiesReplicationPriority(ents, isPlayer)
+	out := &gamev1.Snapshot{Tick: tick}
+	for _, e := range ents {
 		ip := false
 		if isPlayer != nil {
 			ip = isPlayer(e)
@@ -44,8 +51,10 @@ func BuildSnapshot(w *ecs.World, tick uint64, isPlayer func(ecs.Entity) bool) *g
 
 // BuildSnapshotEntities снимок только перечисленных сущностей (AOI / interest management).
 func BuildSnapshotEntities(w *ecs.World, tick uint64, entities []ecs.Entity, isPlayer func(ecs.Entity) bool) *gamev1.Snapshot {
+	ordered := append([]ecs.Entity(nil), entities...)
+	SortEntitiesReplicationPriority(ordered, isPlayer)
 	out := &gamev1.Snapshot{Tick: tick}
-	for _, e := range entities {
+	for _, e := range ordered {
 		ip := false
 		if isPlayer != nil {
 			ip = isPlayer(e)
@@ -59,8 +68,10 @@ func BuildSnapshotEntities(w *ecs.World, tick uint64, entities []ecs.Entity, isP
 
 // BuildDelta по списку изменившихся сущностей (after World.TakeDirtyEntities).
 func BuildDelta(w *ecs.World, tick, fromTick uint64, changed []ecs.Entity, isPlayer func(ecs.Entity) bool) *gamev1.Delta {
+	ordered := append([]ecs.Entity(nil), changed...)
+	SortEntitiesReplicationPriority(ordered, isPlayer)
 	d := &gamev1.Delta{Tick: tick, FromTick: fromTick}
-	for _, e := range changed {
+	for _, e := range ordered {
 		ip := false
 		if isPlayer != nil {
 			ip = isPlayer(e)

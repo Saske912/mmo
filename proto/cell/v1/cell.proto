@@ -133,6 +133,11 @@ message PingRequest {
 message PingResponse {
   string cell_id = 1;
   int64 server_time_unix_ms = 2;
+  // Нагрузка соты (для агрегации на grid-manager / дашборды).
+  int32 player_count = 3;
+  int32 entity_count = 4;
+  double last_tick_duration_seconds = 5;
+  double configured_tps = 6;
 }
 
 message JoinRequest {

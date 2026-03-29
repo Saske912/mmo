@@ -1156,8 +1156,13 @@ type PingResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	CellId           string                 `protobuf:"bytes,1,opt,name=cell_id,json=cellId,proto3" json:"cell_id,omitempty"`
 	ServerTimeUnixMs int64                  `protobuf:"varint,2,opt,name=server_time_unix_ms,json=serverTimeUnixMs,proto3" json:"server_time_unix_ms,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Нагрузка соты (для агрегации на grid-manager / дашборды).
+	PlayerCount             int32   `protobuf:"varint,3,opt,name=player_count,json=playerCount,proto3" json:"player_count,omitempty"`
+	EntityCount             int32   `protobuf:"varint,4,opt,name=entity_count,json=entityCount,proto3" json:"entity_count,omitempty"`
+	LastTickDurationSeconds float64 `protobuf:"fixed64,5,opt,name=last_tick_duration_seconds,json=lastTickDurationSeconds,proto3" json:"last_tick_duration_seconds,omitempty"`
+	ConfiguredTps           float64 `protobuf:"fixed64,6,opt,name=configured_tps,json=configuredTps,proto3" json:"configured_tps,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *PingResponse) Reset() {
@@ -1200,6 +1205,34 @@ func (x *PingResponse) GetCellId() string {
 func (x *PingResponse) GetServerTimeUnixMs() int64 {
 	if x != nil {
 		return x.ServerTimeUnixMs
+	}
+	return 0
+}
+
+func (x *PingResponse) GetPlayerCount() int32 {
+	if x != nil {
+		return x.PlayerCount
+	}
+	return 0
+}
+
+func (x *PingResponse) GetEntityCount() int32 {
+	if x != nil {
+		return x.EntityCount
+	}
+	return 0
+}
+
+func (x *PingResponse) GetLastTickDurationSeconds() float64 {
+	if x != nil {
+		return x.LastTickDurationSeconds
+	}
+	return 0
+}
+
+func (x *PingResponse) GetConfiguredTps() float64 {
+	if x != nil {
+		return x.ConfiguredTps
 	}
 	return 0
 }
@@ -2018,10 +2051,14 @@ const file_cell_v1_cell_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12(\n" +
 	"\x10npc_entity_count\x18\x03 \x01(\x05R\x0enpcEntityCount\"*\n" +
 	"\vPingRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\"V\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x80\x02\n" +
 	"\fPingResponse\x12\x17\n" +
 	"\acell_id\x18\x01 \x01(\tR\x06cellId\x12-\n" +
-	"\x13server_time_unix_ms\x18\x02 \x01(\x03R\x10serverTimeUnixMs\"*\n" +
+	"\x13server_time_unix_ms\x18\x02 \x01(\x03R\x10serverTimeUnixMs\x12!\n" +
+	"\fplayer_count\x18\x03 \x01(\x05R\vplayerCount\x12!\n" +
+	"\fentity_count\x18\x04 \x01(\x05R\ventityCount\x12;\n" +
+	"\x1alast_tick_duration_seconds\x18\x05 \x01(\x01R\x17lastTickDurationSeconds\x12%\n" +
+	"\x0econfigured_tps\x18\x06 \x01(\x01R\rconfiguredTps\"*\n" +
 	"\vJoinRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"n\n" +
 	"\fJoinResponse\x12\x0e\n" +

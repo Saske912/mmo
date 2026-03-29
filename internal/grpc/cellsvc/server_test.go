@@ -348,3 +348,39 @@ func TestPlanSplit_noBounds(t *testing.T) {
 		t.Fatalf("code: %v", err)
 	}
 }
+
+func TestPing_loadStats(t *testing.T) {
+	sim := cellsim.NewRuntime()
+	srv := &Server{CellID: "ping-cell", Sim: sim}
+	ctx := context.Background()
+
+	p0, err := srv.Ping(ctx, &cellv1.PingRequest{})
+	if err != nil || p0.GetPlayerCount() != 0 || p0.GetEntityCount() != 0 {
+		t.Fatalf("Ping empty: %+v err=%v", p0, err)
+	}
+
+	_, err = srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-ping"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim.Mu.Lock()
+	sim.Loop.Step()
+	sim.Mu.Unlock()
+
+	p1, err := srv.Ping(ctx, &cellv1.PingRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1.GetCellId() != "ping-cell" || p1.GetPlayerCount() != 1 {
+		t.Fatalf("Ping: %+v", p1)
+	}
+	if p1.GetEntityCount() < 1 {
+		t.Fatalf("expected at least one entity, got %+v", p1)
+	}
+	if p1.GetLastTickDurationSeconds() < 0 {
+		t.Fatalf("tick duration: %+v", p1)
+	}
+	if p1.GetConfiguredTps() <= 0 {
+		t.Fatalf("tps: %+v", p1)
+	}
+}

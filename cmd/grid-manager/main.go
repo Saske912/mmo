@@ -37,9 +37,15 @@ func main() {
 
 	wireMetricsHTTP(*metricsListen)
 
+	ctxProbe, cancelProbe := context.WithCancel(context.Background())
+	defer cancelProbe()
 	store, err := openCatalog(*backend, *consulAddr)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if *metricsListen != "" {
+		startCellLoadProbe(ctxProbe, store)
 	}
 
 	srv := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))

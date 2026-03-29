@@ -1,0 +1,22 @@
+# Пример: сота не проходит жёсткие пороги grid-manager (MMO_GRID_THRESHOLD_*)
+# после включения -metrics-listen на grid-manager и ServiceMonitor.
+# Подставьте namespace/labels под ваш Prometheus Operator.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mmo-grid-cell-load-thresholds
+  namespace: mmo
+spec:
+  groups:
+    - name: mmo_grid_cell_load
+      rules:
+        - alert: MMOGridCellOutsideHardLimits
+          expr: mmo_grid_manager_cell_within_hard_limits == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Сота {{ $labels.cell_id }} вне порогов grid-manager (или недоступна)"
+            description: |
+              Проверьте mmo_grid_manager_cell_threshold_violation{cell_id="{{ $labels.cell_id }}"}
+              (kind=players|entities|tick|unreachable) и сырые cell_players / cell_entities / cell_last_tick_seconds.

@@ -369,10 +369,21 @@ func (s *Server) ListMigrationCandidates(_ context.Context, _ *cellv1.ListMigrat
 
 func (s *Server) Ping(_ context.Context, req *cellv1.PingRequest) (*cellv1.PingResponse, error) {
 	_ = req
-	return &cellv1.PingResponse{
+	resp := &cellv1.PingResponse{
 		CellId:           s.CellID,
 		ServerTimeUnixMs: time.Now().UnixMilli(),
-	}, nil
+		PlayerCount:      int32(s.PlayerCount()),
+	}
+	if s.Sim != nil && s.Sim.World != nil {
+		s.Sim.Mu.RLock()
+		resp.EntityCount = int32(s.Sim.World.EntityCount())
+		if s.Sim.Loop != nil {
+			resp.LastTickDurationSeconds = s.Sim.Loop.Stats.LastTickDur.Seconds()
+			resp.ConfiguredTps = s.Sim.Loop.TPS
+		}
+		s.Sim.Mu.RUnlock()
+	}
+	return resp, nil
 }
 
 // SubscribeDeltas поток снапшота и дельт с мира.

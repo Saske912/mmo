@@ -33,9 +33,11 @@ func (s *Server) doForwardCellUpdate(ctx context.Context, cellID string, upd *ce
 	}
 	spec, ok, err := discovery.FindCellByID(ctx, s.Store, cellID)
 	if err != nil {
+		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "update_kind", updateKind(upd))
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	if !ok || spec == nil {
+		logOpError("doForwardCellUpdate", status.Errorf(codes.NotFound, "cell not found: %s", cellID), "cell_id", cellID)
 		return nil, status.Errorf(codes.NotFound, "cell not found: %s", cellID)
 	}
 	ep := spec.GetGrpcEndpoint()
@@ -47,6 +49,7 @@ func (s *Server) doForwardCellUpdate(ctx context.Context, cellID string, upd *ce
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
 	if err != nil {
+		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "endpoint", ep)
 		return nil, status.Errorf(codes.Unavailable, "dial cell: %v", err)
 	}
 	defer conn.Close()
@@ -55,11 +58,14 @@ func (s *Server) doForwardCellUpdate(ctx context.Context, cellID string, upd *ce
 	cellClient := cellv1.NewCellClient(conn)
 	updResp, err := cellClient.Update(cellCtx, upd)
 	if err != nil {
+		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "endpoint", ep, "update_kind", updateKind(upd))
 		return nil, err
 	}
 	if updResp == nil {
+		logOpError("doForwardCellUpdate", status.Error(codes.Internal, "nil UpdateResponse"), "cell_id", cellID)
 		return nil, status.Error(codes.Internal, "nil UpdateResponse")
 	}
+	logOpDone("doForwardCellUpdate", "cell_id", cellID, "endpoint", ep, "update_kind", updateKind(upd), "ok", updResp.GetOk())
 	return &cellv1.ForwardCellUpdateResponse{
 		Ok:            updResp.Ok,
 		Message:       updResp.Message,
@@ -76,6 +82,7 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 	if req == nil {
 		e := status.Error(codes.InvalidArgument, "empty request")
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e)
 		return nil, e
 	}
 	parent := req.GetParentCellId()
@@ -85,14 +92,17 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 	if reason == "" {
 		reason = "ForwardNpcHandoff"
 	}
+	logOpStart("ForwardNpcHandoff", "parent_cell_id", parent, "child_cell_id", child, "reason", reason)
 	if parent == "" || child == "" {
 		e := status.Error(codes.InvalidArgument, "parent_cell_id and child_cell_id required")
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "parent_cell_id", parent, "child_cell_id", child)
 		return nil, e
 	}
 	if parent == child {
 		e := status.Error(codes.InvalidArgument, "parent_cell_id must differ from child_cell_id")
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "parent_cell_id", parent, "child_cell_id", child)
 		return nil, e
 	}
 
@@ -106,6 +116,7 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 	})
 	if err != nil {
 		incRPC("ForwardNpcHandoff", err)
+		logOpError("ForwardNpcHandoff", err, "stage", "export", "parent_cell_id", parent)
 		return nil, err
 	}
 	if expResp == nil || !expResp.Ok {
@@ -115,18 +126,21 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 		}
 		e := status.Errorf(codes.FailedPrecondition, "parent export failed: %s", pmsg)
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "stage", "export", "parent_cell_id", parent)
 		return nil, e
 	}
 	json := expResp.GetNpcExportJson()
 	if json == "" {
 		e := status.Error(codes.FailedPrecondition, "empty npc_export_json from parent")
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "stage", "export", "parent_cell_id", parent)
 		return nil, e
 	}
 	var p gamev1.CellPersist
 	if err := protojson.Unmarshal([]byte(json), &p); err != nil {
 		e := status.Errorf(codes.Internal, "parent export json: %v", err)
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "stage", "decode_export_json", "parent_cell_id", parent)
 		return nil, e
 	}
 	nEnt := int32(len(p.Entities))
@@ -141,6 +155,7 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 	})
 	if err != nil {
 		incRPC("ForwardNpcHandoff", err)
+		logOpError("ForwardNpcHandoff", err, "stage", "import", "child_cell_id", child)
 		return nil, err
 	}
 	if impResp == nil || !impResp.Ok {
@@ -150,11 +165,13 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 		}
 		e := status.Errorf(codes.FailedPrecondition, "child import failed: %s", cmsg)
 		incRPC("ForwardNpcHandoff", e)
+		logOpError("ForwardNpcHandoff", e, "stage", "import", "child_cell_id", child)
 		return nil, e
 	}
 
 	msg := "handoff: parent export ok; child import ok (" + expResp.Message + " -> " + impResp.Message + ")"
 	incRPC("ForwardNpcHandoff", nil)
+	logOpDone("ForwardNpcHandoff", "parent_cell_id", parent, "child_cell_id", child, "npc_entities", nEnt)
 	return &cellv1.ForwardNpcHandoffResponse{
 		Ok:               true,
 		Message:          msg,
