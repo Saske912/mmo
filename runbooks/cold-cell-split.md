@@ -128,6 +128,10 @@ PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=inclus
 4. **Инфра:** при появлении новых шардов — обновить `cell_instances` в OpenTofu, `tofu apply`; **drain off** на родителе перед выводом: `set-split-drain false`.
 5. **Клиенты:** новые сессии с **resolve** в зоне ребёнка идут на дочернюю соту; уже открытый WebSocket нужно переподнять при смене покрытия (см. §4).
 
+### Авто `split_drain` от grid-manager (load policy)
+
+При **`MMO_GRID_AUTO_SPLIT_DRAIN=true`** на **grid-manager** устойчивое нарушение порогов probe (`MMO_GRID_THRESHOLD_*`) может автоматически вызвать **`Cell.Update(set_split_drain=true)`** на соте; метрика действия — **`mmo_grid_manager_load_policy_actions_total`** с `action="split_drain_enable"`. Включение контролируемо через Terraform: **`grid_manager_extra_env`** ([пример `grid_manager.auto.tfvars.example`](../deploy/terraform/staging/grid_manager.auto.tfvars.example)). Репетиция на staging и проверка Join/runbook: [`docs/grid-auto-split-drain-staging.md`](../docs/grid-auto-split-drain-staging.md), скрипт [`scripts/grid-auto-split-drain-rehearsal.sh`](../scripts/grid-auto-split-drain-rehearsal.sh). После инцидента тот же пайплайн §7 (handoff), затем **`split-drain false`** на соте.
+
 **Скрипт-обёртка:** из корня backend задайте `PARENT`, `CHILD` и при необходимости `MODE=incluster` — [`scripts/run-forward-npc-handoff.sh`](../scripts/run-forward-npc-handoff.sh) (локально: `go run mmoctl`; в кластере: `kubectl exec … /mmoctl`).
 
 Подсказка для клиента после сессии с БД: **GET** `https://<gateway>/v1/me/last-cell` (JWT) — последние **`cell_id`** / **`resolve_x,z`** из `mmo_player_last_cell` для реконнекта без угадывания координат.

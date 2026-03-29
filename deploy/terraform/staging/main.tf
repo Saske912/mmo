@@ -162,6 +162,14 @@ resource "kubernetes_deployment" "grid_manager" {
               value = "json"
             }
           }
+
+          dynamic "env" {
+            for_each = var.grid_manager_extra_env
+            content {
+              name  = env.key
+              value = env.value
+            }
+          }
         }
       }
     }

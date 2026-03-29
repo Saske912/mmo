@@ -1,0 +1,10 @@
+# Скопируйте в grid_manager.auto.tfvars (или объедините с вашим *.auto.tfvars) и примените tofu apply.
+# Осторожно: при нарушении load policy grid-manager выставит split_drain на соте (новые Join отклоняются).
+
+# grid_manager_extra_env = {
+#   MMO_GRID_AUTO_SPLIT_DRAIN = "true"
+#   # опционально укоротить окна для отладки:
+#   # MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION = "8s"
+#   # MMO_GRID_LOAD_POLICY_COOLDOWN             = "60s"
+#   # MMO_GRID_CELL_PROBE_INTERVAL            = "6s"
+# }

@@ -208,6 +208,12 @@ EOT
   }
 }
 
+variable "grid_manager_extra_env" {
+  type        = map(string)
+  description = "Дополнительные переменные окружения для grid-manager (поверх Secret mmo-backend). Пример: включить авто split_drain при load policy — MMO_GRID_AUTO_SPLIT_DRAIN = \"true\". См. grid_manager.auto.tfvars.example и scripts/grid-auto-split-drain-rehearsal.sh."
+  default     = {}
+}
+
 variable "service_monitor_enabled" {
   type        = bool
   description = "Создавать ServiceMonitor (prometheus-operator) для scrape /metrics."

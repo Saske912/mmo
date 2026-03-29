@@ -10,7 +10,7 @@
 3. Указать **folder** (например общий для MMO) и при конфликте UID подтвердить **uid `mmo-grid-rpc-p95`** или заменить и обновить закладки/алерты.
 4. Сохранить. Проверить выбор datasource Prometheus в панелях (переменная или дефолт вашего стенда).
 - **Правила Prometheus (пример):** [`prometheus-rule-forward-npc-handoff.example.yaml`](prometheus-rule-forward-npc-handoff.example.yaml); пороги нагрузки сот с grid-manager — [`prometheus-rule-grid-cell-load.example.yaml`](prometheus-rule-grid-cell-load.example.yaml) (`mmo_grid_manager_cell_within_hard_limits`).
-- **Политика нагрузки grid-manager:** action-метрика **`mmo_grid_manager_load_policy_actions_total`** (`action`, `cell_id`, `result`), env: `MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION`, `MMO_GRID_LOAD_POLICY_COOLDOWN`, `MMO_GRID_AUTO_SPLIT_DRAIN`.
+- **Политика нагрузки grid-manager:** action-метрика **`mmo_grid_manager_load_policy_actions_total`** (`action`, `cell_id`, `result`), env: `MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION`, `MMO_GRID_LOAD_POLICY_COOLDOWN`, `MMO_GRID_AUTO_SPLIT_DRAIN`. Ручной прогон на staging (временный patch env + откат): [`../../scripts/grid-load-policy-smoke.sh`](../../scripts/grid-load-policy-smoke.sh). Репетиция **auto split_drain** (Terraform `grid_manager_extra_env` + Join): [`../../docs/grid-auto-split-drain-staging.md`](../../docs/grid-auto-split-drain-staging.md), [`../../scripts/grid-auto-split-drain-rehearsal.sh`](../../scripts/grid-auto-split-drain-rehearsal.sh).
 - **LogQL / trace_id:** [`loki-logql-traceid.example.txt`](loki-logql-traceid.example.txt).
 
 ## Per-тик span на cell-node (только под расследование)
