@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke split-e2e-smoke
 
 # harbor-login и др. рецепты используют bash (подстановки ${var//…}, [[ … ]]).
 SHELL := /bin/bash
@@ -31,6 +31,7 @@ unity-proto:
 build:
 	go build -o bin/grid-manager ./cmd/grid-manager
 	go build -o bin/cell-node ./cmd/cell-node
+	go build -o bin/cell-controller ./cmd/cell-controller
 	go build -o bin/gateway ./cmd/gateway
 	go build -o bin/mmoctl ./cmd/mmoctl
 	go build -o bin/migrate ./cmd/migrate
@@ -159,3 +160,7 @@ goose-migrate-job:
 # Смок ingest web3-indexer + проверка mmo_chain_tx_event (нужны -indexer-url и -database-url или env).
 web3-indexer-ingest-smoke:
 	go run ./scripts/web3-indexer-ingest-smoke $(WEB3_INDEXER_SMOKE_ARGS)
+
+# Auto split workflow smoke: rehearsal + workflow metrics.
+split-e2e-smoke:
+	bash scripts/grid-auto-split-e2e.sh

@@ -2,7 +2,9 @@
 
 ## Зачем
 
-При **`MMO_GRID_AUTO_SPLIT_DRAIN=true`** grid-manager после устойчивого нарушения порогов (`MMO_GRID_THRESHOLD_*`, см. probe) вызывает **`Cell.Update(set_split_drain=true)`** на соту. Дальнейшие шаги — по [runbook cold-cell-split](../runbooks/cold-cell-split.md): экспорт NPC, handoff, вывод родителя и т.д.
+При **`MMO_GRID_AUTO_SPLIT_DRAIN=true`** grid-manager после устойчивого нарушения порогов (`MMO_GRID_THRESHOLD_*`, см. probe) вызывает **`Cell.Update(set_split_drain=true)`** на соту.
+
+Дополнительно можно включить **`MMO_GRID_AUTO_SPLIT_WORKFLOW=true`**: после `split_drain` запускается state-machine оркестрации (детект children из `PlanSplit` + каталога, `ForwardNpcHandoff`, метрики `mmo_grid_manager_split_workflow_*`, события в NATS `grid.split.workflow`).
 
 ## Включение (контролируемо через Terraform)
 
@@ -28,6 +30,12 @@ cd backend && bash scripts/grid-auto-split-drain-rehearsal.sh
 ```
 
 Требуется: `kubectl`, `curl`, доступ к кластеру, в образе grid-manager есть `/mmoctl` (стандартный Dockerfile).
+
+E2E вариант с проверкой workflow-метрик:
+
+```bash
+cd backend && bash scripts/grid-auto-split-e2e.sh
+```
 
 ## После репетиции
 

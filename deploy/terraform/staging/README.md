@@ -20,6 +20,13 @@
 
 Подробнее про авто `split_drain`: [`docs/grid-auto-split-drain-staging.md`](../../../docs/grid-auto-split-drain-staging.md). Операторский пайплайн после срабатывания: [`runbooks/cold-cell-split.md`](../../../runbooks/cold-cell-split.md) (§6–7).
 
+Для auto state-machine split в grid-manager: задайте env через `grid_manager_extra_env`:
+- `MMO_GRID_AUTO_SPLIT_DRAIN=true`
+- `MMO_GRID_AUTO_SPLIT_WORKFLOW=true`
+- `MMO_GRID_REGISTRY_ADDR=127.0.0.1:9100`
+
 ## Web3 indexer
 
 По умолчанию **`web3_indexer_enabled = true`**: Deployment `web3-indexer` и Service **`mmo-web3-indexer`** (HTTP, ingest). Переменные см. в `variables.tf` (`web3_indexer_http_port`, `web3_indexer_chain_id`, `web3_indexer_extra_env`, **`web3_indexer_ingest_api_key`**, **`web3_indexer_ingest_hmac_secret`**). Пример секретов без коммита: [`web3_indexer.auto.tfvars.example`](web3_indexer.auto.tfvars.example). Документация: [`docs/web3-indexer.md`](../../docs/web3-indexer.md).
+
+CRD/controller foundation для lifecycle сот: [`../staging/cell-crd.example.yaml`](../../staging/cell-crd.example.yaml), [`../staging/cell-controller.example.yaml`](../../staging/cell-controller.example.yaml).

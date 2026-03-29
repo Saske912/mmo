@@ -3,8 +3,14 @@
 
 # grid_manager_extra_env = {
 #   MMO_GRID_AUTO_SPLIT_DRAIN = "true"
+#   MMO_GRID_AUTO_SPLIT_WORKFLOW = "true"
+#   # registry endpoint для self-call ForwardNpcHandoff в workflow:
+#   # MMO_GRID_REGISTRY_ADDR = "127.0.0.1:9100"
 #   # опционально укоротить окна для отладки:
 #   # MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION = "8s"
 #   # MMO_GRID_LOAD_POLICY_COOLDOWN             = "60s"
 #   # MMO_GRID_CELL_PROBE_INTERVAL            = "6s"
+#   # MMO_GRID_SPLIT_WORKFLOW_MAX_RETRIES     = "4"
+#   # MMO_GRID_SPLIT_WORKFLOW_BACKOFF         = "1s"
+#   # MMO_GRID_SPLIT_WORKFLOW_MAX_BACKOFF     = "12s"
 # }

@@ -5,6 +5,8 @@ const (
 	SubjectCellEvents    = "cell.events"
 	SubjectCellMigration = "cell.migration"
 	SubjectGridCommands  = "grid.commands"
+	// SubjectGridSplitWorkflow — события оркестрации split из grid-manager.
+	SubjectGridSplitWorkflow = "grid.split.workflow"
 )
 
 // CellMigrationSubject формирует subject для дочерней соты: cell.migration.{cellID}.

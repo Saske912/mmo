@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cell-controller
+  namespace: mmo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cell-controller
+  template:
+    metadata:
+      labels:
+        app: cell-controller
+    spec:
+      containers:
+        - name: cell-controller
+          image: harbor.pass-k8s.ru/library/mmo-backend:latest
+          imagePullPolicy: Always
+          command: ["/cell-controller"]
+          envFrom:
+            - secretRef:
+                name: mmo-backend
+          env:
+            - name: MMO_CELL_CONTROLLER_SUBJECT
+              value: grid.split.workflow

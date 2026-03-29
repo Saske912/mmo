@@ -17,6 +17,7 @@ import (
 	cellv1 "mmo/gen/cellv1"
 	natsbus "mmo/internal/bus/nats"
 	"mmo/internal/config"
+	"mmo/internal/discovery"
 )
 
 const (
@@ -76,6 +77,7 @@ type loadPolicyRuntime struct {
 	state    map[string]cellPolicyState
 	nats     *natsbus.Client
 	natsSubj string
+	split    *splitWorkflowRuntime
 }
 
 func parseLoadPolicyConfig() loadPolicyConfig {
@@ -102,12 +104,13 @@ func envBool(key string) bool {
 	return strings.EqualFold(s, "1") || strings.EqualFold(s, "true") || strings.EqualFold(s, "yes")
 }
 
-func newLoadPolicyRuntime() *loadPolicyRuntime {
+func newLoadPolicyRuntime(cat discovery.Catalog) *loadPolicyRuntime {
 	cfg := parseLoadPolicyConfig()
 	rt := &loadPolicyRuntime{
 		cfg:      cfg,
 		state:    make(map[string]cellPolicyState),
 		natsSubj: natsbus.SubjectGridCommands,
+		split:    newSplitWorkflowRuntime(cat),
 	}
 	if subj := strings.TrimSpace(os.Getenv("MMO_GRID_POLICY_NATS_SUBJECT")); subj != "" {
 		rt.natsSubj = subj
@@ -127,6 +130,9 @@ func newLoadPolicyRuntime() *loadPolicyRuntime {
 func (r *loadPolicyRuntime) close() {
 	if r.nats != nil {
 		r.nats.Close()
+	}
+	if r.split != nil {
+		r.split.close()
 	}
 }
 
@@ -179,6 +185,9 @@ func (r *loadPolicyRuntime) observe(ctx context.Context, sample policySample, wi
 		}
 	} else if !sample.reachable {
 		result = loadPolicyResultSkip
+	}
+	if action == loadPolicyActionSplitDrain && result == loadPolicyResultOK && r.split != nil {
+		r.split.maybeStart(ctx, sample.cellID)
 	}
 
 	slog.Warn("grid load policy action",
@@ -253,4 +262,3 @@ func violationKinds(v map[string]float64) string {
 	}
 	return strings.Join(out, ",")
 }
-

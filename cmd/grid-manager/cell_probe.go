@@ -119,7 +119,7 @@ func deleteCellProbeLabels(cellID string) {
 func startCellLoadProbe(ctx context.Context, cat discovery.Catalog) {
 	interval := cellProbeInterval()
 	th := parseLoadThresholds()
-	policy := newLoadPolicyRuntime()
+	policy := newLoadPolicyRuntime(cat)
 	log.Printf("cell load probe every %s (MMO_GRID_CELL_PROBE_INTERVAL); thresholds max_players=%d max_entities=%d max_tick_sec=%g (MMO_GRID_THRESHOLD_*)",
 		interval, th.maxPlayers, th.maxEntities, th.maxTickSec)
 	log.Printf("load policy min_breach=%s cooldown=%s auto_split_drain=%t (MMO_GRID_LOAD_POLICY_* / MMO_GRID_AUTO_SPLIT_DRAIN)",

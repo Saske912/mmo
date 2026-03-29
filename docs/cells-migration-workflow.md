@@ -51,3 +51,5 @@
 ## Приоритет исполнения B3 (операторский)
 
 Для ежедневной эксплуатации приоритет: **grid-manager orchestration** (auto split-drain + scripted handoff), а полный §5 runbook (вывод родителя из каталога) выполнять только когда действительно меняется топология и требуется инфраструктурный вывод parent.
+
+Для state-machine workflow в grid-manager: `MMO_GRID_AUTO_SPLIT_WORKFLOW=true` (дополнительно к `MMO_GRID_AUTO_SPLIT_DRAIN=true`), метрики `mmo_grid_manager_split_workflow_*`, события `grid.split.workflow`.
