@@ -14,7 +14,7 @@
    }
    ```
 
-2. `tofu apply` (или ваш пайплайн).
+2. **`tofu apply`** из каталога `deploy/terraform/staging` (см. [README туда же](../deploy/terraform/staging/README.md): единственный источник правды для env grid-manager; `kubectl set env` даёт расхождение до следующего apply).
 
 3. Убедитесь в поде:  
    `kubectl -n mmo get deploy grid-manager -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep MMO_GRID_AUTO_SPLIT_DRAIN`
@@ -33,3 +33,15 @@ cd backend && bash scripts/grid-auto-split-drain-rehearsal.sh
 
 - Проверьте алерты/Grafana.
 - При реальном инциденте следуйте runbook (§6 export/import NPC, **ForwardNpcHandoff**, §5 вывод родителя и т.д.).
+
+## Чеклист оператора после автоматического `split_drain`
+
+Срабатывание видно по метрике **`mmo_grid_manager_load_policy_actions_total`** с **`action="split_drain_enable"`** и (если настроено) алерту вокруг порогов / политики нагрузки — см. [`deploy/observability/`](../deploy/observability/README.md).
+
+1. **Подтвердить контекст:** Grafana (дашборд grid/cell load), при необходимости Loki по подам **grid-manager** и затронутой **cell** — нет ли шума, ожидаемо ли нарушение порога.
+2. **Зафиксировать соту:** какой **`cell_id`** ушёл в drain (логи grid-manager / событие policy / `mmoctl -registry … list` / resolve).
+3. **Дальше по cold-path** — [runbook `cold-cell-split.md` §6–7](../runbooks/cold-cell-split.md): окно, при необходимости **`migration-dry-run`**, **`forward-npc-handoff`** (или пошаговый export/import из §6), обновление **`cell_instances`** и **`tofu apply`**, если появлялись новые шарды; полная последовательность — [`docs/cells-migration-workflow.md`](cells-migration-workflow.md).
+4. **Снять drain**, когда мир и каталог согласованы и дальнейшие Join на этой соте допустимы:  
+   `mmoctl -registry <grid-manager:9100> forward-update <cell_id> set-split-drain false`  
+   (из пода: см. `scripts/mmoctl-in-cluster.sh` / репетицию [`scripts/grid-auto-split-drain-rehearsal.sh`](../scripts/grid-auto-split-drain-rehearsal.sh)).
+5. **Регрессия кластера** при крупных изменениях: [`scripts/staging-verify.sh`](../scripts/staging-verify.sh).

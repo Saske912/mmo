@@ -58,7 +58,7 @@ func FromEnv() Config {
 
 func natsURLFromEnv() string {
 	if u := strings.TrimSpace(os.Getenv("NATS_URL")); u != "" {
-		return u
+		return normalizeNATSURL(u)
 	}
 	host, port := os.Getenv("NATS_HOST"), os.Getenv("NATS_PORT")
 	if host == "" || port == "" {
@@ -73,6 +73,56 @@ func natsURLFromEnv() string {
 		} else {
 			u.User = url.User(user)
 		}
+	}
+	return u.String()
+}
+
+// normalizeNATSURL пересобирает nats://user:pass@host:port без net/url.Parse на целой строке:
+// в пароле могут быть '?', ':', '@' и др.; стандартный парсер принимает '?' за начало query и ломается
+// (см. лог grid-manager «invalid port … after host»).
+func normalizeNATSURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	const (
+		natsP = "nats://"
+		tlsP  = "tls://"
+	)
+	var scheme string
+	var rest string
+	switch {
+	case strings.HasPrefix(raw, natsP):
+		scheme = "nats"
+		rest = raw[len(natsP):]
+	case strings.HasPrefix(raw, tlsP):
+		scheme = "tls"
+		rest = raw[len(tlsP):]
+	default:
+		return raw
+	}
+	at := strings.LastIndex(rest, "@")
+	if at < 0 {
+		return raw
+	}
+	userinfo, hostport := rest[:at], rest[at+1:]
+	if hostport == "" {
+		return raw
+	}
+	var u url.URL
+	u.Scheme = scheme
+	u.Host = hostport
+	colon := strings.IndexByte(userinfo, ':')
+	switch {
+	case colon < 0:
+		if userinfo != "" {
+			u.User = url.User(userinfo)
+		}
+	case colon == 0:
+		// nats://:token@host — только пароль
+		u.User = url.UserPassword("", userinfo[colon+1:])
+	default:
+		u.User = url.UserPassword(userinfo[:colon], userinfo[colon+1:])
 	}
 	return u.String()
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,22 @@ func TestFromEnv_NATSHostPort(t *testing.T) {
 	want := "nats://u:pw@10.0.0.5:4222"
 	if c.NATSURL != want {
 		t.Fatalf("nats url: got %q want %q", c.NATSURL, want)
+	}
+}
+
+func TestNormalizeNATSURL_passwordWithQuestionMarkAndColon(t *testing.T) {
+	raw := "nats://mmo:!{]2+?1Bow?hv($}ju:]J[D)KMmP7v:Z@mmo-nats.nats.svc.cluster.local:4222"
+	got := normalizeNATSURL(raw)
+	if got == raw || !strings.Contains(got, "mmo-nats.nats.svc.cluster.local:4222") {
+		t.Fatalf("expected rewritten URL, got %q", got)
+	}
+	if strings.Contains(got, "?1Bow") {
+		t.Fatalf("raw password fragment must be percent-encoded in URL, got %q", got)
+	}
+	t.Setenv("NATS_URL", raw)
+	t.Setenv("CONSUL_HTTP_ADDR", "http://127.0.0.1:8500")
+	c := FromEnv()
+	if c.NATSURL == raw {
+		t.Fatalf("FromEnv should normalize NATS_URL, still raw")
 	}
 }
