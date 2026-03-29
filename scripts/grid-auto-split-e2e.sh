@@ -124,8 +124,8 @@ fi
 PARENT_CELL="${GRID_SPLIT_PARENT_CELL_ID:-cell_0_0_0}"
 echo "== verify Redis retire_state phase=automation_complete for ${PARENT_CELL} =="
 RETIRE_JSON="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl split-retire-state "$PARENT_CELL" 2>/dev/null || echo "{}")"
-if ! echo "$RETIRE_JSON" | grep -q 'automation_complete'; then
-  echo "ERROR: expected automation_complete in mmo:grid:split:retire_state:${PARENT_CELL}" >&2
+if ! echo "$RETIRE_JSON" | grep -qE '"phase"[[:space:]]*:[[:space:]]*"automation_complete"'; then
+  echo "ERROR: expected phase automation_complete in mmo:grid:split:retire_state:${PARENT_CELL}" >&2
   echo "$RETIRE_JSON" >&2
   exit 1
 fi

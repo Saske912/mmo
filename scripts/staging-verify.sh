@@ -171,8 +171,8 @@ if [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = 1 ] || [ "${STAGING_VERIFY_POST
     echo "== split-retire-state (${SPLIT_PARENT}, in-cluster; обнаружена runtime child cell_-1_-1_1) =="
     RS="$(kubectl -n "$NS" exec deploy/grid-manager -- /mmoctl split-retire-state "$SPLIT_PARENT" 2>/dev/null || true)"
     echo "$RS"
-    if ! echo "$RS" | grep -q 'automation_complete'; then
-      echo "staging: ожидался phase automation_complete в Redis retire_state для ${SPLIT_PARENT}" >&2
+    if ! echo "$RS" | grep -qE '"phase"[[:space:]]*:[[:space:]]*"automation_complete"'; then
+      echo "staging: ожидался phase=automation_complete в JSON retire_state для ${SPLIT_PARENT}" >&2
       echo "(отключить проверку: STAGING_VERIFY_POST_HANDOFF_STATE=0)" >&2
       exit 1
     fi

@@ -630,7 +630,7 @@ func (s *splitWorkflowStateStore) saveRetireReady(ctx context.Context, parentID 
 		"handoff_children": children,
 		"at_unix_ms":       time.Now().UnixMilli(),
 		"next_action":      splitcontrol.NextActionOperatorFinalRetire,
-		"next_step":        "После phase=automation_complete — только операторский §5 (runbook) для вывода baseline parent из каталога; Terraform primary не удаляется автоматически.",
+		"next_step":        "После успешного post-handoff в Redis — только операторский §5 (runbook) для вывода baseline parent; Terraform primary не удаляется автоматически.",
 		"optional_env":     "MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true удаляет только runtime child Deployment/Service после успешного workflow.",
 	}
 	return s.setRetireStateMap(ctx, parentID, payload)
@@ -765,6 +765,10 @@ func postRetirePreflightReasons(ctx context.Context, cat discovery.Catalog, pare
 	return dedupeReasons(reasons)
 }
 
+// resolveInsetFrac — доля от min по каждой оси внутрь bounds; не геометрический центр,
+// иначе при полном наборе вложенных сот в каталоге Resolve чаще выбирает более глубокий level.
+const resolveInsetFrac = 0.12
+
 func resolveChildCenterReasons(ctx context.Context, cat discovery.Catalog, specs []splitcontrol.ChildCellSpec) []string {
 	var reasons []string
 	for _, sp := range specs {
@@ -772,8 +776,14 @@ func resolveChildCenterReasons(ctx context.Context, cat discovery.Catalog, specs
 		if id == "" {
 			continue
 		}
-		cx := (sp.XMin + sp.XMax) / 2
-		cz := (sp.ZMin + sp.ZMax) / 2
+		xw := sp.XMax - sp.XMin
+		zw := sp.ZMax - sp.ZMin
+		if xw <= 0 || zw <= 0 {
+			reasons = append(reasons, fmt.Sprintf("resolve_%s:bad_bounds", id))
+			continue
+		}
+		cx := sp.XMin + xw*resolveInsetFrac
+		cz := sp.ZMin + zw*resolveInsetFrac
 		got, ok, err := cat.ResolveMostSpecific(ctx, cx, cz)
 		if err != nil {
 			reasons = append(reasons, fmt.Sprintf("resolve_%s:%v", id, err))
