@@ -25,6 +25,10 @@
 - `MMO_GRID_AUTO_SPLIT_WORKFLOW=true`
 - `MMO_GRID_REGISTRY_ADDR` — в Kubernetes: `mmo-grid-manager.<namespace>.svc.cluster.local:9100` (см. [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars)); локально с port-forward: `127.0.0.1:9100`
 - опционально **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`** — отключить префлайт и запись **`automation_complete`** в Redis после `retire_ready` (по умолчанию оркестрация включена, если переменная не задана)
+- опционально guardrails:
+  - `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для `cell_*_*_<level>` при `level >= N`;
+  - `MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=<N>` — ограничить число одновременно активных workflow;
+  - `MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=cell_a,cell_b` — CSV блоклист `cell_id`.
 
 ## Web3 indexer
 

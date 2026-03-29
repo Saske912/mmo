@@ -71,6 +71,9 @@ type splitWorkflowConfig struct {
 	initialBackoff time.Duration
 	maxBackoff     time.Duration
 	waitChildren   time.Duration
+	maxLevel       int32
+	maxConcurrent  int
+	blockedCells   map[string]struct{}
 }
 
 type splitWorkflowRuntime struct {
@@ -106,6 +109,7 @@ func parseSplitWorkflowConfig() splitWorkflowConfig {
 		initialBackoff: 1 * time.Second,
 		maxBackoff:     12 * time.Second,
 		waitChildren:   90 * time.Second,
+		blockedCells:   parseCellIDSet(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST")),
 	}
 	if n := parseIntWithDefault(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_MAX_RETRIES"), cfg.maxRetries); n >= 1 {
 		cfg.maxRetries = n
@@ -119,7 +123,25 @@ func parseSplitWorkflowConfig() splitWorkflowConfig {
 	if d := parseDurationWithDefault(os.Getenv("MMO_GRID_SPLIT_WORKFLOW_WAIT_CHILDREN"), cfg.waitChildren); d > 0 {
 		cfg.waitChildren = d
 	}
+	if n := parseIntWithDefault(os.Getenv("MMO_GRID_SPLIT_MAX_LEVEL"), 0); n >= 1 {
+		cfg.maxLevel = int32(n)
+	}
+	if n := parseIntWithDefault(os.Getenv("MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS"), 0); n >= 1 {
+		cfg.maxConcurrent = n
+	}
 	return cfg
+}
+
+func parseCellIDSet(raw string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, part := range strings.Split(strings.TrimSpace(raw), ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		out[id] = struct{}{}
+	}
+	return out
 }
 
 func newSplitWorkflowRuntime(cat discovery.Catalog) *splitWorkflowRuntime {
@@ -164,7 +186,21 @@ func (r *splitWorkflowRuntime) maybeStart(ctx context.Context, cellID string) {
 	if !r.cfg.enabled || cellID == "" {
 		return
 	}
+	if _, blocked := r.cfg.blockedCells[cellID]; blocked {
+		slog.Info("split workflow: blocked by config", "cell_id", cellID, "env", "MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST")
+		return
+	}
+	if qx, qz, level, ok := parseCellGridID(cellID); ok && r.cfg.maxLevel > 0 && level >= r.cfg.maxLevel {
+		slog.Info("split workflow: skip by max level", "cell_id", cellID, "cell_qx", qx, "cell_qz", qz, "cell_level", level, "max_level", r.cfg.maxLevel, "env", "MMO_GRID_SPLIT_MAX_LEVEL")
+		return
+	}
 	r.mu.Lock()
+	if r.cfg.maxConcurrent > 0 && len(r.active) >= r.cfg.maxConcurrent {
+		activeN := len(r.active)
+		r.mu.Unlock()
+		slog.Info("split workflow: concurrent limit reached", "cell_id", cellID, "active", activeN, "max_concurrent", r.cfg.maxConcurrent, "env", "MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS")
+		return
+	}
 	if _, ok := r.active[cellID]; ok {
 		r.mu.Unlock()
 		return

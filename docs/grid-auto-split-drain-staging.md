@@ -6,6 +6,8 @@
 
 Дополнительно можно включить **`MMO_GRID_AUTO_SPLIT_WORKFLOW=true`**: после `split_drain` запускается state-machine оркестрации (детект children из `PlanSplit` + каталога, `ForwardNpcHandoff`, метрики `mmo_grid_manager_split_workflow_*`, события в NATS `grid.split.workflow`).
 
+Важно: load policy в `grid-manager` опрашивает **все** соты из каталога, поэтому при долгом breach возможен **рекурсивный scale-out** (L1 → L2 → ...), а не только сплит baseline parent.
+
 ## Включение (контролируемо через Terraform)
 
 1. В каталоге `deploy/terraform/staging` задайте [`grid_manager_extra_env`](../deploy/terraform/staging/grid_manager.auto.tfvars.example) (например файл `grid_manager.auto.tfvars`):
@@ -37,9 +39,22 @@ E2E вариант с проверкой workflow-метрик:
 cd backend && bash scripts/grid-auto-split-e2e.sh
 ```
 
+Для проверки рекурсивного сценария (ожидать, что появится уровень `>=2`):
+
+```bash
+cd backend && EXPECT_RECURSIVE_SPLIT=1 bash scripts/grid-auto-split-e2e.sh
+```
+
+Скрипт печатает `baseline max_level` и `current max_level`; порог можно задать явно: `EXPECT_MIN_MAX_LEVEL=<N>`.
+
 Перед прогоном скрипт по умолчанию удаляет runtime child (`cell-node-auto-*`, `mmo-cell-auto-*`), чтобы не копился хвост подов; отключить: `RESET_AUTO_CHILDREN_BEFORE_TEST=0`. Перед **`staging-verify.sh`** при «грязном» кластере: **`STAGING_VERIFY_RESET_AUTO_CELLS=1`**.
 
 Опционально на **grid-manager** (через `grid_manager_extra_env`): **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`** — не выполнять префлайт и не писать **`phase=automation_complete`** после `retire_ready` (по умолчанию оркестрация включена). **`MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true`** — после успешного workflow (и orchestration) запросить у `cell-controller` удаление runtime child (`op=delete_runtime_child`). Используйте осознанно: каталог обновится после graceful shutdown child pod.
+
+Guardrails для production/staging:
+- **`MMO_GRID_SPLIT_MAX_LEVEL`** — ограничение глубины auto split (не запускать workflow при `cell_level >= limit`).
+- **`MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS`** — лимит числа параллельных workflow.
+- **`MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST`** — CSV `cell_id`, для которых workflow отключён.
 
 ## После репетиции
 

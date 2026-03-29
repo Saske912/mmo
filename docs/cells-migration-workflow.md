@@ -56,6 +56,11 @@
 
 Для state-machine workflow в grid-manager: `MMO_GRID_AUTO_SPLIT_WORKFLOW=true` (дополнительно к `MMO_GRID_AUTO_SPLIT_DRAIN=true`), метрики `mmo_grid_manager_split_workflow_*`, события `grid.split.workflow`.
 
+Guardrails для controlled scale-out:
+- `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для `cell_*_*_<level>` при `level >= N`;
+- `MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=<N>` — ограничить параллельные workflow;
+- `MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=cell_a,cell_b` — CSV блоклист `cell_id`.
+
 ## Split control-plane (staging)
 
 Текущий путь авто-split в staging:
@@ -65,7 +70,7 @@
 3. `cell-controller` materialize child-cell как Kubernetes `Service` + `Deployment`.
 4. Workflow ждёт, пока children появятся в каталоге и пройдут `Ping` reachability.
 5. В начале `runOnce` workflow идемпотентно выставляет `split_drain=true` на parent; после **всех** успешных `ForwardNpcHandoff` по детям (multi-child без partial-success) снимает `split_drain` и публикует стадию **`retire_ready`** в `grid.split.workflow`.
-6. **Post-handoff orchestration (по умолчанию вкл.):** после записи `retire_ready` в Redis grid-manager выполняет префлайт (parent/children в каталоге, `Ping`, `Resolve` по центрам квадрантов детей) и переводит `mmo:grid:split:retire_state:<parent>` в **`phase=automation_complete`** либо **`phase=preflight_blocked`** с массивом `preflight_blocked_reasons`. События в `grid.split.workflow`: **`automation_complete`** или **`post_handoff_preflight_failed`**. Отключить: **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`**.
+6. **Post-handoff orchestration (по умолчанию вкл.):** после записи `retire_ready` в Redis grid-manager выполняет префлайт (parent/children в каталоге, `Ping`, `Resolve` по probe-точкам внутри bounds каждого child, с фильтром чужих более глубоких веток) и переводит `mmo:grid:split:retire_state:<parent>` в **`phase=automation_complete`** либо **`phase=preflight_blocked`** с массивом `preflight_blocked_reasons`. События в `grid.split.workflow`: **`automation_complete`** или **`post_handoff_preflight_failed`**. Отключить: **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`**.
 7. **Формальное состояние после сплита:** в Redis (grid-manager / cell-controller):
    - `mmo:grid:split:retire_state:<parent_cell_id>` — JSON: `phase` (`retire_ready` → `automation_complete` или `preflight_blocked`), `handoff_children`, `next_action` (`operator_final_retire`), `next_step` (операторский §5 для вывода baseline parent);
    - `mmo:cell-controller:retire_ready:<parent_cell_id>` и `mmo:cell-controller:retire:<parent_cell_id>` — снимок на **`retire_ready`**;

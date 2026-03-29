@@ -14,6 +14,8 @@ WAIT_SECONDS="${WAIT_SECONDS:-70}"
 REGISTRY_PORT="${REGISTRY_PORT:-9100}"
 CELL_CONTROLLER_DEPLOY="${CELL_CONTROLLER_DEPLOY:-cell-controller}"
 RESET_AUTO_CHILDREN_BEFORE_TEST="${RESET_AUTO_CHILDREN_BEFORE_TEST:-1}"
+EXPECT_MIN_MAX_LEVEL="${EXPECT_MIN_MAX_LEVEL:-1}"
+EXPECT_RECURSIVE_SPLIT="${EXPECT_RECURSIVE_SPLIT:-0}"
 PF_PID=""
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "need $1" >&2; exit 1; }; }
@@ -31,6 +33,7 @@ cleanup() {
     MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION- \
     MMO_GRID_LOAD_POLICY_COOLDOWN- \
     MMO_GRID_CELL_PROBE_INTERVAL- >/dev/null
+  # Не трогаем MMO_GRID_SPLIT_* guardrails — они из Terraform/ops и должны пережить смоук.
   kubectl -n "$NS" rollout status "deployment/$GRID_DEPLOY" --timeout=120s >/dev/null || true
   LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list 2>/dev/null || true)"
   while IFS= read -r line; do
@@ -41,6 +44,18 @@ cleanup() {
   done <<< "$LIST"
 }
 trap cleanup EXIT
+
+max_level_from_list() {
+  awk '{
+    for (i=1; i<=NF; i++) {
+      if ($i ~ /^level=/) {
+        gsub("level=", "", $i)
+        lvl=$i+0
+        if (lvl>max) max=lvl
+      }
+    }
+  } END { print max+0 }'
+}
 
 cleanup_auto_children() {
   echo "== cleanup auto child-cell workloads before test =="
@@ -70,17 +85,35 @@ fi
 echo "== baseline cells =="
 BASE_LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list)"
 BASE_COUNT="$(printf '%s\n' "$BASE_LIST" | awk 'NF>0{n++} END{print n+0}')"
+BASE_MAX_LEVEL="$(printf '%s\n' "$BASE_LIST" | max_level_from_list)"
 echo "baseline count=${BASE_COUNT}"
+echo "baseline max_level=${BASE_MAX_LEVEL}"
+
+if [[ "$EXPECT_RECURSIVE_SPLIT" == "1" || "$EXPECT_RECURSIVE_SPLIT" == "true" ]]; then
+  EXPECT_MIN_MAX_LEVEL=2
+fi
 
 echo "== ensure grid-manager env + trigger thresholds =="
+SET_ENV_ARGS=(
+  "MMO_GRID_AUTO_SPLIT_DRAIN=true"
+  "MMO_GRID_AUTO_SPLIT_WORKFLOW=true"
+  "MMO_GRID_REGISTRY_ADDR=127.0.0.1:9100"
+  "MMO_GRID_THRESHOLD_MAX_TICK_SECONDS=0.000001"
+  "MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION=8s"
+  "MMO_GRID_LOAD_POLICY_COOLDOWN=60s"
+  "MMO_GRID_CELL_PROBE_INTERVAL=6s"
+)
+if [[ -n "${MMO_GRID_SPLIT_MAX_LEVEL:-}" ]]; then
+  SET_ENV_ARGS+=("MMO_GRID_SPLIT_MAX_LEVEL=${MMO_GRID_SPLIT_MAX_LEVEL}")
+fi
+if [[ -n "${MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS:-}" ]]; then
+  SET_ENV_ARGS+=("MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=${MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS}")
+fi
+if [[ -n "${MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST:-}" ]]; then
+  SET_ENV_ARGS+=("MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=${MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST}")
+fi
 kubectl -n "$NS" set env "deployment/$GRID_DEPLOY" \
-  MMO_GRID_AUTO_SPLIT_DRAIN=true \
-  MMO_GRID_AUTO_SPLIT_WORKFLOW=true \
-  MMO_GRID_REGISTRY_ADDR=127.0.0.1:9100 \
-  MMO_GRID_THRESHOLD_MAX_TICK_SECONDS=0.000001 \
-  MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION=8s \
-  MMO_GRID_LOAD_POLICY_COOLDOWN=60s \
-  MMO_GRID_CELL_PROBE_INTERVAL=6s
+  "${SET_ENV_ARGS[@]}"
 kubectl -n "$NS" rollout status "deployment/$GRID_DEPLOY" --timeout=120s
 
 echo "== port-forward metrics =="
@@ -106,10 +139,17 @@ fi
 echo "== verify child cells appeared in catalog =="
 NOW_LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list)"
 NOW_COUNT="$(printf '%s\n' "$NOW_LIST" | awk 'NF>0{n++} END{print n+0}')"
+NOW_MAX_LEVEL="$(printf '%s\n' "$NOW_LIST" | max_level_from_list)"
 echo "current count=${NOW_COUNT}"
+echo "current max_level=${NOW_MAX_LEVEL}"
 if [ "$NOW_COUNT" -le "$BASE_COUNT" ]; then
   echo "ERROR: child cells were not materialized (count did not grow)" >&2
   echo "$NOW_LIST"
+  exit 1
+fi
+if [ "$NOW_MAX_LEVEL" -lt "$EXPECT_MIN_MAX_LEVEL" ]; then
+  echo "ERROR: expected max cell level >= ${EXPECT_MIN_MAX_LEVEL}, got ${NOW_MAX_LEVEL}" >&2
+  echo "$NOW_LIST" >&2
   exit 1
 fi
 
