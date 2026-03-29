@@ -124,10 +124,26 @@ resource "kubernetes_deployment" "grid_manager" {
       }
 
       spec {
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name              = "grid-manager"
           image             = local.image
           image_pull_policy = local.pull_policy
+
+          security_context {
+            allow_privilege_escalation = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["/grid-manager"]
           args = concat(
@@ -196,13 +212,13 @@ resource "kubernetes_role" "cell_controller" {
   rule {
     api_groups = [""]
     resources  = ["services"]
-    verbs      = ["get", "list", "create", "update", "patch"]
+    verbs      = ["get", "list", "create", "update", "patch", "delete"]
   }
 
   rule {
     api_groups = ["apps"]
     resources  = ["deployments"]
-    verbs      = ["get", "list", "create", "update", "patch"]
+    verbs      = ["get", "list", "create", "update", "patch", "delete"]
   }
 }
 
@@ -260,10 +276,26 @@ resource "kubernetes_deployment" "cell_controller" {
       spec {
         service_account_name = kubernetes_service_account.cell_controller[0].metadata[0].name
 
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name              = "cell-controller"
           image             = local.image
           image_pull_policy = local.pull_policy
+
+          security_context {
+            allow_privilege_escalation = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["/cell-controller"]
 
@@ -345,10 +377,26 @@ resource "kubernetes_deployment" "cell_node" {
       }
 
       spec {
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name              = "cell-node"
           image             = local.image
           image_pull_policy = local.pull_policy
+
+          security_context {
+            allow_privilege_escalation = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["/cell-node"]
           args = concat(
@@ -499,10 +547,26 @@ resource "kubernetes_deployment" "gateway" {
       }
 
       spec {
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name              = "gateway"
           image             = local.image
           image_pull_policy = local.pull_policy
+
+          security_context {
+            allow_privilege_escalation = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["/gateway"]
           args = [
@@ -616,10 +680,26 @@ resource "kubernetes_deployment" "web3_indexer" {
       }
 
       spec {
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name              = "web3-indexer"
           image             = local.image
           image_pull_policy = local.pull_policy
+
+          security_context {
+            allow_privilege_escalation = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["/web3-indexer"]
 

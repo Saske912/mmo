@@ -12,6 +12,8 @@
 
 ## §7 Операторский пайплайн (drain → handoff → инфра)
 
+При **`MMO_GRID_AUTO_SPLIT_WORKFLOW=true`** перенос NPC и post-handoff (**`automation_complete`** в Redis) выполняет grid-manager; блок ниже — **ручной fallback** (cold-path без авто-workflow или донастройка после `operator_final_retire`).
+
 Последовательность из runbook:
 
 1. **`set-split-drain true`** на родителе — запрет новых Join.
@@ -62,9 +64,21 @@
 2. Делает `PlanSplit` и публикует `cell.control` запросы на создание child-cell.
 3. `cell-controller` materialize child-cell как Kubernetes `Service` + `Deployment`.
 4. Workflow ждёт, пока children появятся в каталоге и пройдут `Ping` reachability.
-5. После readiness выполняется `ForwardNpcHandoff`, parent получает `retire_ready` marker (без auto-delete в этом спринте).
+5. В начале `runOnce` workflow идемпотентно выставляет `split_drain=true` на parent; после **всех** успешных `ForwardNpcHandoff` по детям (multi-child без partial-success) снимает `split_drain` и публикует стадию **`retire_ready`** в `grid.split.workflow`.
+6. **Post-handoff orchestration (по умолчанию вкл.):** после записи `retire_ready` в Redis grid-manager выполняет префлайт (parent/children в каталоге, `Ping`, `Resolve` по центрам квадрантов детей) и переводит `mmo:grid:split:retire_state:<parent>` в **`phase=automation_complete`** либо **`phase=preflight_blocked`** с массивом `preflight_blocked_reasons`. События в `grid.split.workflow`: **`automation_complete`** или **`post_handoff_preflight_failed`**. Отключить: **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`**.
+7. **Формальное состояние после сплита:** в Redis (grid-manager / cell-controller):
+   - `mmo:grid:split:retire_state:<parent_cell_id>` — JSON: `phase` (`retire_ready` → `automation_complete` или `preflight_blocked`), `handoff_children`, `next_action` (`operator_final_retire`), `next_step` (операторский §5 для вывода baseline parent);
+   - `mmo:cell-controller:retire_ready:<parent_cell_id>` и `mmo:cell-controller:retire:<parent_cell_id>` — снимок на **`retire_ready`**;
+   - `mmo:cell-controller:automation_complete:<parent_cell_id>` — снимок на **`automation_complete`**;
+   baseline **primary** `cell-node` из Terraform **не** удаляется автоматически.
+8. **Опционально (staging / уборка runtime child):** `MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true` — после успешного workflow (после orchestration) публикует `op=delete_runtime_child` на каждого ребёнка. По умолчанию **false**.
+
+**Чтение состояния:** `kubectl exec deploy/grid-manager -n mmo -- /mmoctl split-retire-state <parent_cell_id>` (нужны `REDIS_*` в поде).
 
 Проверка end-to-end: [`scripts/grid-auto-split-e2e.sh`](../scripts/grid-auto-split-e2e.sh)
 - проверяет `mmo_grid_manager_split_workflow_runs_total{result="ok"}`,
 - проверяет рост числа сот в каталоге,
-- проверяет `retire_ready_set` в логах `cell-controller`.
+- проверяет `retire_ready_set` и **`automation_complete_set`** в логах `cell-controller`,
+- проверяет **`automation_complete`** в JSON `split-retire-state` для родителя (переменная **`GRID_SPLIT_PARENT_CELL_ID`**, по умолчанию `cell_0_0_0`).
+
+В [`scripts/staging-verify.sh`](../scripts/staging-verify.sh) при наличии **`cell_-1_-1_1`** в каталоге проверяется `automation_complete` в Redis; отключение: **`STAGING_VERIFY_POST_HANDOFF_STATE=0`**.

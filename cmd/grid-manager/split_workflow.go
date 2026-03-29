@@ -245,6 +245,10 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		Message:  "ensure split_drain=true",
 		AtUnixMs: time.Now().UnixMilli(),
 	})
+	// Идемпотентно фиксируем drain (не только от load policy).
+	if err := r.setSplitDrain(ctx, parentCellID, true); err != nil {
+		return fmt.Errorf("set split_drain true: %w", err)
+	}
 
 	children, err := r.planSplitChildren(ctx, parentCellID)
 	if err != nil {
@@ -282,6 +286,7 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		return err
 	}
 
+	// Политика спринта: multi-child — все handoff обязаны завершиться успешно (без partial-success).
 	for _, child := range readyChildren {
 		r.publish(splitWorkflowEvent{
 			CellID:    parentCellID,
@@ -300,21 +305,51 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 				Message:   err.Error(),
 				AtUnixMs:  time.Now().UnixMilli(),
 			})
-			continue
+			return fmt.Errorf("handoff failed for child %s: %w", child, err)
 		}
-		_ = r.setSplitDrain(ctx, parentCellID, false)
-		r.publish(splitWorkflowEvent{
-			CellID:     parentCellID,
-			ChildCell:  child,
-			Stage:      "parent_retiring",
-			Attempt:    attempt,
-			Message:    "handoff ok; parent marked for retire",
-			AtUnixMs:   time.Now().UnixMilli(),
-			Successful: true,
-		})
-		return nil
 	}
-	return fmt.Errorf("handoff failed for all child candidates")
+
+	if err := r.setSplitDrain(ctx, parentCellID, false); err != nil {
+		return fmt.Errorf("clear split_drain after handoffs: %w", err)
+	}
+
+	joined := strings.Join(readyChildren, ",")
+	childSpecOrder := make([]splitcontrol.ChildCellSpec, 0, len(readyChildren))
+	byID := make(map[string]splitcontrol.ChildCellSpec, len(children))
+	for _, ch := range children {
+		byID[ch.ID] = ch
+	}
+	for _, id := range readyChildren {
+		if sp, ok := byID[id]; ok {
+			childSpecOrder = append(childSpecOrder, sp)
+		}
+	}
+	r.publish(splitWorkflowEvent{
+		CellID:     parentCellID,
+		Stage:      splitcontrol.StageRetireReady,
+		Attempt:    attempt,
+		Message:    "all handoffs ok; split_drain cleared; retire_ready; running post_handoff orchestration (preflight + automation_complete) unless MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false",
+		AtUnixMs:   time.Now().UnixMilli(),
+		Successful: true,
+		Attrs:      map[string]string{"handoff_children": joined},
+	})
+	if r.store != nil {
+		_ = r.store.saveRetireReady(ctx, parentCellID, readyChildren)
+	}
+	if err := r.runPostHandoffOrchestration(ctx, parentCellID, attempt, readyChildren, childSpecOrder); err != nil {
+		return err
+	}
+
+	if envBool("MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN") {
+		reason := fmt.Sprintf("grid-auto-split-teardown parent=%s", parentCellID)
+		for _, cid := range readyChildren {
+			if err := r.requestChildDelete(ctx, cid, reason); err != nil {
+				slog.Warn("split workflow: teardown child failed", "cell_id", cid, "err", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *splitWorkflowRuntime) planSplitChildren(ctx context.Context, parentCellID string) ([]splitcontrol.ChildCellSpec, error) {
@@ -365,6 +400,25 @@ func (r *splitWorkflowRuntime) planSplit(ctx context.Context, endpoint string) (
 		})
 	}
 	return out, nil
+}
+
+func (r *splitWorkflowRuntime) requestChildDelete(ctx context.Context, cellID, reason string) error {
+	if r.nats == nil {
+		return fmt.Errorf("nats client is required for child delete")
+	}
+	req := splitcontrol.RuntimeCellDeleteRequest{
+		Op:     splitcontrol.OpDeleteRuntimeChild,
+		CellID: cellID,
+		Reason: reason,
+	}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if err := r.nats.Publish(natsbus.SubjectCellControl, raw); err != nil {
+		return err
+	}
+	return r.nats.FlushTimeout(400 * time.Millisecond)
 }
 
 func (r *splitWorkflowRuntime) requestChildCreate(ctx context.Context, parentCellID string, ch splitcontrol.ChildCellSpec, attempt int) error {
@@ -526,7 +580,231 @@ func (s *splitWorkflowStateStore) save(ctx context.Context, cellID string, event
 	if err != nil {
 		return err
 	}
-	return s.rdb.Set(ctx, "mmo:grid:split:"+cellID, raw, 24*time.Hour).Err()
+	return s.rdb.Set(ctx, "mmo:grid:split:"+cellID, raw, maxWorkflowRedisTTL()).Err()
+}
+
+func maxWorkflowRedisTTL() time.Duration {
+	return 7 * 24 * time.Hour
+}
+
+func retireStateRedisKey(parentID string) string {
+	return "mmo:grid:split:retire_state:" + strings.TrimSpace(parentID)
+}
+
+func (s *splitWorkflowStateStore) getRetireStateMap(ctx context.Context, parentID string) (map[string]any, error) {
+	if s == nil || s.rdb == nil {
+		return nil, nil
+	}
+	raw, err := s.rdb.Get(ctx, retireStateRedisKey(parentID)).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (s *splitWorkflowStateStore) setRetireStateMap(ctx context.Context, parentID string, m map[string]any) error {
+	if s == nil || s.rdb == nil {
+		return nil
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return s.rdb.Set(ctx, retireStateRedisKey(parentID), raw, maxWorkflowRedisTTL()).Err()
+}
+
+func (s *splitWorkflowStateStore) saveRetireReady(ctx context.Context, parentID string, children []string) error {
+	if s == nil || s.rdb == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"phase":            splitcontrol.RetireStatePhaseRetireReady,
+		"parent_cell_id":   parentID,
+		"handoff_children": children,
+		"at_unix_ms":       time.Now().UnixMilli(),
+		"next_action":      splitcontrol.NextActionOperatorFinalRetire,
+		"next_step":        "После phase=automation_complete — только операторский §5 (runbook) для вывода baseline parent из каталога; Terraform primary не удаляется автоматически.",
+		"optional_env":     "MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true удаляет только runtime child Deployment/Service после успешного workflow.",
+	}
+	return s.setRetireStateMap(ctx, parentID, payload)
+}
+
+func postHandoffOrchestrationEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION")))
+	if v == "" {
+		return true
+	}
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func (r *splitWorkflowRuntime) runPostHandoffOrchestration(ctx context.Context, parentID string, attempt int, readyChildren []string, childSpecs []splitcontrol.ChildCellSpec) error {
+	if !postHandoffOrchestrationEnabled() {
+		slog.Info("post-handoff orchestration disabled", "cell_id", parentID, "env", "MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false")
+		return nil
+	}
+	if r.store == nil || r.store.rdb == nil {
+		slog.Warn("post-handoff orchestration skipped: redis store not configured", "cell_id", parentID)
+		return nil
+	}
+	st, err := r.store.getRetireStateMap(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("post-handoff: read retire state: %w", err)
+	}
+	if st != nil {
+		if ph, _ := st["phase"].(string); ph == splitcontrol.RetireStatePhaseAutomationComplete {
+			r.publish(splitWorkflowEvent{
+				CellID:     parentID,
+				Stage:      splitcontrol.StageAutomationComplete,
+				Attempt:    attempt,
+				Message:    "idempotent skip: retire_state already automation_complete",
+				Successful: true,
+				AtUnixMs:   time.Now().UnixMilli(),
+			})
+			return nil
+		}
+	}
+	blocked := postRetirePreflightReasons(ctx, r.cat, parentID, readyChildren, childSpecs)
+	if len(blocked) > 0 {
+		if st == nil {
+			st = map[string]any{}
+		}
+		st["phase"] = splitcontrol.RetireStatePhasePreflightBlocked
+		st["preflight_blocked_reasons"] = blocked
+		st["preflight_at_unix_ms"] = time.Now().UnixMilli()
+		if err := r.store.setRetireStateMap(ctx, parentID, st); err != nil {
+			return fmt.Errorf("post-handoff: save preflight_blocked: %w", err)
+		}
+		r.publish(splitWorkflowEvent{
+			CellID:     parentID,
+			Stage:      splitcontrol.StagePostHandoffPreflightFailed,
+			Attempt:    attempt,
+			Message:    fmt.Sprintf("preflight blocked: %s", strings.Join(blocked, "; ")),
+			Successful: false,
+			AtUnixMs:   time.Now().UnixMilli(),
+			Attrs:      map[string]string{"blocked_count": strconv.Itoa(len(blocked))},
+		})
+		return nil
+	}
+	opID := fmt.Sprintf("%s-a%d-%d", parentID, attempt, time.Now().UnixMilli())
+	if st == nil {
+		st = map[string]any{}
+	}
+	st["phase"] = splitcontrol.RetireStatePhaseAutomationComplete
+	st["parent_cell_id"] = parentID
+	st["handoff_children"] = readyChildren
+	st["operation_id"] = opID
+	st["preflight_ok"] = true
+	st["preflight_gates"] = []string{"parent_catalog_ping", "children_catalog_ping", "resolve_child_centers"}
+	st["next_action"] = splitcontrol.NextActionOperatorFinalRetire
+	st["next_step"] = "Оператор: финальный вывод baseline parent — backend/runbooks/cold-cell-split.md §5 и при необходимости cell_instances + tofu apply. Baseline Terraform primary не удаляется автоматически; runtime child — опционально MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN."
+	st["at_unix_ms_automation_complete"] = time.Now().UnixMilli()
+	if err := r.store.setRetireStateMap(ctx, parentID, st); err != nil {
+		return fmt.Errorf("post-handoff: save automation_complete: %w", err)
+	}
+	r.publish(splitWorkflowEvent{
+		CellID:     parentID,
+		Stage:      splitcontrol.StageAutomationComplete,
+		Attempt:    attempt,
+		Message:    "post_handoff preflight ok; automation_complete; next: operator_final_retire (§5)",
+		Successful: true,
+		AtUnixMs:   time.Now().UnixMilli(),
+		Attrs:      map[string]string{"operation_id": opID, "handoff_children": strings.Join(readyChildren, ",")},
+	})
+	if r.store != nil {
+		_ = r.store.save(ctx, parentID, splitWorkflowEvent{
+			CellID:     parentID,
+			Stage:      splitcontrol.StageAutomationComplete,
+			Attempt:    attempt,
+			Message:    "automation_complete",
+			Successful: true,
+			Attrs:      map[string]string{"operation_id": opID},
+			AtUnixMs:   time.Now().UnixMilli(),
+		})
+	}
+	return nil
+}
+
+func postRetirePreflightReasons(ctx context.Context, cat discovery.Catalog, parentID string, childIDs []string, specs []splitcontrol.ChildCellSpec) []string {
+	var reasons []string
+	if len(childIDs) == 0 {
+		return []string{"no_handoff_children"}
+	}
+	parent, ok, err := discovery.FindCellByID(ctx, cat, parentID)
+	if err != nil {
+		return []string{"catalog_parent:" + err.Error()}
+	}
+	if !ok || parent == nil {
+		reasons = append(reasons, "parent_missing_in_catalog")
+	} else {
+		if ep := strings.TrimSpace(parent.GetGrpcEndpoint()); ep == "" || !isCellReachable(ctx, ep) {
+			reasons = append(reasons, "parent_unreachable")
+		}
+	}
+	for _, id := range childIDs {
+		cs, ok, err := discovery.FindCellByID(ctx, cat, id)
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("child_%s_catalog:%v", id, err))
+			continue
+		}
+		if !ok || cs == nil {
+			reasons = append(reasons, fmt.Sprintf("child_%s_missing_in_catalog", id))
+			continue
+		}
+		if ep := strings.TrimSpace(cs.GetGrpcEndpoint()); ep == "" || !isCellReachable(ctx, ep) {
+			reasons = append(reasons, fmt.Sprintf("child_%s_unreachable", id))
+		}
+	}
+	reasons = append(reasons, resolveChildCenterReasons(ctx, cat, specs)...)
+	return dedupeReasons(reasons)
+}
+
+func resolveChildCenterReasons(ctx context.Context, cat discovery.Catalog, specs []splitcontrol.ChildCellSpec) []string {
+	var reasons []string
+	for _, sp := range specs {
+		id := strings.TrimSpace(sp.ID)
+		if id == "" {
+			continue
+		}
+		cx := (sp.XMin + sp.XMax) / 2
+		cz := (sp.ZMin + sp.ZMax) / 2
+		got, ok, err := cat.ResolveMostSpecific(ctx, cx, cz)
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("resolve_%s:%v", id, err))
+			continue
+		}
+		if !ok || got == nil {
+			reasons = append(reasons, fmt.Sprintf("resolve_%s:no_match", id))
+			continue
+		}
+		if got.GetId() != id {
+			reasons = append(reasons, fmt.Sprintf("resolve_%s:want_got_%s", id, got.GetId()))
+		}
+	}
+	return reasons
+}
+
+func dedupeReasons(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
 }
 
 func parseDurationWithDefault(raw string, fallback time.Duration) time.Duration {

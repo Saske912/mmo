@@ -14,11 +14,21 @@ spec:
         app: cell-controller
     spec:
       serviceAccountName: cell-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: cell-controller
           image: harbor.pass-k8s.ru/library/mmo-backend:latest
           imagePullPolicy: Always
           command: ["/cell-controller"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           envFrom:
             - secretRef:
                 name: mmo-backend

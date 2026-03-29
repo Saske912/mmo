@@ -39,6 +39,8 @@ cd backend && bash scripts/grid-auto-split-e2e.sh
 
 Перед прогоном скрипт по умолчанию удаляет runtime child (`cell-node-auto-*`, `mmo-cell-auto-*`), чтобы не копился хвост подов; отключить: `RESET_AUTO_CHILDREN_BEFORE_TEST=0`. Перед **`staging-verify.sh`** при «грязном» кластере: **`STAGING_VERIFY_RESET_AUTO_CELLS=1`**.
 
+Опционально на **grid-manager** (через `grid_manager_extra_env`): **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`** — не выполнять префлайт и не писать **`phase=automation_complete`** после `retire_ready` (по умолчанию оркестрация включена). **`MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true`** — после успешного workflow (и orchestration) запросить у `cell-controller` удаление runtime child (`op=delete_runtime_child`). Используйте осознанно: каталог обновится после graceful shutdown child pod.
+
 ## После репетиции
 
 - Проверьте алерты/Grafana.

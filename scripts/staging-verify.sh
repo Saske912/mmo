@@ -8,6 +8,8 @@
 #   STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1;500,-500,cell_1_-1_1" — точка x,z → ожидаемый id
 # Перед проверкой убрать runtime child-соты от cell-controller (иначе «34 pod» после split-e2e):
 #   STAGING_VERIFY_RESET_AUTO_CELLS=1  (default: 0 — не трогать кластер)
+# Post-handoff Redis (если в каталоге есть cell_-1_-1_1): проверка mmoctl split-retire-state
+#   STAGING_VERIFY_POST_HANDOFF_STATE=0 — отключить; STAGING_VERIFY_SPLIT_PARENT — parent id (default cell_0_0_0)
 set -euo pipefail
 
 NS="${K8S_NAMESPACE:-mmo}"
@@ -163,6 +165,23 @@ else
   echo "B2 staging: одна сота в каталоге; child пока не materialized (проверьте split-e2e / cell-controller)."
 fi
 
+if [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = 1 ] || [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = true ]; then
+  if echo "$CATALOG_PREVIEW" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
+    SPLIT_PARENT="${STAGING_VERIFY_SPLIT_PARENT:-cell_0_0_0}"
+    echo "== split-retire-state (${SPLIT_PARENT}, in-cluster; обнаружена runtime child cell_-1_-1_1) =="
+    RS="$(kubectl -n "$NS" exec deploy/grid-manager -- /mmoctl split-retire-state "$SPLIT_PARENT" 2>/dev/null || true)"
+    echo "$RS"
+    if ! echo "$RS" | grep -q 'automation_complete'; then
+      echo "staging: ожидался phase automation_complete в Redis retire_state для ${SPLIT_PARENT}" >&2
+      echo "(отключить проверку: STAGING_VERIFY_POST_HANDOFF_STATE=0)" >&2
+      exit 1
+    fi
+    echo "OK: post-handoff retire_state automation_complete"
+  else
+    echo "== split-retire-state: пропуск (нет cell_-1_-1_1 в каталоге — типичный primary-only staging) =="
+  fi
+fi
+
 if [ -n "${STAGING_VERIFY_EXPECT_CELL_IDS:-}" ]; then
   echo "== STAGING_VERIFY_EXPECT_CELL_IDS (все id в list) =="
   while IFS= read -r raw_id; do
@@ -232,6 +251,10 @@ echo "== gateway-api-smoke (session + /v1/me/resolve-preview) =="
 go run ./scripts/gateway-api-smoke -gateway "${GATEWAY_PUBLIC}"
 
 echo "== ws-smoke (Ingress ${GATEWAY_PUBLIC}, первые кадры; второй игрок — resolve в SW для child-sw) =="
-go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3 -second-player ws-smoke-2 -second-session-x -500 -second-session-z -500
+# Не использовать player_id=ws-smoke по умолчанию: на staging у фиксированного id может остаться «залипшая»
+# сессия/cell-связка и gorilla получает bad handshake; уникальные id стабильны для прогона.
+WS_P1="${STAGING_VERIFY_WS_PLAYER:-staging-verify-ws-1-$$}"
+WS_P2="${STAGING_VERIFY_WS_PLAYER_2:-staging-verify-ws-2-$$}"
+go run ./scripts/ws-smoke -gateway "${GATEWAY_PUBLIC}" -n 3 -player "$WS_P1" -second-player "$WS_P2" -second-session-x -500 -second-session-z -500
 
 echo "OK: registry, cell, gateway через Ingress (healthz + readyz + ws-smoke) прошли."

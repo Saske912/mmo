@@ -7,6 +7,8 @@
 - Родительский `cell-node` уже в кластере с корректными `bounds` и `level` в Consul (как в `cell_instances`).
 - Redis: ключи `mmo:cell:<cell_id>:state` на дочерних сотах при первом старте будут пустыми — **чистый мир**. Копирование снапшота родителя в ключ ребёнка — только вручную и осознанно (игроки в снапшот не входят).
 
+**Авто-workflow (`MMO_GRID_AUTO_SPLIT_WORKFLOW`):** после успешных handoff grid-manager публикует **`retire_ready`**, затем по умолчанию выполняет **post-handoff orchestration**: префлайт каталога и переход Redis к **`phase=automation_complete`** (см. [`cells-migration-workflow.md`](../docs/cells-migration-workflow.md)). Снятие флага: **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`**. Полный **§5** (вывод baseline parent из каталога / deregister / Terraform) остаётся **операторским** после `next_action=operator_final_retire`. Удаление только runtime child — опционально **`MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN`**.
+
 ## 1. План четырёх детей
 
 Живой родитель (как у cell gRPC):

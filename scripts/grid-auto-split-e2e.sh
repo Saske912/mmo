@@ -45,8 +45,8 @@ trap cleanup EXIT
 cleanup_auto_children() {
   echo "== cleanup auto child-cell workloads before test =="
   local auto_deploys auto_svcs
-  auto_deploys="$(kubectl -n "$NS" get deploy -o name | rg '^deployment.apps/cell-node-auto-' || true)"
-  auto_svcs="$(kubectl -n "$NS" get svc -o name | rg '^service/mmo-cell-auto-' || true)"
+  auto_deploys="$(kubectl -n "$NS" get deploy -o name | grep -E '^deployment.apps/cell-node-auto-' || true)"
+  auto_svcs="$(kubectl -n "$NS" get svc -o name | grep -E '^service/mmo-cell-auto-' || true)"
   if [[ -n "$auto_deploys" ]]; then
     while IFS= read -r d; do
       [[ -z "$d" ]] && continue
@@ -118,6 +118,19 @@ echo "== verify retire_ready signal in controller logs =="
 # Читаем весь поток и проверяем обычным grep без раннего выхода.
 if ! kubectl -n "$NS" logs "deploy/${CELL_CONTROLLER_DEPLOY}" --since=15m 2>/dev/null | grep 'retire_ready_set' >/dev/null; then
   echo "ERROR: no retire_ready_set signal in cell-controller logs" >&2
+  exit 1
+fi
+
+PARENT_CELL="${GRID_SPLIT_PARENT_CELL_ID:-cell_0_0_0}"
+echo "== verify Redis retire_state phase=automation_complete for ${PARENT_CELL} =="
+RETIRE_JSON="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl split-retire-state "$PARENT_CELL" 2>/dev/null || echo "{}")"
+if ! echo "$RETIRE_JSON" | grep -q 'automation_complete'; then
+  echo "ERROR: expected automation_complete in mmo:grid:split:retire_state:${PARENT_CELL}" >&2
+  echo "$RETIRE_JSON" >&2
+  exit 1
+fi
+if ! kubectl -n "$NS" logs "deploy/${CELL_CONTROLLER_DEPLOY}" --since=15m 2>/dev/null | grep 'automation_complete_set' >/dev/null; then
+  echo "ERROR: no automation_complete_set in cell-controller logs" >&2
   exit 1
 fi
 

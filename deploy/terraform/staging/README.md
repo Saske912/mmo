@@ -23,7 +23,8 @@
 Для auto state-machine split в grid-manager: задайте env через `grid_manager_extra_env`:
 - `MMO_GRID_AUTO_SPLIT_DRAIN=true`
 - `MMO_GRID_AUTO_SPLIT_WORKFLOW=true`
-- `MMO_GRID_REGISTRY_ADDR=127.0.0.1:9100`
+- `MMO_GRID_REGISTRY_ADDR` — в Kubernetes: `mmo-grid-manager.<namespace>.svc.cluster.local:9100` (см. [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars)); локально с port-forward: `127.0.0.1:9100`
+- опционально **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`** — отключить префлайт и запись **`automation_complete`** в Redis после `retire_ready` (по умолчанию оркестрация включена, если переменная не задана)
 
 ## Web3 indexer
 
@@ -31,11 +32,11 @@
 
 ## Cell-controller (split control-plane)
 
-По умолчанию **`cell_controller_enabled = true`**: Terraform поднимает `ServiceAccount`, `Role`, `RoleBinding` и `Deployment` `cell-controller` в `mmo`. Контроллер слушает:
-- `grid.split.workflow` (для `retire_ready` marker),
-- `cell.control` (запросы на materialize child-cell runtime).
+По умолчанию **`cell_controller_enabled = true`**: Terraform поднимает `ServiceAccount`, `Role` (в т.ч. **delete** на `deployments`/`services` для teardown), `RoleBinding` и `Deployment` `cell-controller` в `mmo`. Pod/контейнер — baseline **PodSecurity restricted** (distroless `nonroot`, UID **65532**). Контроллер слушает:
+- `grid.split.workflow` (в т.ч. **`retire_ready`**),
+- `cell.control` (materialize child и опционально **`op=delete_runtime_child`**).
 
-Дополнительные env можно прокинуть через `cell_controller_extra_env`.
+Дополнительные env — `cell_controller_extra_env`. На **grid-manager** для авто-удаления runtime child после успешного split: **`MMO_GRID_SPLIT_TEARDOWN_RUNTIME_CHILDREN=true`** (см. [`docs/cells-migration-workflow.md`](../../docs/cells-migration-workflow.md)).
 
 CRD/controller reference-манифесты для ручного старта/отладки:
 - [`../staging/cell-crd.example.yaml`](../../staging/cell-crd.example.yaml)

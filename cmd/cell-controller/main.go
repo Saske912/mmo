@@ -82,7 +82,7 @@ func main() {
 		ctrlSubj = natsbus.SubjectCellControl
 	}
 	_, err = client.Subscribe(ctrlSubj, func(msg *nats.Msg) {
-		handleControlEvent(msg.Data, rdb, client, k8s, namespace)
+		handleControlMessage(msg.Data, rdb, client, k8s, namespace)
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -111,16 +111,129 @@ func handleWorkflowEvent(raw []byte, rdb *redis.Client) {
 	defer cancel()
 	// Foundation storage for controller decisions/observability.
 	_ = rdb.Set(ctx, "mmo:cell-controller:last:"+ev.CellID, raw, 24*time.Hour).Err()
-	if ev.Stage == "parent_retiring" && ev.Successful {
-		_ = rdb.Set(ctx, "mmo:cell-controller:retire:"+ev.CellID, "1", 24*time.Hour).Err()
-		slog.Info("cell-controller retire_ready_set", "cell_id", ev.CellID)
+	switch {
+	case ev.Successful && (ev.Stage == splitcontrol.StageRetireReady || ev.Stage == "parent_retiring"):
+		writeRetireReadyState(ctx, rdb, ev)
+	case ev.Successful && ev.Stage == splitcontrol.StageAutomationComplete:
+		writeAutomationCompleteState(ctx, rdb, ev)
+	}
+}
+
+func writeAutomationCompleteState(ctx context.Context, rdb *redis.Client, ev splitWorkflowEvent) {
+	if rdb == nil {
+		return
+	}
+	payload := map[string]any{
+		"phase":        splitcontrol.RetireStatePhaseAutomationComplete,
+		"parent_id":    ev.CellID,
+		"at_unix_ms":   ev.AtUnixMs,
+		"workflow_msg": ev.Message,
+	}
+	if len(ev.Attrs) > 0 {
+		payload["attrs"] = ev.Attrs
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	ttl := 7 * 24 * time.Hour
+	key := "mmo:cell-controller:automation_complete:" + ev.CellID
+	_ = rdb.Set(ctx, key, raw, ttl).Err()
+	slog.Info("cell-controller automation_complete_set", "cell_id", ev.CellID)
+}
+
+func writeRetireReadyState(ctx context.Context, rdb *redis.Client, ev splitWorkflowEvent) {
+	if rdb == nil {
+		return
+	}
+	payload := map[string]any{
+		"phase":        splitcontrol.RetireStatePhaseRetireReady,
+		"parent_id":    ev.CellID,
+		"at_unix_ms":   ev.AtUnixMs,
+		"workflow_msg": ev.Message,
+	}
+	if ev.ChildCell != "" {
+		payload["child_cell"] = ev.ChildCell
+	}
+	if len(ev.Attrs) > 0 {
+		payload["attrs"] = ev.Attrs
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	ttl := 7 * 24 * time.Hour
+	_ = rdb.Set(ctx, "mmo:cell-controller:retire:"+ev.CellID, string(raw), ttl).Err()
+	_ = rdb.Set(ctx, "mmo:cell-controller:retire_ready:"+ev.CellID, raw, ttl).Err()
+	slog.Info("cell-controller retire_ready_set", "cell_id", ev.CellID, "stage", ev.Stage)
+}
+
+func handleControlMessage(raw []byte, rdb *redis.Client, nc *natsbus.Client, k8s *kubernetes.Clientset, ns string) {
+	var probe struct {
+		Op string `json:"op"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		slog.Warn("cell-controller: bad control event", "err", err)
+		return
+	}
+	if probe.Op == splitcontrol.OpDeleteRuntimeChild {
+		var del splitcontrol.RuntimeCellDeleteRequest
+		if err := json.Unmarshal(raw, &del); err != nil {
+			slog.Warn("cell-controller: bad delete request", "err", err)
+			return
+		}
+		handleRuntimeCellDelete(del, rdb, nc, k8s, ns)
+		return
+	}
+	handleControlEvent(raw, rdb, nc, k8s, ns)
+}
+
+func handleRuntimeCellDelete(del splitcontrol.RuntimeCellDeleteRequest, rdb *redis.Client, nc *natsbus.Client, k8s *kubernetes.Clientset, ns string) {
+	cid := strings.TrimSpace(del.CellID)
+	if cid == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	svc, dep := namesForCell(cid)
+	svcErr := k8s.CoreV1().Services(ns).Delete(ctx, svc, metav1.DeleteOptions{})
+	if svcErr != nil && !apierrors.IsNotFound(svcErr) {
+		publishCellLifecycle(nc, splitcontrol.CellLifecycleEvent{
+			CellID:   cid,
+			Action:   "cell.failed",
+			OK:       false,
+			Message:  "delete service: " + svcErr.Error(),
+			AtUnixMs: time.Now().UnixMilli(),
+		})
+		return
+	}
+	depErr := k8s.AppsV1().Deployments(ns).Delete(ctx, dep, metav1.DeleteOptions{})
+	if depErr != nil && !apierrors.IsNotFound(depErr) {
+		publishCellLifecycle(nc, splitcontrol.CellLifecycleEvent{
+			CellID:   cid,
+			Action:   "cell.failed",
+			OK:       false,
+			Message:  "delete deployment: " + depErr.Error(),
+			AtUnixMs: time.Now().UnixMilli(),
+		})
+		return
+	}
+	publishCellLifecycle(nc, splitcontrol.CellLifecycleEvent{
+		CellID:   cid,
+		Action:   "cell.deleted",
+		OK:       true,
+		Message:  fmt.Sprintf("removed deployment=%s service=%s reason=%s", dep, svc, del.Reason),
+		AtUnixMs: time.Now().UnixMilli(),
+	})
+	if rdb != nil {
+		_ = rdb.Del(ctx, "mmo:cell-controller:created:"+cid).Err()
 	}
 }
 
 func handleControlEvent(raw []byte, rdb *redis.Client, nc *natsbus.Client, k8s *kubernetes.Clientset, ns string) {
 	var req splitcontrol.ChildCellCreateRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
-		slog.Warn("cell-controller: bad control event", "err", err)
+		slog.Warn("cell-controller: bad control event-json", "err", err)
 		return
 	}
 	if strings.TrimSpace(req.Child.ID) == "" {
@@ -282,12 +395,14 @@ func ensureCellDeployment(ctx context.Context, k8s *kubernetes.Clientset, ns, de
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					SecurityContext: restrictedPodSecurityContext(),
 					Containers: []corev1.Container{
 						{
 							Name:            "cell-node",
 							Image:           image,
 							ImagePullPolicy: corev1.PullAlways,
 							Command:         []string{"/cell-node"},
+							SecurityContext: restrictedContainerSecurityContext(),
 							Args: []string{
 								"-listen", "0.0.0.0:50051",
 								"-id", ch.ID,
@@ -346,4 +461,29 @@ func publishCellLifecycle(nc *natsbus.Client, ev splitcontrol.CellLifecycleEvent
 
 func intstrFromInt(v int) intstr.IntOrString {
 	return intstr.IntOrString{Type: intstr.Int, IntVal: int32(v)}
+}
+
+// restrictedPodSecurityContext базовый PodSecurity «restricted» для distroless nonroot (65532).
+func restrictedPodSecurityContext() *corev1.PodSecurityContext {
+	nonRoot := true
+	uid := int64(65532)
+	gid := int64(65532)
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot: &nonRoot,
+		RunAsUser:    &uid,
+		RunAsGroup:   &gid,
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+}
+
+func restrictedContainerSecurityContext() *corev1.SecurityContext {
+	noEscalation := false
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &noEscalation,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
 }

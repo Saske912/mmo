@@ -4,8 +4,11 @@
 # grid_manager_extra_env = {
 #   MMO_GRID_AUTO_SPLIT_DRAIN = "true"
 #   MMO_GRID_AUTO_SPLIT_WORKFLOW = "true"
-#   # registry endpoint для self-call ForwardNpcHandoff в workflow:
-#   # MMO_GRID_REGISTRY_ADDR = "127.0.0.1:9100"
+#   # по умолчанию true: после retire_ready — preflight и phase=automation_complete в Redis
+#   # MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION = "false"
+#   # registry gRPC для self-call в workflow: в кластере — DNS сервиса grid-manager
+#   MMO_GRID_REGISTRY_ADDR = "mmo-grid-manager.mmo.svc.cluster.local:9100"
+#   # локально / только port-forward на grid-manager: "127.0.0.1:9100"
 #   # опционально укоротить окна для отладки:
 #   # MMO_GRID_LOAD_POLICY_MIN_BREACH_DURATION = "8s"
 #   # MMO_GRID_LOAD_POLICY_COOLDOWN             = "60s"
