@@ -59,3 +59,17 @@ message CellPersist {
   float loop_tps = 3;
   repeated CellPersistEntity entities = 4;
 }
+
+// Payload handoff одного игрока между сотами (split workflow, без разрыва клиентского WS).
+message PlayerHandoffState {
+  string player_id = 1;
+  Vec3f position = 2;
+  Vec3f velocity = 3;
+  float hp_cur = 4;
+  float hp_max = 5;
+  uint64 tick = 6;
+  string handoff_token = 7;
+  string source_cell_id = 8;
+  string target_cell_id = 9;
+  uint64 source_entity_id = 10;
+}

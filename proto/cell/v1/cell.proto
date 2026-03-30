@@ -124,6 +124,21 @@ message ForwardNpcHandoffResponse {
   int32 npc_entity_count = 3;
 }
 
+// Оркестрация handoff одного игрока: parent prepare/export -> child import -> parent finalize.
+message ForwardPlayerHandoffRequest {
+  string parent_cell_id = 1;
+  string child_cell_id = 2;
+  string player_id = 3;
+  string handoff_token = 4;
+  string reason = 5;
+}
+
+message ForwardPlayerHandoffResponse {
+  bool ok = 1;
+  string message = 2;
+  uint64 child_entity_id = 3;
+}
+
 // Оркестрация merge handoff NPC: экспорт с children и импорт в parent.
 message ForwardMergeHandoffRequest {
   string parent_cell_id = 1;
@@ -145,6 +160,7 @@ service Registry {
   rpc ResolvePosition(ResolvePositionRequest) returns (ResolvePositionResponse);
   rpc ForwardCellUpdate(ForwardCellUpdateRequest) returns (ForwardCellUpdateResponse);
   rpc ForwardNpcHandoff(ForwardNpcHandoffRequest) returns (ForwardNpcHandoffResponse);
+  rpc ForwardPlayerHandoff(ForwardPlayerHandoffRequest) returns (ForwardPlayerHandoffResponse);
   rpc ForwardMergeHandoff(ForwardMergeHandoffRequest) returns (ForwardMergeHandoffResponse);
 }
 
@@ -231,10 +247,43 @@ message MigrationCandidate {
   uint64 entity_id = 1;
   mmo.game.v1.Vec3f position = 2;
   bool is_player = 3;
+  string player_id = 4;
 }
 
 message ListMigrationCandidatesResponse {
   repeated MigrationCandidate candidates = 1;
+}
+
+message PreparePlayerHandoffRequest {
+  string player_id = 1;
+  string target_cell_id = 2;
+  string handoff_token = 3;
+}
+
+message PreparePlayerHandoffResponse {
+  bool ok = 1;
+  string message = 2;
+  mmo.game.v1.PlayerHandoffState payload = 3;
+}
+
+message AcceptPlayerHandoffRequest {
+  mmo.game.v1.PlayerHandoffState payload = 1;
+}
+
+message AcceptPlayerHandoffResponse {
+  bool ok = 1;
+  string message = 2;
+  uint64 entity_id = 3;
+}
+
+message FinalizePlayerHandoffRequest {
+  string player_id = 1;
+  string handoff_token = 2;
+}
+
+message FinalizePlayerHandoffResponse {
+  bool ok = 1;
+  string message = 2;
 }
 
 // Cell — минимальный игровой узел соты (первая итерация).
@@ -246,5 +295,8 @@ service Cell {
   rpc Update(UpdateRequest) returns (UpdateResponse);
   rpc PlanSplit(PlanSplitRequest) returns (PlanSplitResponse);
   rpc ListMigrationCandidates(ListMigrationCandidatesRequest) returns (ListMigrationCandidatesResponse);
+  rpc PreparePlayerHandoff(PreparePlayerHandoffRequest) returns (PreparePlayerHandoffResponse);
+  rpc AcceptPlayerHandoff(AcceptPlayerHandoffRequest) returns (AcceptPlayerHandoffResponse);
+  rpc FinalizePlayerHandoff(FinalizePlayerHandoffRequest) returns (FinalizePlayerHandoffResponse);
   rpc SubscribeDeltas(SubscribeDeltasRequest) returns (stream WorldChunk);
 }

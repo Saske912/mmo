@@ -426,3 +426,84 @@ func TestPing_loadStats(t *testing.T) {
 		t.Fatalf("tps: %+v", p1)
 	}
 }
+
+func TestPlayerHandoffLifecycle_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	parent := &Server{CellID: "parent", Sim: cellsim.NewRuntime()}
+	child := &Server{CellID: "child", Sim: cellsim.NewRuntime()}
+
+	j, err := parent.Join(ctx, &cellv1.JoinRequest{PlayerId: "p_handoff"})
+	if err != nil || j == nil || !j.GetOk() {
+		t.Fatalf("join parent: %+v err=%v", j, err)
+	}
+	_, _ = parent.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "p_handoff",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 1},
+	})
+	parent.Sim.Mu.Lock()
+	parent.Sim.Loop.Step()
+	parent.Sim.Mu.Unlock()
+
+	prep1, err := parent.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_handoff",
+		TargetCellId: "child",
+		HandoffToken: "tok-1",
+	})
+	if err != nil || prep1 == nil || !prep1.GetOk() || prep1.GetPayload() == nil {
+		t.Fatalf("prepare1: %+v err=%v", prep1, err)
+	}
+	prep2, err := parent.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_handoff",
+		TargetCellId: "child",
+		HandoffToken: "tok-1",
+	})
+	if err != nil || prep2 == nil || !prep2.GetOk() || prep2.GetPayload() == nil {
+		t.Fatalf("prepare2: %+v err=%v", prep2, err)
+	}
+	if prep1.GetPayload().GetTick() != prep2.GetPayload().GetTick() {
+		t.Fatalf("idempotent prepare tick mismatch: %d vs %d", prep1.GetPayload().GetTick(), prep2.GetPayload().GetTick())
+	}
+
+	frozen, err := parent.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "p_handoff",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 2},
+	})
+	if err != nil || frozen.GetOk() || frozen.GetMessage() != "player_handoff_frozen" {
+		t.Fatalf("expected frozen apply_input, got %+v err=%v", frozen, err)
+	}
+
+	acc1, err := child.AcceptPlayerHandoff(ctx, &cellv1.AcceptPlayerHandoffRequest{Payload: prep1.GetPayload()})
+	if err != nil || acc1 == nil || !acc1.GetOk() || acc1.GetEntityId() == 0 {
+		t.Fatalf("accept1: %+v err=%v", acc1, err)
+	}
+	acc2, err := child.AcceptPlayerHandoff(ctx, &cellv1.AcceptPlayerHandoffRequest{Payload: prep1.GetPayload()})
+	if err != nil || acc2 == nil || !acc2.GetOk() {
+		t.Fatalf("accept2: %+v err=%v", acc2, err)
+	}
+	if acc1.GetEntityId() != acc2.GetEntityId() {
+		t.Fatalf("idempotent accept entity mismatch: %d vs %d", acc1.GetEntityId(), acc2.GetEntityId())
+	}
+
+	fin1, err := parent.FinalizePlayerHandoff(ctx, &cellv1.FinalizePlayerHandoffRequest{
+		PlayerId:     "p_handoff",
+		HandoffToken: "tok-1",
+	})
+	if err != nil || fin1 == nil || !fin1.GetOk() {
+		t.Fatalf("finalize1: %+v err=%v", fin1, err)
+	}
+	fin2, err := parent.FinalizePlayerHandoff(ctx, &cellv1.FinalizePlayerHandoffRequest{
+		PlayerId:     "p_handoff",
+		HandoffToken: "tok-1",
+	})
+	if err != nil || fin2 == nil || !fin2.GetOk() {
+		t.Fatalf("finalize2: %+v err=%v", fin2, err)
+	}
+
+	post, err := parent.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "p_handoff",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 3},
+	})
+	if err != nil || post.GetOk() || post.GetMessage() != "unknown_player" {
+		t.Fatalf("expected unknown player after finalize, got %+v err=%v", post, err)
+	}
+}

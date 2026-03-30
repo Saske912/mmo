@@ -36,9 +36,21 @@ type Server struct {
 	playerMu     sync.Mutex
 	players      map[uint64]struct{}
 	playerByID   map[string]ecs.Entity
+	frozenByID   map[string]struct{}
+	preparedByID map[string]string
+	preparedByTk map[string]*preparedPlayerHandoff
+	acceptedByTk map[string]ecs.Entity
 	onApplyInput func(ok bool) // опционально: метрики (устанавливает cell-node)
 	// splitDrain: новые Join отклоняются (оператор / grid-manager через Update set_split_drain).
 	splitDrain atomic.Bool
+}
+
+type preparedPlayerHandoff struct {
+	playerID  string
+	token     string
+	entityID  ecs.Entity
+	finalized bool
+	payload   *gamev1.PlayerHandoffState
 }
 
 // SetApplyInputHook вызывается из cell-node для Prometheus; не обязателен.
@@ -69,6 +81,17 @@ func (s *Server) isPlayer(e ecs.Entity) bool {
 // IsPlayer сущность зарегистрирована как игрок (для персиста — такие пропускаем).
 func (s *Server) IsPlayer(e ecs.Entity) bool {
 	return s.isPlayer(e)
+}
+
+func (s *Server) playerIDByEntity(e ecs.Entity) string {
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	for pid, ent := range s.playerByID {
+		if ent == e {
+			return pid
+		}
+	}
+	return ""
 }
 
 // Join создаёт сущность игрока в ECS. Повторный Join с тем же player_id идемпотентен.
@@ -177,11 +200,16 @@ func (s *Server) ApplyInput(ctx context.Context, req *cellv1.ApplyInputRequest) 
 
 	s.playerMu.Lock()
 	e, ok := s.playerByID[pid]
+	_, frozen := s.frozenByID[pid]
 	s.playerMu.Unlock()
 
 	if !ok {
 		s.reportApplyInput(false)
 		return &cellv1.ApplyInputResponse{Ok: false, Message: "unknown_player"}, nil
+	}
+	if frozen {
+		s.reportApplyInput(false)
+		return &cellv1.ApplyInputResponse{Ok: false, Message: "player_handoff_frozen"}, nil
 	}
 
 	vel := velocityFromClientInput(in)
@@ -196,6 +224,210 @@ func (s *Server) ApplyInput(ctx context.Context, req *cellv1.ApplyInputRequest) 
 
 	s.reportApplyInput(true)
 	return &cellv1.ApplyInputResponse{Ok: true, Message: "ok"}, nil
+}
+
+func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePlayerHandoffRequest) (*cellv1.PreparePlayerHandoffResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.PreparePlayerHandoff")
+	defer span.End()
+	playerID := strings.TrimSpace(req.GetPlayerId())
+	targetCellID := strings.TrimSpace(req.GetTargetCellId())
+	token := strings.TrimSpace(req.GetHandoffToken())
+	if playerID == "" || targetCellID == "" || token == "" {
+		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "player_id, target_cell_id, handoff_token required"}, nil
+	}
+	if s.Sim == nil || s.Sim.World == nil || s.Sim.Loop == nil {
+		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "no_sim"}, nil
+	}
+
+	s.playerMu.Lock()
+	if s.preparedByTk == nil {
+		s.preparedByTk = make(map[string]*preparedPlayerHandoff)
+	}
+	if s.preparedByID == nil {
+		s.preparedByID = make(map[string]string)
+	}
+	if s.frozenByID == nil {
+		s.frozenByID = make(map[string]struct{})
+	}
+	if existing, ok := s.preparedByTk[token]; ok && existing != nil && existing.payload != nil {
+		s.playerMu.Unlock()
+		return &cellv1.PreparePlayerHandoffResponse{
+			Ok:      true,
+			Message: "already_prepared",
+			Payload: existing.payload,
+		}, nil
+	}
+	if inFlightToken, ok := s.preparedByID[playerID]; ok && inFlightToken != token {
+		s.playerMu.Unlock()
+		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "handoff already in progress for player"}, nil
+	}
+	entityID, ok := s.playerByID[playerID]
+	if !ok {
+		s.playerMu.Unlock()
+		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "unknown_player"}, nil
+	}
+	s.preparedByID[playerID] = token
+	s.frozenByID[playerID] = struct{}{}
+	s.playerMu.Unlock()
+
+	s.Sim.Mu.Lock()
+	pos, hasPos := s.Sim.World.Position(entityID)
+	vel, hasVel := s.Sim.World.Velocity(entityID)
+	hp, hasHP := s.Sim.World.Health(entityID)
+	tick := s.Sim.Loop.Stats.TickCount
+	s.Sim.Mu.Unlock()
+	if !hasPos {
+		s.playerMu.Lock()
+		delete(s.preparedByID, playerID)
+		delete(s.frozenByID, playerID)
+		s.playerMu.Unlock()
+		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "entity_gone"}, nil
+	}
+	if !hasVel {
+		vel = ecs.Velocity{}
+	}
+	if !hasHP || hp.MaxHP <= 0 {
+		hp = ecs.Health{HP: 100, MaxHP: 100}
+	}
+	payload := &gamev1.PlayerHandoffState{
+		PlayerId:       playerID,
+		Position:       &gamev1.Vec3F{X: float32(pos.X), Y: float32(pos.Y), Z: float32(pos.Z)},
+		Velocity:       &gamev1.Vec3F{X: float32(vel.VX), Y: float32(vel.VY), Z: float32(vel.VZ)},
+		HpCur:          float32(hp.HP),
+		HpMax:          float32(hp.MaxHP),
+		Tick:           tick,
+		HandoffToken:   token,
+		SourceCellId:   s.CellID,
+		TargetCellId:   targetCellID,
+		SourceEntityId: uint64(entityID),
+	}
+
+	s.playerMu.Lock()
+	s.preparedByTk[token] = &preparedPlayerHandoff{
+		playerID: playerID,
+		token:    token,
+		entityID: entityID,
+		payload:  payload,
+	}
+	s.playerMu.Unlock()
+	return &cellv1.PreparePlayerHandoffResponse{Ok: true, Message: "prepared", Payload: payload}, nil
+}
+
+func (s *Server) AcceptPlayerHandoff(ctx context.Context, req *cellv1.AcceptPlayerHandoffRequest) (*cellv1.AcceptPlayerHandoffResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.AcceptPlayerHandoff")
+	defer span.End()
+	payload := req.GetPayload()
+	if payload == nil {
+		return &cellv1.AcceptPlayerHandoffResponse{Ok: false, Message: "empty payload"}, nil
+	}
+	playerID := strings.TrimSpace(payload.GetPlayerId())
+	token := strings.TrimSpace(payload.GetHandoffToken())
+	if playerID == "" || token == "" {
+		return &cellv1.AcceptPlayerHandoffResponse{Ok: false, Message: "payload.player_id and payload.handoff_token required"}, nil
+	}
+	if s.Sim == nil || s.Sim.World == nil {
+		return &cellv1.AcceptPlayerHandoffResponse{Ok: false, Message: "no_sim"}, nil
+	}
+
+	s.playerMu.Lock()
+	if s.acceptedByTk == nil {
+		s.acceptedByTk = make(map[string]ecs.Entity)
+	}
+	if e, ok := s.acceptedByTk[token]; ok {
+		s.playerMu.Unlock()
+		return &cellv1.AcceptPlayerHandoffResponse{Ok: true, Message: "already_accepted", EntityId: uint64(e)}, nil
+	}
+	e, exists := s.playerByID[playerID]
+	s.playerMu.Unlock()
+
+	if !exists {
+		s.Sim.Mu.Lock()
+		e = s.Sim.World.CreateEntity()
+		s.Sim.Mu.Unlock()
+	}
+
+	maxHP := float64(payload.GetHpMax())
+	if maxHP <= 0 {
+		maxHP = 100
+	}
+	curHP := float64(payload.GetHpCur())
+	if curHP <= 0 {
+		curHP = maxHP
+	}
+	s.Sim.Mu.Lock()
+	s.Sim.World.SetPosition(e, ecs.Position{
+		X: float64(payload.GetPosition().GetX()),
+		Y: float64(payload.GetPosition().GetY()),
+		Z: float64(payload.GetPosition().GetZ()),
+	})
+	s.Sim.World.SetVelocity(e, ecs.Velocity{
+		VX: float64(payload.GetVelocity().GetX()),
+		VY: float64(payload.GetVelocity().GetY()),
+		VZ: float64(payload.GetVelocity().GetZ()),
+	})
+	s.Sim.World.SetHealth(e, ecs.Health{HP: curHP, MaxHP: maxHP})
+	s.Sim.Mu.Unlock()
+
+	s.playerMu.Lock()
+	if s.players == nil {
+		s.players = make(map[uint64]struct{})
+	}
+	if s.playerByID == nil {
+		s.playerByID = make(map[string]ecs.Entity)
+	}
+	s.playerByID[playerID] = e
+	s.players[uint64(e)] = struct{}{}
+	s.acceptedByTk[token] = e
+	s.playerMu.Unlock()
+	return &cellv1.AcceptPlayerHandoffResponse{Ok: true, Message: "accepted", EntityId: uint64(e)}, nil
+}
+
+func (s *Server) FinalizePlayerHandoff(ctx context.Context, req *cellv1.FinalizePlayerHandoffRequest) (*cellv1.FinalizePlayerHandoffResponse, error) {
+	ctx, span := otel.Tracer("mmo/cell").Start(ctx, "Cell.FinalizePlayerHandoff")
+	defer span.End()
+	playerID := strings.TrimSpace(req.GetPlayerId())
+	token := strings.TrimSpace(req.GetHandoffToken())
+	if playerID == "" || token == "" {
+		return &cellv1.FinalizePlayerHandoffResponse{Ok: false, Message: "player_id and handoff_token required"}, nil
+	}
+	if s.Sim == nil || s.Sim.World == nil {
+		return &cellv1.FinalizePlayerHandoffResponse{Ok: false, Message: "no_sim"}, nil
+	}
+
+	var entityID ecs.Entity
+	var hasEntity bool
+	s.playerMu.Lock()
+	prepared, ok := s.preparedByTk[token]
+	if !ok || prepared == nil {
+		s.playerMu.Unlock()
+		return &cellv1.FinalizePlayerHandoffResponse{Ok: false, Message: "unknown handoff_token"}, nil
+	}
+	if prepared.playerID != playerID {
+		s.playerMu.Unlock()
+		return &cellv1.FinalizePlayerHandoffResponse{Ok: false, Message: "handoff_token does not match player_id"}, nil
+	}
+	if prepared.finalized {
+		s.playerMu.Unlock()
+		return &cellv1.FinalizePlayerHandoffResponse{Ok: true, Message: "already_finalized"}, nil
+	}
+	entityID = prepared.entityID
+	prepared.finalized = true
+	delete(s.preparedByID, playerID)
+	delete(s.frozenByID, playerID)
+	if cur, exists := s.playerByID[playerID]; exists {
+		entityID = cur
+		hasEntity = true
+		delete(s.playerByID, playerID)
+		delete(s.players, uint64(cur))
+	}
+	s.playerMu.Unlock()
+
+	if hasEntity || entityID != 0 {
+		s.Sim.Mu.Lock()
+		s.Sim.World.DestroyEntity(entityID)
+		s.Sim.Mu.Unlock()
+	}
+	return &cellv1.FinalizePlayerHandoffResponse{Ok: true, Message: "finalized"}, nil
 }
 
 func (s *Server) reportApplyInput(ok bool) {
@@ -380,6 +612,7 @@ func (s *Server) ListMigrationCandidates(_ context.Context, _ *cellv1.ListMigrat
 			EntityId: uint64(e),
 			Position: &gamev1.Vec3F{X: float32(p.X), Y: float32(p.Y), Z: float32(p.Z)},
 			IsPlayer: s.isPlayer(e),
+			PlayerId: s.playerIDByEntity(e),
 		})
 	}
 	return &cellv1.ListMigrationCandidatesResponse{Candidates: out}, nil

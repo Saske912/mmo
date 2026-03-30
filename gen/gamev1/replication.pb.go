@@ -489,6 +489,123 @@ func (x *CellPersist) GetEntities() []*CellPersistEntity {
 	return nil
 }
 
+// Payload handoff одного игрока между сотами (split workflow, без разрыва клиентского WS).
+type PlayerHandoffState struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId       string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	Position       *Vec3F                 `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	Velocity       *Vec3F                 `protobuf:"bytes,3,opt,name=velocity,proto3" json:"velocity,omitempty"`
+	HpCur          float32                `protobuf:"fixed32,4,opt,name=hp_cur,json=hpCur,proto3" json:"hp_cur,omitempty"`
+	HpMax          float32                `protobuf:"fixed32,5,opt,name=hp_max,json=hpMax,proto3" json:"hp_max,omitempty"`
+	Tick           uint64                 `protobuf:"varint,6,opt,name=tick,proto3" json:"tick,omitempty"`
+	HandoffToken   string                 `protobuf:"bytes,7,opt,name=handoff_token,json=handoffToken,proto3" json:"handoff_token,omitempty"`
+	SourceCellId   string                 `protobuf:"bytes,8,opt,name=source_cell_id,json=sourceCellId,proto3" json:"source_cell_id,omitempty"`
+	TargetCellId   string                 `protobuf:"bytes,9,opt,name=target_cell_id,json=targetCellId,proto3" json:"target_cell_id,omitempty"`
+	SourceEntityId uint64                 `protobuf:"varint,10,opt,name=source_entity_id,json=sourceEntityId,proto3" json:"source_entity_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlayerHandoffState) Reset() {
+	*x = PlayerHandoffState{}
+	mi := &file_game_v1_replication_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlayerHandoffState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlayerHandoffState) ProtoMessage() {}
+
+func (x *PlayerHandoffState) ProtoReflect() protoreflect.Message {
+	mi := &file_game_v1_replication_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlayerHandoffState.ProtoReflect.Descriptor instead.
+func (*PlayerHandoffState) Descriptor() ([]byte, []int) {
+	return file_game_v1_replication_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PlayerHandoffState) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+func (x *PlayerHandoffState) GetPosition() *Vec3F {
+	if x != nil {
+		return x.Position
+	}
+	return nil
+}
+
+func (x *PlayerHandoffState) GetVelocity() *Vec3F {
+	if x != nil {
+		return x.Velocity
+	}
+	return nil
+}
+
+func (x *PlayerHandoffState) GetHpCur() float32 {
+	if x != nil {
+		return x.HpCur
+	}
+	return 0
+}
+
+func (x *PlayerHandoffState) GetHpMax() float32 {
+	if x != nil {
+		return x.HpMax
+	}
+	return 0
+}
+
+func (x *PlayerHandoffState) GetTick() uint64 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *PlayerHandoffState) GetHandoffToken() string {
+	if x != nil {
+		return x.HandoffToken
+	}
+	return ""
+}
+
+func (x *PlayerHandoffState) GetSourceCellId() string {
+	if x != nil {
+		return x.SourceCellId
+	}
+	return ""
+}
+
+func (x *PlayerHandoffState) GetTargetCellId() string {
+	if x != nil {
+		return x.TargetCellId
+	}
+	return ""
+}
+
+func (x *PlayerHandoffState) GetSourceEntityId() uint64 {
+	if x != nil {
+		return x.SourceEntityId
+	}
+	return 0
+}
+
 var File_game_v1_replication_proto protoreflect.FileDescriptor
 
 const file_game_v1_replication_proto_rawDesc = "" +
@@ -528,7 +645,19 @@ const file_game_v1_replication_proto_rawDesc = "" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x12\n" +
 	"\x04tick\x18\x02 \x01(\x04R\x04tick\x12\x19\n" +
 	"\bloop_tps\x18\x03 \x01(\x02R\aloopTps\x12:\n" +
-	"\bentities\x18\x04 \x03(\v2\x1e.mmo.game.v1.CellPersistEntityR\bentitiesB%Z\x15mmo/gen/gamev1;gamev1\xaa\x02\vMmo.Game.V1b\x06proto3"
+	"\bentities\x18\x04 \x03(\v2\x1e.mmo.game.v1.CellPersistEntityR\bentities\"\xee\x02\n" +
+	"\x12PlayerHandoffState\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12.\n" +
+	"\bposition\x18\x02 \x01(\v2\x12.mmo.game.v1.Vec3fR\bposition\x12.\n" +
+	"\bvelocity\x18\x03 \x01(\v2\x12.mmo.game.v1.Vec3fR\bvelocity\x12\x15\n" +
+	"\x06hp_cur\x18\x04 \x01(\x02R\x05hpCur\x12\x15\n" +
+	"\x06hp_max\x18\x05 \x01(\x02R\x05hpMax\x12\x12\n" +
+	"\x04tick\x18\x06 \x01(\x04R\x04tick\x12#\n" +
+	"\rhandoff_token\x18\a \x01(\tR\fhandoffToken\x12$\n" +
+	"\x0esource_cell_id\x18\b \x01(\tR\fsourceCellId\x12$\n" +
+	"\x0etarget_cell_id\x18\t \x01(\tR\ftargetCellId\x12(\n" +
+	"\x10source_entity_id\x18\n" +
+	" \x01(\x04R\x0esourceEntityIdB%Z\x15mmo/gen/gamev1;gamev1\xaa\x02\vMmo.Game.V1b\x06proto3"
 
 var (
 	file_game_v1_replication_proto_rawDescOnce sync.Once
@@ -542,15 +671,16 @@ func file_game_v1_replication_proto_rawDescGZIP() []byte {
 	return file_game_v1_replication_proto_rawDescData
 }
 
-var file_game_v1_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_game_v1_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_game_v1_replication_proto_goTypes = []any{
-	(*Vec3F)(nil),             // 0: mmo.game.v1.Vec3f
-	(*ClientInput)(nil),       // 1: mmo.game.v1.ClientInput
-	(*EntityState)(nil),       // 2: mmo.game.v1.EntityState
-	(*Snapshot)(nil),          // 3: mmo.game.v1.Snapshot
-	(*Delta)(nil),             // 4: mmo.game.v1.Delta
-	(*CellPersistEntity)(nil), // 5: mmo.game.v1.CellPersistEntity
-	(*CellPersist)(nil),       // 6: mmo.game.v1.CellPersist
+	(*Vec3F)(nil),              // 0: mmo.game.v1.Vec3f
+	(*ClientInput)(nil),        // 1: mmo.game.v1.ClientInput
+	(*EntityState)(nil),        // 2: mmo.game.v1.EntityState
+	(*Snapshot)(nil),           // 3: mmo.game.v1.Snapshot
+	(*Delta)(nil),              // 4: mmo.game.v1.Delta
+	(*CellPersistEntity)(nil),  // 5: mmo.game.v1.CellPersistEntity
+	(*CellPersist)(nil),        // 6: mmo.game.v1.CellPersist
+	(*PlayerHandoffState)(nil), // 7: mmo.game.v1.PlayerHandoffState
 }
 var file_game_v1_replication_proto_depIdxs = []int32{
 	0, // 0: mmo.game.v1.EntityState.position:type_name -> mmo.game.v1.Vec3f
@@ -559,11 +689,13 @@ var file_game_v1_replication_proto_depIdxs = []int32{
 	0, // 3: mmo.game.v1.CellPersistEntity.position:type_name -> mmo.game.v1.Vec3f
 	0, // 4: mmo.game.v1.CellPersistEntity.velocity:type_name -> mmo.game.v1.Vec3f
 	5, // 5: mmo.game.v1.CellPersist.entities:type_name -> mmo.game.v1.CellPersistEntity
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	0, // 6: mmo.game.v1.PlayerHandoffState.position:type_name -> mmo.game.v1.Vec3f
+	0, // 7: mmo.game.v1.PlayerHandoffState.velocity:type_name -> mmo.game.v1.Vec3f
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_game_v1_replication_proto_init() }
@@ -577,7 +709,7 @@ func file_game_v1_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_game_v1_replication_proto_rawDesc), len(file_game_v1_replication_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

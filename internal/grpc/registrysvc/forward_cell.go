@@ -28,49 +28,54 @@ func (s *Server) doForwardCellUpdate(ctx context.Context, cellID string, upd *ce
 	if cellID == "" {
 		return nil, status.Error(codes.InvalidArgument, "empty cell_id")
 	}
-	if s.Store == nil {
-		return nil, status.Error(codes.FailedPrecondition, "no catalog")
-	}
-	spec, ok, err := discovery.FindCellByID(ctx, s.Store, cellID)
+	conn, cellClient, spec, err := s.dialCellClient(ctx, cellID)
 	if err != nil {
 		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "update_kind", updateKind(upd))
-		return nil, status.Error(codes.Unavailable, err.Error())
-	}
-	if !ok || spec == nil {
-		logOpError("doForwardCellUpdate", status.Errorf(codes.NotFound, "cell not found: %s", cellID), "cell_id", cellID)
-		return nil, status.Errorf(codes.NotFound, "cell not found: %s", cellID)
-	}
-	ep := spec.GetGrpcEndpoint()
-	if ep == "" {
-		return nil, status.Error(codes.FailedPrecondition, "cell has empty grpc_endpoint")
-	}
-	conn, err := grpc.NewClient(ep,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-	)
-	if err != nil {
-		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "endpoint", ep)
-		return nil, status.Errorf(codes.Unavailable, "dial cell: %v", err)
+		return nil, err
 	}
 	defer conn.Close()
 	cellCtx, cellCancel := context.WithTimeout(ctx, forwardCellDialTimeout)
 	defer cellCancel()
-	cellClient := cellv1.NewCellClient(conn)
 	updResp, err := cellClient.Update(cellCtx, upd)
 	if err != nil {
-		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "endpoint", ep, "update_kind", updateKind(upd))
+		logOpError("doForwardCellUpdate", err, "cell_id", cellID, "endpoint", spec.GetGrpcEndpoint(), "update_kind", updateKind(upd))
 		return nil, err
 	}
 	if updResp == nil {
 		logOpError("doForwardCellUpdate", status.Error(codes.Internal, "nil UpdateResponse"), "cell_id", cellID)
 		return nil, status.Error(codes.Internal, "nil UpdateResponse")
 	}
-	logOpDone("doForwardCellUpdate", "cell_id", cellID, "endpoint", ep, "update_kind", updateKind(upd), "ok", updResp.GetOk())
+	logOpDone("doForwardCellUpdate", "cell_id", cellID, "endpoint", spec.GetGrpcEndpoint(), "update_kind", updateKind(upd), "ok", updResp.GetOk())
 	return &cellv1.ForwardCellUpdateResponse{
 		Ok:            updResp.Ok,
 		Message:       updResp.Message,
 		NpcExportJson: updResp.GetNpcExportJson(),
 	}, nil
+}
+
+func (s *Server) dialCellClient(ctx context.Context, cellID string) (*grpc.ClientConn, cellv1.CellClient, *cellv1.CellSpec, error) {
+	if s.Store == nil {
+		return nil, nil, nil, status.Error(codes.FailedPrecondition, "no catalog")
+	}
+	spec, ok, err := discovery.FindCellByID(ctx, s.Store, cellID)
+	if err != nil {
+		return nil, nil, nil, status.Error(codes.Unavailable, err.Error())
+	}
+	if !ok || spec == nil {
+		return nil, nil, nil, status.Errorf(codes.NotFound, "cell not found: %s", cellID)
+	}
+	ep := spec.GetGrpcEndpoint()
+	if ep == "" {
+		return nil, nil, nil, status.Error(codes.FailedPrecondition, "cell has empty grpc_endpoint")
+	}
+	conn, err := grpc.NewClient(ep,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		return nil, nil, nil, status.Errorf(codes.Unavailable, "dial cell: %v", err)
+	}
+	return conn, cellv1.NewCellClient(conn), spec, nil
 }
 
 // ForwardNpcHandoff экспортирует NPC с parent и импортирует на child.
@@ -173,8 +178,8 @@ func (s *Server) ForwardNpcHandoff(ctx context.Context, req *cellv1.ForwardNpcHa
 	incRPC("ForwardNpcHandoff", nil)
 	logOpDone("ForwardNpcHandoff", "parent_cell_id", parent, "child_cell_id", child, "npc_entities", nEnt)
 	return &cellv1.ForwardNpcHandoffResponse{
-		Ok:               true,
-		Message:          msg,
+		Ok:             true,
+		Message:        msg,
 		NpcEntityCount: nEnt,
 	}, nil
 }

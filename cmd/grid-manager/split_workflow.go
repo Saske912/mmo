@@ -341,6 +341,55 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		return err
 	}
 
+	playerCandidates, err := r.listPlayerCandidates(ctx, parentCellID)
+	if err != nil {
+		return fmt.Errorf("list player migration candidates: %w", err)
+	}
+	if len(playerCandidates) > 0 {
+		readySet := make(map[string]struct{}, len(readyChildren))
+		for _, childID := range readyChildren {
+			readySet[childID] = struct{}{}
+		}
+		r.publish(splitWorkflowEvent{
+			CellID:   parentCellID,
+			Stage:    "player_handoffs_running",
+			Attempt:  attempt,
+			Message:  fmt.Sprintf("player candidates=%d", len(playerCandidates)),
+			AtUnixMs: time.Now().UnixMilli(),
+		})
+		for _, cand := range playerCandidates {
+			playerID := strings.TrimSpace(cand.GetPlayerId())
+			if playerID == "" || cand.GetPosition() == nil {
+				continue
+			}
+			targetID, err := r.resolveTargetChildForPlayer(ctx, cand.GetPosition().GetX(), cand.GetPosition().GetZ(), readySet)
+			if err != nil {
+				return fmt.Errorf("resolve target child for player %s: %w", playerID, err)
+			}
+			r.publish(splitWorkflowEvent{
+				CellID:    parentCellID,
+				ChildCell: targetID,
+				Stage:     "player_handoff_running",
+				Attempt:   attempt,
+				Message:   "forward player handoff",
+				AtUnixMs:  time.Now().UnixMilli(),
+				Attrs:     map[string]string{"player_id": playerID},
+			})
+			if err := r.forwardPlayerHandoff(ctx, parentCellID, targetID, playerID, fmt.Sprintf("auto-split-player-attempt-%d", attempt)); err != nil {
+				r.publish(splitWorkflowEvent{
+					CellID:    parentCellID,
+					ChildCell: targetID,
+					Stage:     "player_handoff_failed",
+					Attempt:   attempt,
+					Message:   err.Error(),
+					AtUnixMs:  time.Now().UnixMilli(),
+					Attrs:     map[string]string{"player_id": playerID},
+				})
+				return fmt.Errorf("player handoff failed for player %s -> child %s: %w", playerID, targetID, err)
+			}
+		}
+	}
+
 	// Политика спринта: multi-child — все handoff обязаны завершиться успешно (без partial-success).
 	for _, child := range readyChildren {
 		r.publish(splitWorkflowEvent{
@@ -566,6 +615,51 @@ func (r *splitWorkflowRuntime) runMigrationDryRun(ctx context.Context, parentCel
 	return err
 }
 
+func (r *splitWorkflowRuntime) listPlayerCandidates(ctx context.Context, parentCellID string) ([]*cellv1.MigrationCandidate, error) {
+	parent, ok, err := discovery.FindCellByID(ctx, r.cat, parentCellID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || parent == nil {
+		return nil, fmt.Errorf("parent cell not found: %s", parentCellID)
+	}
+	conn, err := grpc.NewClient(parent.GetGrpcEndpoint(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cl := cellv1.NewCellClient(conn)
+	resp, err := cl.ListMigrationCandidates(cctx, &cellv1.ListMigrationCandidatesRequest{Reason: "split-workflow-player-handoff"})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*cellv1.MigrationCandidate, 0, len(resp.GetCandidates()))
+	for _, cand := range resp.GetCandidates() {
+		if cand == nil || !cand.GetIsPlayer() || cand.GetPosition() == nil || strings.TrimSpace(cand.GetPlayerId()) == "" {
+			continue
+		}
+		out = append(out, cand)
+	}
+	return out, nil
+}
+
+func (r *splitWorkflowRuntime) resolveTargetChildForPlayer(ctx context.Context, x, z float32, readyChildren map[string]struct{}) (string, error) {
+	cell, ok, err := r.cat.ResolveMostSpecific(ctx, float64(x), float64(z))
+	if err != nil {
+		return "", err
+	}
+	if !ok || cell == nil {
+		return "", fmt.Errorf("no resolved cell for (%.3f, %.3f)", x, z)
+	}
+	cellID := strings.TrimSpace(cell.GetId())
+	if _, ok := readyChildren[cellID]; !ok {
+		return "", fmt.Errorf("resolved cell %s is not one of ready split children", cellID)
+	}
+	return cellID, nil
+}
+
 func (r *splitWorkflowRuntime) forwardHandoff(ctx context.Context, parentCellID, childCellID, reason string) error {
 	conn, err := grpc.NewClient(r.cfg.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -585,6 +679,31 @@ func (r *splitWorkflowRuntime) forwardHandoff(ctx context.Context, parentCellID,
 	}
 	if !resp.GetOk() {
 		return fmt.Errorf("handoff not ok: %s", resp.GetMessage())
+	}
+	return nil
+}
+
+func (r *splitWorkflowRuntime) forwardPlayerHandoff(ctx context.Context, parentCellID, childCellID, playerID, reason string) error {
+	conn, err := grpc.NewClient(r.cfg.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	cl := cellv1.NewRegistryClient(conn)
+	resp, err := cl.ForwardPlayerHandoff(cctx, &cellv1.ForwardPlayerHandoffRequest{
+		ParentCellId: parentCellID,
+		ChildCellId:  childCellID,
+		PlayerId:     playerID,
+		HandoffToken: fmt.Sprintf("%s:%s:%d", parentCellID, playerID, time.Now().UnixNano()),
+		Reason:       reason,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.GetOk() {
+		return fmt.Errorf("player handoff not ok: %s", resp.GetMessage())
 	}
 	return nil
 }

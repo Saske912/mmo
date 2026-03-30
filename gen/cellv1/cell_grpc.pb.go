@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Registry_Register_FullMethodName            = "/mmo.cell.v1.Registry/Register"
-	Registry_ListCells_FullMethodName           = "/mmo.cell.v1.Registry/ListCells"
-	Registry_ResolvePosition_FullMethodName     = "/mmo.cell.v1.Registry/ResolvePosition"
-	Registry_ForwardCellUpdate_FullMethodName   = "/mmo.cell.v1.Registry/ForwardCellUpdate"
-	Registry_ForwardNpcHandoff_FullMethodName   = "/mmo.cell.v1.Registry/ForwardNpcHandoff"
-	Registry_ForwardMergeHandoff_FullMethodName = "/mmo.cell.v1.Registry/ForwardMergeHandoff"
+	Registry_Register_FullMethodName             = "/mmo.cell.v1.Registry/Register"
+	Registry_ListCells_FullMethodName            = "/mmo.cell.v1.Registry/ListCells"
+	Registry_ResolvePosition_FullMethodName      = "/mmo.cell.v1.Registry/ResolvePosition"
+	Registry_ForwardCellUpdate_FullMethodName    = "/mmo.cell.v1.Registry/ForwardCellUpdate"
+	Registry_ForwardNpcHandoff_FullMethodName    = "/mmo.cell.v1.Registry/ForwardNpcHandoff"
+	Registry_ForwardPlayerHandoff_FullMethodName = "/mmo.cell.v1.Registry/ForwardPlayerHandoff"
+	Registry_ForwardMergeHandoff_FullMethodName  = "/mmo.cell.v1.Registry/ForwardMergeHandoff"
 )
 
 // RegistryClient is the client API for Registry service.
@@ -38,6 +39,7 @@ type RegistryClient interface {
 	ResolvePosition(ctx context.Context, in *ResolvePositionRequest, opts ...grpc.CallOption) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(ctx context.Context, in *ForwardCellUpdateRequest, opts ...grpc.CallOption) (*ForwardCellUpdateResponse, error)
 	ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHandoffRequest, opts ...grpc.CallOption) (*ForwardNpcHandoffResponse, error)
+	ForwardPlayerHandoff(ctx context.Context, in *ForwardPlayerHandoffRequest, opts ...grpc.CallOption) (*ForwardPlayerHandoffResponse, error)
 	ForwardMergeHandoff(ctx context.Context, in *ForwardMergeHandoffRequest, opts ...grpc.CallOption) (*ForwardMergeHandoffResponse, error)
 }
 
@@ -99,6 +101,16 @@ func (c *registryClient) ForwardNpcHandoff(ctx context.Context, in *ForwardNpcHa
 	return out, nil
 }
 
+func (c *registryClient) ForwardPlayerHandoff(ctx context.Context, in *ForwardPlayerHandoffRequest, opts ...grpc.CallOption) (*ForwardPlayerHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardPlayerHandoffResponse)
+	err := c.cc.Invoke(ctx, Registry_ForwardPlayerHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *registryClient) ForwardMergeHandoff(ctx context.Context, in *ForwardMergeHandoffRequest, opts ...grpc.CallOption) (*ForwardMergeHandoffResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ForwardMergeHandoffResponse)
@@ -120,6 +132,7 @@ type RegistryServer interface {
 	ResolvePosition(context.Context, *ResolvePositionRequest) (*ResolvePositionResponse, error)
 	ForwardCellUpdate(context.Context, *ForwardCellUpdateRequest) (*ForwardCellUpdateResponse, error)
 	ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error)
+	ForwardPlayerHandoff(context.Context, *ForwardPlayerHandoffRequest) (*ForwardPlayerHandoffResponse, error)
 	ForwardMergeHandoff(context.Context, *ForwardMergeHandoffRequest) (*ForwardMergeHandoffResponse, error)
 	mustEmbedUnimplementedRegistryServer()
 }
@@ -145,6 +158,9 @@ func (UnimplementedRegistryServer) ForwardCellUpdate(context.Context, *ForwardCe
 }
 func (UnimplementedRegistryServer) ForwardNpcHandoff(context.Context, *ForwardNpcHandoffRequest) (*ForwardNpcHandoffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForwardNpcHandoff not implemented")
+}
+func (UnimplementedRegistryServer) ForwardPlayerHandoff(context.Context, *ForwardPlayerHandoffRequest) (*ForwardPlayerHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForwardPlayerHandoff not implemented")
 }
 func (UnimplementedRegistryServer) ForwardMergeHandoff(context.Context, *ForwardMergeHandoffRequest) (*ForwardMergeHandoffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForwardMergeHandoff not implemented")
@@ -260,6 +276,24 @@ func _Registry_ForwardNpcHandoff_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Registry_ForwardPlayerHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardPlayerHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServer).ForwardPlayerHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Registry_ForwardPlayerHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServer).ForwardPlayerHandoff(ctx, req.(*ForwardPlayerHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Registry_ForwardMergeHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ForwardMergeHandoffRequest)
 	if err := dec(in); err != nil {
@@ -306,6 +340,10 @@ var Registry_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Registry_ForwardNpcHandoff_Handler,
 		},
 		{
+			MethodName: "ForwardPlayerHandoff",
+			Handler:    _Registry_ForwardPlayerHandoff_Handler,
+		},
+		{
 			MethodName: "ForwardMergeHandoff",
 			Handler:    _Registry_ForwardMergeHandoff_Handler,
 		},
@@ -322,6 +360,9 @@ const (
 	Cell_Update_FullMethodName                  = "/mmo.cell.v1.Cell/Update"
 	Cell_PlanSplit_FullMethodName               = "/mmo.cell.v1.Cell/PlanSplit"
 	Cell_ListMigrationCandidates_FullMethodName = "/mmo.cell.v1.Cell/ListMigrationCandidates"
+	Cell_PreparePlayerHandoff_FullMethodName    = "/mmo.cell.v1.Cell/PreparePlayerHandoff"
+	Cell_AcceptPlayerHandoff_FullMethodName     = "/mmo.cell.v1.Cell/AcceptPlayerHandoff"
+	Cell_FinalizePlayerHandoff_FullMethodName   = "/mmo.cell.v1.Cell/FinalizePlayerHandoff"
 	Cell_SubscribeDeltas_FullMethodName         = "/mmo.cell.v1.Cell/SubscribeDeltas"
 )
 
@@ -338,6 +379,9 @@ type CellClient interface {
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
 	PlanSplit(ctx context.Context, in *PlanSplitRequest, opts ...grpc.CallOption) (*PlanSplitResponse, error)
 	ListMigrationCandidates(ctx context.Context, in *ListMigrationCandidatesRequest, opts ...grpc.CallOption) (*ListMigrationCandidatesResponse, error)
+	PreparePlayerHandoff(ctx context.Context, in *PreparePlayerHandoffRequest, opts ...grpc.CallOption) (*PreparePlayerHandoffResponse, error)
+	AcceptPlayerHandoff(ctx context.Context, in *AcceptPlayerHandoffRequest, opts ...grpc.CallOption) (*AcceptPlayerHandoffResponse, error)
+	FinalizePlayerHandoff(ctx context.Context, in *FinalizePlayerHandoffRequest, opts ...grpc.CallOption) (*FinalizePlayerHandoffResponse, error)
 	SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error)
 }
 
@@ -419,6 +463,36 @@ func (c *cellClient) ListMigrationCandidates(ctx context.Context, in *ListMigrat
 	return out, nil
 }
 
+func (c *cellClient) PreparePlayerHandoff(ctx context.Context, in *PreparePlayerHandoffRequest, opts ...grpc.CallOption) (*PreparePlayerHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreparePlayerHandoffResponse)
+	err := c.cc.Invoke(ctx, Cell_PreparePlayerHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cellClient) AcceptPlayerHandoff(ctx context.Context, in *AcceptPlayerHandoffRequest, opts ...grpc.CallOption) (*AcceptPlayerHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptPlayerHandoffResponse)
+	err := c.cc.Invoke(ctx, Cell_AcceptPlayerHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cellClient) FinalizePlayerHandoff(ctx context.Context, in *FinalizePlayerHandoffRequest, opts ...grpc.CallOption) (*FinalizePlayerHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FinalizePlayerHandoffResponse)
+	err := c.cc.Invoke(ctx, Cell_FinalizePlayerHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *cellClient) SubscribeDeltas(ctx context.Context, in *SubscribeDeltasRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorldChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &Cell_ServiceDesc.Streams[0], Cell_SubscribeDeltas_FullMethodName, cOpts...)
@@ -451,6 +525,9 @@ type CellServer interface {
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
 	PlanSplit(context.Context, *PlanSplitRequest) (*PlanSplitResponse, error)
 	ListMigrationCandidates(context.Context, *ListMigrationCandidatesRequest) (*ListMigrationCandidatesResponse, error)
+	PreparePlayerHandoff(context.Context, *PreparePlayerHandoffRequest) (*PreparePlayerHandoffResponse, error)
+	AcceptPlayerHandoff(context.Context, *AcceptPlayerHandoffRequest) (*AcceptPlayerHandoffResponse, error)
+	FinalizePlayerHandoff(context.Context, *FinalizePlayerHandoffRequest) (*FinalizePlayerHandoffResponse, error)
 	SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error
 	mustEmbedUnimplementedCellServer()
 }
@@ -482,6 +559,15 @@ func (UnimplementedCellServer) PlanSplit(context.Context, *PlanSplitRequest) (*P
 }
 func (UnimplementedCellServer) ListMigrationCandidates(context.Context, *ListMigrationCandidatesRequest) (*ListMigrationCandidatesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMigrationCandidates not implemented")
+}
+func (UnimplementedCellServer) PreparePlayerHandoff(context.Context, *PreparePlayerHandoffRequest) (*PreparePlayerHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreparePlayerHandoff not implemented")
+}
+func (UnimplementedCellServer) AcceptPlayerHandoff(context.Context, *AcceptPlayerHandoffRequest) (*AcceptPlayerHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptPlayerHandoff not implemented")
+}
+func (UnimplementedCellServer) FinalizePlayerHandoff(context.Context, *FinalizePlayerHandoffRequest) (*FinalizePlayerHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FinalizePlayerHandoff not implemented")
 }
 func (UnimplementedCellServer) SubscribeDeltas(*SubscribeDeltasRequest, grpc.ServerStreamingServer[WorldChunk]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeDeltas not implemented")
@@ -633,6 +719,60 @@ func _Cell_ListMigrationCandidates_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Cell_PreparePlayerHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreparePlayerHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).PreparePlayerHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_PreparePlayerHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).PreparePlayerHandoff(ctx, req.(*PreparePlayerHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Cell_AcceptPlayerHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptPlayerHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).AcceptPlayerHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_AcceptPlayerHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).AcceptPlayerHandoff(ctx, req.(*AcceptPlayerHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Cell_FinalizePlayerHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizePlayerHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CellServer).FinalizePlayerHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Cell_FinalizePlayerHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CellServer).FinalizePlayerHandoff(ctx, req.(*FinalizePlayerHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Cell_SubscribeDeltas_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeDeltasRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -678,6 +818,18 @@ var Cell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMigrationCandidates",
 			Handler:    _Cell_ListMigrationCandidates_Handler,
+		},
+		{
+			MethodName: "PreparePlayerHandoff",
+			Handler:    _Cell_PreparePlayerHandoff_Handler,
+		},
+		{
+			MethodName: "AcceptPlayerHandoff",
+			Handler:    _Cell_AcceptPlayerHandoff_Handler,
+		},
+		{
+			MethodName: "FinalizePlayerHandoff",
+			Handler:    _Cell_FinalizePlayerHandoff_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

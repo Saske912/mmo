@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -21,7 +22,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,6 +38,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -125,6 +129,52 @@ type gateway struct {
 	resolveX     float64
 	resolveZ     float64
 	db           *pgxpool.Pool
+}
+
+type gatewayDownstream struct {
+	cellID   string
+	endpoint string
+	conn     *grpc.ClientConn
+	client   cellv1.CellClient
+	entityID uint64
+}
+
+type gatewaySession struct {
+	playerID string
+	mu       sync.RWMutex
+	ds       *gatewayDownstream
+	lastX    float64
+	lastZ    float64
+	hasPos   bool
+}
+
+func (s *gatewaySession) downstream() *gatewayDownstream {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ds
+}
+
+func (s *gatewaySession) setDownstream(ds *gatewayDownstream) {
+	s.mu.Lock()
+	s.ds = ds
+	s.mu.Unlock()
+}
+
+func (s *gatewaySession) setPosition(x, z float64) {
+	s.mu.Lock()
+	s.lastX = x
+	s.lastZ = z
+	s.hasPos = true
+	s.mu.Unlock()
+}
+
+func (s *gatewaySession) positionOr(fallbackX, fallbackZ float64) (float64, float64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.hasPos {
+		return s.lastX, s.lastZ
+	}
+	return fallbackX, fallbackZ
 }
 
 func questAPIMap(q db.PlayerQuestAPIRow) map[string]any {
@@ -799,57 +849,37 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	inLim := rate.NewLimiter(rate.Limit(100), 50)
-
-	cellCC, err := grpc.NewClient(ep,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-	)
+	session := &gatewaySession{playerID: playerID}
+	initialDS, err := g.attachToCell(ctx, tr, playerID, cellID, ep)
 	if err != nil {
-		log.Printf("cell dial %s: %v", ep, err)
+		log.Printf("initial attach: %v", err)
 		return
 	}
-	defer cellCC.Close()
-	cell := cellv1.NewCellClient(cellCC)
-
-	jctx, jspan := tr.Start(ctx, "Cell.Join")
-	defer jspan.End()
-	joinStart := time.Now()
-	jres, err := cell.Join(jctx, &cellv1.JoinRequest{PlayerId: playerID})
-	joinResult := "ok"
-	if err != nil || jres == nil || !jres.Ok {
-		joinResult = "err"
-	}
-	gatewayCellJoinDuration.WithLabelValues(joinResult).Observe(time.Since(joinStart).Seconds())
-	if err != nil || jres == nil || !jres.Ok {
-		log.Printf("join: %v res=%+v", err, jres)
-		return
-	}
-	slog.InfoContext(jctx, "cell_join_ok", "player_id", playerID, "entity_id", jres.EntityId)
-	log.Printf("ws join player=%s entity_id=%d", playerID, jres.EntityId)
+	session.setDownstream(initialDS)
 	gatewayWsSessions.Inc()
+	log.Printf("ws join player=%s entity_id=%d cell=%s", playerID, initialDS.entityID, initialDS.cellID)
 
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	streamDone := g.streamDeltasToWS(streamCtx, initialDS, conn, session)
 	defer func() {
-		if g.db != nil && cellID != "" {
-			uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, cellID, rx, rz); uerr != nil {
-				log.Printf("last_cell persist: %v", uerr)
+		streamCancel()
+		<-streamDone
+		ds := session.downstream()
+		if ds != nil {
+			lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_, _ = ds.client.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID})
+			lcancel()
+			_ = ds.conn.Close()
+			if g.db != nil && ds.cellID != "" {
+				px, pz := session.positionOr(rx, rz)
+				uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
+				if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, ds.cellID, px, pz); uerr != nil {
+					log.Printf("last_cell persist: %v", uerr)
+				}
+				ucancel()
 			}
-			ucancel()
-		}
-		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer lcancel()
-		if _, lerr := cell.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID}); lerr != nil {
-			log.Printf("leave: %v", lerr)
 		}
 	}()
-
-	sub, err := cell.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{ViewerEntityId: jres.EntityId})
-	if err != nil {
-		log.Printf("subscribe: %v", err)
-		return
-	}
-
-	go streamDeltasToWS(sub, conn)
 
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
@@ -864,9 +894,13 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		if err := proto.Unmarshal(data, &in); err != nil {
 			continue
 		}
+		current := session.downstream()
+		if current == nil {
+			return
+		}
 		aCtx, acancel := context.WithTimeout(ctx, 2*time.Second)
 		applyStart := time.Now()
-		ares, aerr := cell.ApplyInput(aCtx, &cellv1.ApplyInputRequest{PlayerId: playerID, Input: &in})
+		ares, aerr := current.client.ApplyInput(aCtx, &cellv1.ApplyInputRequest{PlayerId: playerID, Input: &in})
 		applyDur := time.Since(applyStart).Seconds()
 		acancel()
 		if aerr != nil || ares == nil || !ares.Ok {
@@ -875,6 +909,30 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			if aerr != nil {
 				log.Printf("apply_input: %v", aerr)
 			}
+			if ares != nil && ares.GetMessage() == "unknown_player" {
+				nextDS, switched, serr := g.trySwitchDownstream(ctx, tr, reg, session, rx, rz)
+				if serr != nil {
+					log.Printf("handoff switch failed: %v", serr)
+				}
+				if switched && nextDS != nil {
+					streamCancel()
+					<-streamDone
+					old := current
+					session.setDownstream(nextDS)
+					streamCtx, streamCancel = context.WithCancel(ctx)
+					streamDone = g.streamDeltasToWS(streamCtx, nextDS, conn, session)
+					_ = old.conn.Close()
+					if g.db != nil {
+						px, pz := session.positionOr(rx, rz)
+						uctx, ucancel := context.WithTimeout(ctx, 2*time.Second)
+						if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, nextDS.cellID, px, pz); uerr != nil {
+							log.Printf("last_cell persist switch: %v", uerr)
+						}
+						ucancel()
+					}
+					continue
+				}
+			}
 			continue
 		}
 		gatewayCellApplyInputDuration.WithLabelValues("ok").Observe(applyDur)
@@ -882,20 +940,119 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func streamDeltasToWS(sub cellv1.Cell_SubscribeDeltasClient, conn *websocket.Conn) {
-	defer conn.Close()
-	for {
-		chunk, err := sub.Recv()
+func (g *gateway) streamDeltasToWS(ctx context.Context, ds *gatewayDownstream, conn *websocket.Conn, session *gatewaySession) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sub, err := ds.client.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{ViewerEntityId: ds.entityID})
 		if err != nil {
-			log.Printf("SubscribeDeltas recv: %v", err)
+			if ctx.Err() == nil {
+				log.Printf("subscribe: %v", err)
+			}
 			return
 		}
-		b, err := proto.Marshal(chunk)
-		if err != nil {
-			continue
+		entityID := ds.entityID
+		for {
+			chunk, err := sub.Recv()
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				if status.Code(err) != codes.Canceled && !errors.Is(err, context.Canceled) {
+					log.Printf("SubscribeDeltas recv: %v", err)
+				}
+				return
+			}
+			g.observeSelfPosition(session, entityID, chunk)
+			b, err := proto.Marshal(chunk)
+			if err != nil {
+				continue
+			}
+			if err := conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
+				return
+			}
 		}
-		if err := conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
-			return
+	}()
+	return done
+}
+
+func (g *gateway) observeSelfPosition(session *gatewaySession, entityID uint64, chunk *cellv1.WorldChunk) {
+	if chunk == nil || entityID == 0 {
+		return
+	}
+	if snap := chunk.GetSnapshot(); snap != nil {
+		for _, ent := range snap.GetEntities() {
+			if ent != nil && ent.GetEntityId() == entityID && ent.GetPosition() != nil {
+				session.setPosition(float64(ent.GetPosition().GetX()), float64(ent.GetPosition().GetZ()))
+				return
+			}
+		}
+		return
+	}
+	if delta := chunk.GetDelta(); delta != nil {
+		for _, ent := range delta.GetChanged() {
+			if ent != nil && ent.GetEntityId() == entityID && ent.GetPosition() != nil {
+				session.setPosition(float64(ent.GetPosition().GetX()), float64(ent.GetPosition().GetZ()))
+				return
+			}
 		}
 	}
+}
+
+func (g *gateway) attachToCell(ctx context.Context, tr trace.Tracer, playerID, cellID, endpoint string) (*gatewayDownstream, error) {
+	cellCC, err := grpc.NewClient(endpoint,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cell dial %s: %w", endpoint, err)
+	}
+	cellClient := cellv1.NewCellClient(cellCC)
+	jctx, jspan := tr.Start(ctx, "Cell.Join")
+	defer jspan.End()
+	joinStart := time.Now()
+	jres, err := cellClient.Join(jctx, &cellv1.JoinRequest{PlayerId: playerID})
+	joinResult := "ok"
+	if err != nil || jres == nil || !jres.Ok {
+		joinResult = "err"
+	}
+	gatewayCellJoinDuration.WithLabelValues(joinResult).Observe(time.Since(joinStart).Seconds())
+	if err != nil || jres == nil || !jres.Ok {
+		_ = cellCC.Close()
+		return nil, fmt.Errorf("join failed: err=%v res=%+v", err, jres)
+	}
+	slog.InfoContext(jctx, "cell_join_ok", "player_id", playerID, "entity_id", jres.EntityId, "cell_id", cellID)
+	return &gatewayDownstream{
+		cellID:   cellID,
+		endpoint: endpoint,
+		conn:     cellCC,
+		client:   cellClient,
+		entityID: jres.EntityId,
+	}, nil
+}
+
+func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg cellv1.RegistryClient, session *gatewaySession, fallbackX, fallbackZ float64) (*gatewayDownstream, bool, error) {
+	cur := session.downstream()
+	if cur == nil {
+		return nil, false, nil
+	}
+	px, pz := session.positionOr(fallbackX, fallbackZ)
+	rctx, rspan := tr.Start(ctx, "Registry.ResolvePosition.Switch")
+	res, err := reg.ResolvePosition(rctx, &cellv1.ResolvePositionRequest{X: px, Z: pz})
+	rspan.End()
+	if err != nil {
+		return nil, false, err
+	}
+	if !res.GetFound() || res.GetCell() == nil || strings.TrimSpace(res.GetCell().GetGrpcEndpoint()) == "" {
+		return nil, false, fmt.Errorf("resolve switch target not found")
+	}
+	nextCell := res.GetCell()
+	if nextCell.GetId() == cur.cellID {
+		return nil, false, nil
+	}
+	next, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	if err != nil {
+		return nil, false, err
+	}
+	return next, true, nil
 }
