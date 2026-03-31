@@ -921,7 +921,8 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			if aerr != nil {
 				log.Printf("apply_input: %v", aerr)
 			}
-			if ares != nil && ares.GetMessage() == "unknown_player" {
+			shouldTrySwitch := (ares != nil && ares.GetMessage() == "unknown_player") || shouldSwitchDownstreamOnTransport(aerr)
+			if shouldTrySwitch {
 				nextDS, switched, serr := g.trySwitchDownstream(ctx, tr, reg, session, rx, rz)
 				if serr != nil {
 					log.Printf("handoff switch failed: %v", serr)
@@ -1067,4 +1068,18 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 		return nil, false, err
 	}
 	return next, true, nil
+}
+
+func shouldSwitchDownstreamOnTransport(err error) bool {
+	if err == nil {
+		return false
+	}
+	if status.Code(err) == codes.Unavailable {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "transport: error while dialing") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection error") ||
+		strings.Contains(msg, "i/o timeout")
 }
