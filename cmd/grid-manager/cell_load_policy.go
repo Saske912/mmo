@@ -389,13 +389,13 @@ func (r *loadPolicyRuntime) mergeGroupLowLoad(
 			continue
 		}
 		id := strings.TrimSpace(c.GetId())
-		qx, qz, lv, parsed := parseCellGridID(id)
-		if !parsed || lv <= childLevel {
+		lv, ok := partition.CellPathLevel(id)
+		if !ok || lv <= childLevel {
 			continue
 		}
 		for _, childID := range ids {
-			cx, cz, cl, ok := parseCellGridID(childID)
-			if ok && cl == childLevel && qx == cx && qz == cz {
+			cl, childOK := partition.CellPathLevel(childID)
+			if childOK && cl == childLevel && partition.IsDescendantPath(childID, id) {
 				return false, "child_has_descendants", strings.Join(ids, ","), 0, 0
 			}
 		}

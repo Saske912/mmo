@@ -2,10 +2,16 @@ package partition
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	cellv1 "mmo/gen/cellv1"
 )
+
+const rootCellID = "cell_root"
+
+var pathCellIDRe = regexp.MustCompile(`^cell_(root|q[0-3](?:_q[0-3])*)$`)
 
 // Mid возвращает середину границ (точка деления на 4 квадранта; контекст — docs/archive/stack-design-notes.md).
 func Mid(b *cellv1.Bounds) (mx, mz float64) {
@@ -42,17 +48,76 @@ func Quadrant(x, z float64, b *cellv1.Bounds) int {
 	return qz*2 + qx // 0=(-1,-1), 1=(1,-1), 2=(-1,1), 3=(1,1) — см. порядок SplitFour
 }
 
-// ChildID строит идентификатор в стиле cell_-1_-1_1.
-func ChildID(qx, qz, level int) string {
-	ix := -1
-	if qx == 1 {
-		ix = 1
+func RootCellID() string {
+	return rootCellID
+}
+
+func ParseCellPathID(id string) ([]int, error) {
+	id = strings.TrimSpace(id)
+	if !pathCellIDRe.MatchString(id) {
+		return nil, fmt.Errorf("invalid cell path id: %q", id)
 	}
-	iz := -1
-	if qz == 1 {
-		iz = 1
+	body := strings.TrimPrefix(id, "cell_")
+	if body == "root" {
+		return []int{}, nil
 	}
-	return fmt.Sprintf("cell_%d_%d_%d", ix, iz, level)
+	parts := strings.Split(body, "_")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		if len(p) != 2 || p[0] != 'q' {
+			return nil, fmt.Errorf("invalid cell path segment: %q", p)
+		}
+		q, err := strconv.Atoi(p[1:])
+		if err != nil || q < 0 || q > 3 {
+			return nil, fmt.Errorf("invalid cell path quadrant: %q", p)
+		}
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+func CellPathLevel(id string) (int32, bool) {
+	path, err := ParseCellPathID(id)
+	if err != nil {
+		return 0, false
+	}
+	return int32(len(path)), true
+}
+
+func ChildIDForQuadrant(parentID string, quadrant int) (string, error) {
+	if quadrant < 0 || quadrant > 3 {
+		return "", fmt.Errorf("quadrant out of range: %d", quadrant)
+	}
+	path, err := ParseCellPathID(parentID)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, 0, len(path)+1)
+	for _, q := range path {
+		parts = append(parts, fmt.Sprintf("q%d", q))
+	}
+	parts = append(parts, fmt.Sprintf("q%d", quadrant))
+	return "cell_" + strings.Join(parts, "_"), nil
+}
+
+func IsDescendantPath(parentID, childID string) bool {
+	parentPath, err := ParseCellPathID(parentID)
+	if err != nil {
+		return false
+	}
+	childPath, err := ParseCellPathID(childID)
+	if err != nil {
+		return false
+	}
+	if len(childPath) <= len(parentPath) {
+		return false
+	}
+	for i := range parentPath {
+		if parentPath[i] != childPath[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Contains проверяет вхождение точки в закрытый AABB (включая границы).
@@ -63,25 +128,28 @@ func Contains(b *cellv1.Bounds, x, z float64) bool {
 	return x >= b.XMin && x <= b.XMax && z >= b.ZMin && z <= b.ZMax
 }
 
-// ChildSpecsForSplit строит четыре дочерние спецификации так же, как gRPC PlanSplit на cell-node
-// (порядок совпадает с SplitFour и индексацией qx,qz в ChildID).
-func ChildSpecsForSplit(parent *cellv1.Bounds, parentLevel int32) []*cellv1.PlanSplitResponseChild {
+// ChildSpecsForSplit строит четыре дочерние спецификации так же, как gRPC PlanSplit на cell-node.
+// Порядок совпадает с SplitFour: q0, q1, q2, q3.
+func ChildSpecsForSplit(parentID string, parent *cellv1.Bounds, parentLevel int32) ([]*cellv1.PlanSplitResponseChild, error) {
 	if parent == nil {
-		return nil
+		return nil, nil
 	}
 	childBounds := SplitFour(parent)
-	nextLevel := int(parentLevel) + 1
+	nextLevel := parentLevel + 1
 	out := make([]*cellv1.PlanSplitResponseChild, 0, 4)
 	for i := range 4 {
-		qx, qz := i%2, i/2
+		childID, err := ChildIDForQuadrant(parentID, i)
+		if err != nil {
+			return nil, err
+		}
 		b := childBounds[i]
 		out = append(out, &cellv1.PlanSplitResponseChild{
-			Id:     ChildID(qx, qz, nextLevel),
+			Id:     childID,
 			Bounds: b,
-			Level:  int32(nextLevel),
+			Level:  nextLevel,
 		})
 	}
-	return out
+	return out, nil
 }
 
 func boundsEqual(a, b *cellv1.Bounds) bool {

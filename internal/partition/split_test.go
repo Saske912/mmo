@@ -33,19 +33,48 @@ func TestQuadrant_OnBoundaryGoesPositive(t *testing.T) {
 	}
 }
 
+func TestPathIDHelpers(t *testing.T) {
+	if RootCellID() != "cell_root" {
+		t.Fatalf("unexpected root id: %s", RootCellID())
+	}
+	q1, err := ChildIDForQuadrant(RootCellID(), 1)
+	if err != nil || q1 != "cell_q1" {
+		t.Fatalf("q1 id: got=%q err=%v", q1, err)
+	}
+	q1q3, err := ChildIDForQuadrant(q1, 3)
+	if err != nil || q1q3 != "cell_q1_q3" {
+		t.Fatalf("q1q3 id: got=%q err=%v", q1q3, err)
+	}
+	if lvl, ok := CellPathLevel(q1q3); !ok || lvl != 2 {
+		t.Fatalf("level mismatch: ok=%v lvl=%d", ok, lvl)
+	}
+	if !IsDescendantPath("cell_q1", "cell_q1_q3") {
+		t.Fatal("expected descendant path")
+	}
+	if IsDescendantPath("cell_q1_q3", "cell_q1_q3") {
+		t.Fatal("same id must not be descendant")
+	}
+	if IsDescendantPath("cell_q1_q3", "cell_q2_q3") {
+		t.Fatal("foreign branch must not be descendant")
+	}
+}
+
 // Паритет с gRPC PlanSplit на cell-node (см. internal/grpc/cellsvc/server_test.go).
 func TestChildSpecsForSplit_matchesPlanSplitContract(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(ch) != 4 {
 		t.Fatalf("len=%d", len(ch))
 	}
 	mx, mz := Mid(parent)
 	wantIDs := []string{
-		ChildID(0, 0, 1),
-		ChildID(1, 0, 1),
-		ChildID(0, 1, 1),
-		ChildID(1, 1, 1),
+		"cell_q0",
+		"cell_q1",
+		"cell_q2",
+		"cell_q3",
 	}
 	for i, w := range wantIDs {
 		if ch[i].Id != w {
@@ -72,26 +101,36 @@ func TestChildSpecsForSplit_matchesPlanSplitContract(t *testing.T) {
 }
 
 func TestChildSpecsForSplit_nilParent(t *testing.T) {
-	if ChildSpecsForSplit(nil, 0) != nil {
+	ch, err := ChildSpecsForSplit(RootCellID(), nil, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ch != nil {
 		t.Fatal("want nil")
 	}
 }
 
 func TestValidateMergeChildren_OK(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	in := make([]*cellv1.CellSpec, 0, len(ch))
 	for _, c := range ch {
 		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: c.GetLevel(), Bounds: c.GetBounds()})
 	}
-	if err := ValidateMergeChildren(parent, 0, in); err != nil {
+	if err = ValidateMergeChildren(parent, 0, in); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateMergeChildren_BadShape(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	in := make([]*cellv1.CellSpec, 0, len(ch))
 	for _, c := range ch[:3] {
 		in = append(in, &cellv1.CellSpec{Id: c.GetId(), Level: c.GetLevel(), Bounds: c.GetBounds()})
@@ -103,7 +142,10 @@ func TestValidateMergeChildren_BadShape(t *testing.T) {
 
 func TestValidateMergeChildren_BadLevel(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	in := make([]*cellv1.CellSpec, 0, len(ch))
 	for i, c := range ch {
 		lvl := c.GetLevel()
@@ -119,7 +161,10 @@ func TestValidateMergeChildren_BadLevel(t *testing.T) {
 
 func TestValidateMergeChildren_BadBounds(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	in := make([]*cellv1.CellSpec, 0, len(ch))
 	for i, c := range ch {
 		b := c.GetBounds()
@@ -135,7 +180,10 @@ func TestValidateMergeChildren_BadBounds(t *testing.T) {
 
 func TestValidateMergeChildren_PermutedIDs(t *testing.T) {
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	ch := ChildSpecsForSplit(parent, 0)
+	ch, err := ChildSpecsForSplit(RootCellID(), parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	in := []*cellv1.CellSpec{
 		{Id: ch[1].GetId(), Level: ch[1].GetLevel(), Bounds: ch[0].GetBounds()},
 		{Id: ch[0].GetId(), Level: ch[0].GetLevel(), Bounds: ch[1].GetBounds()},
@@ -149,11 +197,14 @@ func TestValidateMergeChildren_PermutedIDs(t *testing.T) {
 
 func TestCatalogMergeChildren_OK(t *testing.T) {
 	parent := &cellv1.CellSpec{
-		Id:     "cell_0_0_0",
+		Id:     RootCellID(),
 		Level:  0,
 		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 	}
-	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	ch, err := ChildSpecsForSplit(parent.GetId(), parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	catalog := make([]*cellv1.CellSpec, 0, len(ch))
 	for _, c := range ch {
 		catalog = append(catalog, &cellv1.CellSpec{
@@ -178,11 +229,14 @@ func TestCatalogMergeChildren_OK(t *testing.T) {
 
 func TestCatalogMergeChildren_MissingQuadrant(t *testing.T) {
 	parent := &cellv1.CellSpec{
-		Id:     "cell_0_0_0",
+		Id:     RootCellID(),
 		Level:  0,
 		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 	}
-	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	ch, err := ChildSpecsForSplit(parent.GetId(), parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	catalog := []*cellv1.CellSpec{
 		{Id: ch[0].GetId(), Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},
 		{Id: ch[1].GetId(), Level: ch[1].GetLevel(), Bounds: ch[1].GetBounds()},
@@ -195,11 +249,14 @@ func TestCatalogMergeChildren_MissingQuadrant(t *testing.T) {
 
 func TestCatalogMergeChildren_AmbiguousBounds(t *testing.T) {
 	parent := &cellv1.CellSpec{
-		Id:     "cell_0_0_0",
+		Id:     RootCellID(),
 		Level:  0,
 		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 	}
-	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	ch, err := ChildSpecsForSplit(parent.GetId(), parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	catalog := []*cellv1.CellSpec{
 		{Id: "dup-a", Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},
 		{Id: "dup-b", Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},

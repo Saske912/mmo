@@ -57,7 +57,7 @@ func TestTwoServicesExchangeViaNATS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const payload = "split_prepare:cell_0_0_0"
+	const payload = "split_prepare:cell_root"
 	if err := serviceB.Publish(SubjectGridCommands, []byte(payload)); err != nil {
 		t.Fatal(err)
 	}

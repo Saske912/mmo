@@ -141,7 +141,7 @@ func TestForwardMergeHandoff(t *testing.T) {
 	defer parentSrv.Stop()
 
 	parent := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           partition.RootCellID(),
 		Level:        0,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		GrpcEndpoint: parentLis.Addr().String(),
@@ -150,7 +150,10 @@ func TestForwardMergeHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	childrenPlan := partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	childrenPlan, err := partition.ChildSpecsForSplit(parent.GetId(), parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		t.Fatal(err)
+	}
 	childIDs := make([]string, 0, len(childrenPlan))
 	for _, cp := range childrenPlan {
 		lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -228,7 +231,7 @@ func TestForwardMergeHandoff_WithPlayerHandoffEnabled(t *testing.T) {
 	defer parentSrv.Stop()
 
 	parent := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           partition.RootCellID(),
 		Level:        0,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		GrpcEndpoint: parentLis.Addr().String(),
@@ -237,7 +240,10 @@ func TestForwardMergeHandoff_WithPlayerHandoffEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	childrenPlan := partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	childrenPlan, err := partition.ChildSpecsForSplit(parent.GetId(), parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		t.Fatal(err)
+	}
 	childIDs := make([]string, 0, len(childrenPlan))
 	var sourceChild *mergeCell
 	for i, cp := range childrenPlan {

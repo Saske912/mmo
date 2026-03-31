@@ -247,7 +247,7 @@ func TestListMigrationCandidates(t *testing.T) {
 func TestUpdateSplitPrepare(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
-	srv := &Server{CellID: "cell_x", Sim: sim, Bounds: parent, Level: 1}
+	srv := &Server{CellID: "cell_q2", Sim: sim, Bounds: parent, Level: 1}
 	ctx := context.Background()
 
 	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
@@ -266,9 +266,12 @@ func TestUpdateSplitPrepare(t *testing.T) {
 func TestUpdateMergePrepare(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
-	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	srv := &Server{CellID: partition.RootCellID(), Sim: sim, Bounds: parent, Level: 0}
 	ctx := context.Background()
-	childrenPlan := partition.ChildSpecsForSplit(parent, 0)
+	childrenPlan, err := partition.ChildSpecsForSplit(srv.CellID, parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected plan error: %v", err)
+	}
 	children := make([]*cellv1.CellSpec, 0, len(childrenPlan))
 	for _, c := range childrenPlan {
 		children = append(children, &cellv1.CellSpec{
@@ -290,7 +293,7 @@ func TestUpdateMergePrepare(t *testing.T) {
 func TestUpdateMergePrepare_InvalidChildren(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -100, ZMax: 100}
-	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	srv := &Server{CellID: partition.RootCellID(), Sim: sim, Bounds: parent, Level: 0}
 	ctx := context.Background()
 	res, err := srv.Update(ctx, &cellv1.UpdateRequest{
 		Payload: &cellv1.UpdateRequest_MergePrepare{
@@ -327,14 +330,17 @@ func TestLeaveIdempotent(t *testing.T) {
 func TestPlanSplit_level0(t *testing.T) {
 	sim := cellsim.NewRuntime()
 	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
-	srv := &Server{CellID: "cell_0_0_0", Sim: sim, Bounds: parent, Level: 0}
+	srv := &Server{CellID: partition.RootCellID(), Sim: sim, Bounds: parent, Level: 0}
 	ctx := context.Background()
 
 	resp, err := srv.PlanSplit(ctx, &cellv1.PlanSplitRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSpecs := partition.ChildSpecsForSplit(parent, 0)
+	wantSpecs, err := partition.ChildSpecsForSplit(srv.CellID, parent, 0)
+	if err != nil {
+		t.Fatalf("unexpected plan error: %v", err)
+	}
 	if len(wantSpecs) != len(resp.Children) {
 		t.Fatalf("partition vs PlanSplit len: %d %d", len(wantSpecs), len(resp.Children))
 	}
@@ -348,10 +354,10 @@ func TestPlanSplit_level0(t *testing.T) {
 	}
 	mx, mz := partition.Mid(parent)
 	wantIDs := []string{
-		partition.ChildID(0, 0, 1),
-		partition.ChildID(1, 0, 1),
-		partition.ChildID(0, 1, 1),
-		partition.ChildID(1, 1, 1),
+		"cell_q0",
+		"cell_q1",
+		"cell_q2",
+		"cell_q3",
 	}
 	for i, ch := range resp.Children {
 		if ch.Id != wantIDs[i] {

@@ -6,6 +6,7 @@ import (
 
 	cellv1 "mmo/gen/cellv1"
 	"mmo/internal/discovery"
+	"mmo/internal/partition"
 	"mmo/internal/registry"
 	"mmo/internal/splitcontrol"
 )
@@ -14,13 +15,13 @@ func TestResolveChildProbeReasons_parentChildOverlap(t *testing.T) {
 	ctx := context.Background()
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	parent := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           partition.RootCellID(),
 		Level:        0,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		GrpcEndpoint: "parent:50051",
 	}
 	child := &cellv1.CellSpec{
-		Id:           "cell_-1_-1_1",
+		Id:           "cell_q0",
 		Level:        1,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 0, ZMin: -1000, ZMax: 0},
 		GrpcEndpoint: "child-sw:50051",
@@ -33,7 +34,7 @@ func TestResolveChildProbeReasons_parentChildOverlap(t *testing.T) {
 	}
 
 	specs := []splitcontrol.ChildCellSpec{{
-		ID:    "cell_-1_-1_1",
+		ID:    "cell_q0",
 		Level: 1,
 		XMin:  -1000, XMax: 0, ZMin: -1000, ZMax: 0,
 	}}
@@ -54,22 +55,22 @@ func TestResolveChildProbeReasons_avoidsForeignDeeperOverlap(t *testing.T) {
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	cells := []*cellv1.CellSpec{
 		{
-			Id:           "cell_0_0_0",
+			Id:           partition.RootCellID(),
 			Level:        0,
 			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 			GrpcEndpoint: "r0:50051",
 		},
 		{
-			Id:           "cell_1_-1_1",
+			Id:           "cell_q1",
 			Level:        1,
 			Bounds:       &cellv1.Bounds{XMin: 0, XMax: 1000, ZMin: -1000, ZMax: 0},
 			GrpcEndpoint: "r1:50051",
 		},
 		{
-			Id:     "cell_-1_-1_2",
+			Id:     "cell_q0_q3",
 			Level:  2,
 			Bounds: &cellv1.Bounds{XMin: 50, XMax: 450, ZMin: -450, ZMax: -150},
-			// Пересечение с квадрантом cell_1_-1_1; id как «чужой» deeper level.
+			// Пересечение с квадрантом cell_q1; id как «чужой» deeper level.
 			GrpcEndpoint: "deep:50051",
 		},
 	}
@@ -79,7 +80,7 @@ func TestResolveChildProbeReasons_avoidsForeignDeeperOverlap(t *testing.T) {
 		}
 	}
 	specs := []splitcontrol.ChildCellSpec{{
-		ID:    "cell_1_-1_1",
+		ID:    "cell_q1",
 		Level: 1,
 		XMin:  0, XMax: 1000, ZMin: -1000, ZMax: 0,
 	}}
@@ -99,19 +100,19 @@ func TestResolveChildProbeReasons_sameBranchDeeperWinnerOK(t *testing.T) {
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	for _, c := range []*cellv1.CellSpec{
 		{
-			Id:           "cell_0_0_0",
+			Id:           partition.RootCellID(),
 			Level:        0,
 			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 			GrpcEndpoint: "r0:50051",
 		},
 		{
-			Id:           "cell_1_-1_1",
+			Id:           "cell_q1",
 			Level:        1,
 			Bounds:       &cellv1.Bounds{XMin: 0, XMax: 1000, ZMin: -1000, ZMax: 0},
 			GrpcEndpoint: "r1:50051",
 		},
 		{
-			Id:           "cell_1_-1_2",
+			Id:           "cell_q1_q1",
 			Level:        2,
 			Bounds:       &cellv1.Bounds{XMin: 500, XMax: 1000, ZMin: -500, ZMax: 0},
 			GrpcEndpoint: "r2:50051",
@@ -122,7 +123,7 @@ func TestResolveChildProbeReasons_sameBranchDeeperWinnerOK(t *testing.T) {
 		}
 	}
 	specs := []splitcontrol.ChildCellSpec{{
-		ID:    "cell_1_-1_1",
+		ID:    "cell_q1",
 		Level: 1,
 		XMin:  0, XMax: 1000, ZMin: -1000, ZMax: 0,
 	}}
@@ -140,7 +141,7 @@ func TestResolveChildProbeReasons_wrongWinner(t *testing.T) {
 	ctx := context.Background()
 	cat := discovery.NewMemoryCatalog(registry.NewMemory())
 	parent := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           partition.RootCellID(),
 		Level:        0,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		GrpcEndpoint: "parent:50051",
@@ -150,7 +151,7 @@ func TestResolveChildProbeReasons_wrongWinner(t *testing.T) {
 	}
 
 	specs := []splitcontrol.ChildCellSpec{{
-		ID:    "cell_-1_-1_1",
+		ID:    "cell_q0",
 		Level: 1,
 		XMin:  -1000, XMax: 0, ZMin: -1000, ZMax: 0,
 	}}

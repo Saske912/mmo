@@ -26,7 +26,7 @@
 - `MMO_GRID_REGISTRY_ADDR` — в Kubernetes: `mmo-grid-manager.<namespace>.svc.cluster.local:9100` (см. [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars)); локально с port-forward: `127.0.0.1:9100`
 - опционально **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`** — отключить префлайт и запись **`automation_complete`** в Redis после `retire_ready` (по умолчанию оркестрация включена, если переменная не задана)
 - опционально guardrails:
-  - `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для `cell_*_*_<level>` при `level >= N`;
+  - `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для cell path с depth `>= N`;
   - `MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=<N>` — ограничить число одновременно активных workflow;
   - `MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=cell_a,cell_b` — CSV блоклист `cell_id`.
 
@@ -36,6 +36,15 @@
 - **`MMO_GRID_MERGE_PLAYER_HANDOFF=true`** — разрешить merge при игроках на children и запускать handoff;
 - **`MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS=<N>`** — guardrail по максимуму игроков в merge-окне;
 - для smoke-проверки: `make merge-live-players-e2e-smoke`.
+
+## Breaking rollout: path-based cell IDs
+
+Переход на `cell_root` / `cell_q...` ломающий для runtime state. Перед первым `tofu apply` нового формата сделайте очистку staging:
+
+1. Удалите runtime child workloads (`cell-node-auto-*`, `mmo-cell-auto-*`), если остались после прошлых split.
+2. Очистите Redis ключи, привязанные к старым `cell_id` (`mmo:cell:*`, `mmo:grid:split:*`, `mmo:grid:merge:*`) в тестовом окружении.
+3. Очистите старые Consul регистрации с legacy id (`cell_*_*_*`), если они ещё присутствуют.
+4. Примените `tofu apply` с baseline root id `cell_root` и перезапустите smoke (`split/merge/staging-verify`).
 
 ## Web3 indexer
 

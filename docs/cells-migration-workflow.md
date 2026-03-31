@@ -5,7 +5,7 @@
 ## Preflight (перед регрессией п.3 / staging)
 
 - **`kubectl`**: контекст с namespace **`mmo`**; **`grid-manager`**, **`gateway`**, родительский и дочерний **`cell-node`** в `Running` (см. вывод `staging-verify.sh`).
-- **`PARENT` / `CHILD`**: сверить с фактическим каталогом и с [cell_instances в Terraform](../deploy/terraform/staging/cell_instances.auto.tfvars) (пример staging: `cell_0_0_0` → `cell_-1_-1_1`).
+- **`PARENT` / `CHILD`**: сверить с фактическим каталогом и с [cell_instances в Terraform](../deploy/terraform/staging/cell_instances.auto.tfvars) (пример staging: `cell_root` → `cell_q0`).
 - **`migration-dry-run`**: для вызова **ListMigrationCandidates** на соте нужен cluster DNS; с хоста вне кластера gRPC endpoint соты часто не резолвится — используйте **`STAGING_VERIFY_MIGRATION_DRY_RUN=incluster`** в [`staging-verify.sh`](../scripts/staging-verify.sh) или [`mmoctl-in-cluster.sh`](../scripts/mmoctl-in-cluster.sh).
 - **Импорт на CHILD** (`forward-npc-handoff` / `import_npc_persist`): при живых сессиях на целевой соте импорт отклоняется — см. runbook §6.
 - **Gateway / Ingress**: при нестандартном URL — **`GATEWAY_PUBLIC_URL`**; самоподписанный TLS — **`STAGING_VERIFY_TLS_INSECURE=1`** (см. комментарии в `staging-verify.sh`).
@@ -57,7 +57,7 @@
 Для state-machine workflow в grid-manager: `MMO_GRID_AUTO_SPLIT_WORKFLOW=true` (дополнительно к `MMO_GRID_AUTO_SPLIT_DRAIN=true`), метрики `mmo_grid_manager_split_workflow_*`, события `grid.split.workflow`.
 
 Guardrails для controlled scale-out:
-- `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для `cell_*_*_<level>` при `level >= N`;
+- `MMO_GRID_SPLIT_MAX_LEVEL=<N>` — не запускать workflow для cell path с depth `>= N`;
 - `MMO_GRID_SPLIT_MAX_CONCURRENT_WORKFLOWS=<N>` — ограничить параллельные workflow;
 - `MMO_GRID_SPLIT_WORKFLOW_BLOCKLIST=cell_a,cell_b` — CSV блоклист `cell_id`.
 
@@ -84,9 +84,9 @@ Guardrails для controlled scale-out:
 - проверяет `mmo_grid_manager_split_workflow_runs_total{result="ok"}`,
 - проверяет рост числа сот в каталоге,
 - проверяет `retire_ready_set` и **`automation_complete_set`** в логах `cell-controller`,
-- проверяет **`automation_complete`** в JSON `split-retire-state` для родителя (переменная **`GRID_SPLIT_PARENT_CELL_ID`**, по умолчанию `cell_0_0_0`).
+- проверяет **`automation_complete`** в JSON `split-retire-state` для родителя (переменная **`GRID_SPLIT_PARENT_CELL_ID`**, по умолчанию `cell_root`).
 
-В [`scripts/staging-verify.sh`](../scripts/staging-verify.sh) при наличии **`cell_-1_-1_1`** в каталоге проверяется `automation_complete` в Redis; отключение: **`STAGING_VERIFY_POST_HANDOFF_STATE=0`**.
+В [`scripts/staging-verify.sh`](../scripts/staging-verify.sh) при наличии **`cell_q0`** в каталоге проверяется `automation_complete` в Redis; отключение: **`STAGING_VERIFY_POST_HANDOFF_STATE=0`**.
 
 ## Merge handoff (MVP, manual trigger)
 
@@ -94,7 +94,7 @@ Guardrails для controlled scale-out:
 
 ```bash
 kubectl -n mmo exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 \
-  forward-merge-handoff cell_0_0_0 cell_-1_-1_1,cell_1_-1_1,cell_-1_1_1,cell_1_1_1 "ticket"
+  forward-merge-handoff cell_root cell_q0,cell_q1,cell_q2,cell_q3 "ticket"
 ```
 
 События публикуются в NATS `grid.merge.workflow`, метрики: `mmo_grid_manager_merge_workflow_*`.

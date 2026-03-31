@@ -4,12 +4,12 @@
 # Если TLS ещё не доверен: STAGING_VERIFY_TLS_INSECURE=1
 #
 # Опционально (после cold-split / нескольких шардов):
-#   STAGING_VERIFY_EXPECT_CELL_IDS="cell_0_0_0,cell_-1_-1_1" — все эти id должны быть в list
-#   STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1;500,-500,cell_1_-1_1" — точка x,z → ожидаемый id
+#   STAGING_VERIFY_EXPECT_CELL_IDS="cell_root,cell_q0" — все эти id должны быть в list
+#   STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_q0;500,-500,cell_q1" — точка x,z → ожидаемый id
 # Перед проверкой убрать runtime child-соты от cell-controller (иначе «34 pod» после split-e2e):
 #   STAGING_VERIFY_RESET_AUTO_CELLS=1  (default: 0 — не трогать кластер)
-# Post-handoff Redis (если в каталоге есть cell_-1_-1_1): проверка mmoctl split-retire-state
-#   STAGING_VERIFY_POST_HANDOFF_STATE=0 — отключить; STAGING_VERIFY_SPLIT_PARENT — parent id (default cell_0_0_0)
+# Post-handoff Redis (если в каталоге есть cell_q0): проверка mmoctl split-retire-state
+#   STAGING_VERIFY_POST_HANDOFF_STATE=0 — отключить; STAGING_VERIFY_SPLIT_PARENT — parent id (default cell_root)
 set -euo pipefail
 
 NS="${K8S_NAMESPACE:-mmo}"
@@ -98,7 +98,7 @@ echo "== mmoctl migration-dry-run (опционально) / export-npc-persist 
 # С ноутбука это не работает без резолва *.svc — варианты:
 #   STAGING_VERIFY_MIGRATION_DRY_RUN=1        — go run mmoctl на хосте (если cell gRPC с хоста доступен)
 #   STAGING_VERIFY_MIGRATION_DRY_RUN=incluster — kubectl exec deploy/grid-manager -- /mmoctl (нужен образ с /mmoctl)
-MIGRATE_CELL="${STAGING_VERIFY_MIGRATE_CELL:-cell_0_0_0}"
+MIGRATE_CELL="${STAGING_VERIFY_MIGRATE_CELL:-cell_root}"
 MDR="${STAGING_VERIFY_MIGRATION_DRY_RUN:-0}"
 if [ "$MDR" = "incluster" ] || [ "$MDR" = "cluster" ] || [ "$MDR" = "k8s" ]; then
   if echo "$CATALOG_PREVIEW" | grep -qE "^${MIGRATE_CELL}[[:space:]]"; then
@@ -153,9 +153,9 @@ RESOLVE_OUT="$(go run ./cmd/mmoctl -registry "127.0.0.1:${GM_PORT}" resolve -500
 echo "$RESOLVE_OUT"
 # Если в кластере зарегистрирована дочерняя сота из PlanSplit (обычно runtime-create через cell-controller),
 # точка (-500,-500) должна резолвиться в неё, а не в родителя level=0.
-if echo "$LIST_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
-  if ! echo "$RESOLVE_OUT" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
-    echo "B2 staging: в каталоге есть cell_-1_-1_1, но resolve (-500,-500) не вернул её" >&2
+if echo "$LIST_OUT" | grep -qE '^cell_q0[[:space:]]'; then
+  if ! echo "$RESOLVE_OUT" | grep -qE '^cell_q0[[:space:]]'; then
+    echo "B2 staging: в каталоге есть cell_q0, но resolve (-500,-500) не вернул её" >&2
     echo "list:" >&2
     echo "$LIST_OUT" >&2
     exit 1
@@ -166,9 +166,9 @@ else
 fi
 
 if [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = 1 ] || [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = true ]; then
-  if echo "$CATALOG_PREVIEW" | grep -qE '^cell_-1_-1_1[[:space:]]'; then
-    SPLIT_PARENT="${STAGING_VERIFY_SPLIT_PARENT:-cell_0_0_0}"
-    echo "== split-retire-state (${SPLIT_PARENT}, in-cluster; обнаружена runtime child cell_-1_-1_1) =="
+  if echo "$CATALOG_PREVIEW" | grep -qE '^cell_q0[[:space:]]'; then
+    SPLIT_PARENT="${STAGING_VERIFY_SPLIT_PARENT:-cell_root}"
+    echo "== split-retire-state (${SPLIT_PARENT}, in-cluster; обнаружена runtime child cell_q0) =="
     RS="$(kubectl -n "$NS" exec deploy/grid-manager -- /mmoctl split-retire-state "$SPLIT_PARENT" 2>/dev/null || true)"
     echo "$RS"
     if ! echo "$RS" | grep -qE '"phase"[[:space:]]*:[[:space:]]*"automation_complete"'; then
@@ -178,7 +178,7 @@ if [ "${STAGING_VERIFY_POST_HANDOFF_STATE:-1}" = 1 ] || [ "${STAGING_VERIFY_POST
     fi
     echo "OK: post-handoff retire_state automation_complete"
   else
-    echo "== split-retire-state: пропуск (нет cell_-1_-1_1 в каталоге — типичный primary-only staging) =="
+    echo "== split-retire-state: пропуск (нет cell_q0 в каталоге — типичный primary-only staging) =="
   fi
 fi
 

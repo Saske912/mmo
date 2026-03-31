@@ -9,7 +9,7 @@ set -euo pipefail
 NS="${NAMESPACE:-mmo}"
 GRID_DEPLOY="${GRID_DEPLOY:-grid-manager}"
 REGISTRY_PORT="${REGISTRY_PORT:-9100}"
-PARENT_CELL="${MERGE_PARENT_CELL_ID:-cell_0_0_0}"
+PARENT_CELL="${MERGE_PARENT_CELL_ID:-cell_root}"
 PLAYER_PREFIX="${PLAYER_PREFIX:-merge-live}"
 PLAYER_COUNT="${PLAYER_COUNT:-2}"
 ENABLE_HANDOFF_MAX="${MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS:-16}"
@@ -82,24 +82,45 @@ if ! ensure_parent_ready "$PARENT_CELL" "$PARENT_EP"; then
 fi
 
 NEXT_LEVEL=$((PARENT_LEVEL + 1))
-CHILD_IDS=("cell_-1_-1_${NEXT_LEVEL}" "cell_1_-1_${NEXT_LEVEL}" "cell_-1_1_${NEXT_LEVEL}" "cell_1_1_${NEXT_LEVEL}")
-for cid in "${CHILD_IDS[@]}"; do
-  if ! printf '%s\n' "$LIST" | grep -q "^${cid} "; then
-    echo "ERROR: expected child ${cid} not found in catalog for parent level ${PARENT_LEVEL}" >&2
-    if [[ "$AUTO_PREPARE_SPLIT" == "1" || "$AUTO_PREPARE_SPLIT" == "true" ]]; then
-      echo "== child missing, running split smoke bootstrap =="
-      bash scripts/grid-auto-split-e2e.sh
-      LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list)"
-      echo "$LIST"
-      if ! printf '%s\n' "$LIST" | grep -q "^${cid} "; then
-        echo "ERROR: child ${cid} still missing after split bootstrap" >&2
-        exit 1
-      fi
-    else
-      exit 1
-    fi
+collect_children_for_parent() {
+  local list_data="$1" parent_id="$2" next_level="$3" prefix
+  if [[ "$parent_id" == "cell_root" ]]; then
+    prefix="cell_q"
+  else
+    prefix="${parent_id}_q"
   fi
-done
+  printf '%s\n' "$list_data" | awk -v lvl="$next_level" -v pref="$prefix" '
+    {
+      id=$1
+      level_ok=0
+      for(i=1;i<=NF;i++){
+        if($i ~ /^level=/){
+          sub(/^level=/,"",$i)
+          if (($i+0)==lvl) level_ok=1
+          break
+        }
+      }
+      if(level_ok && index(id, pref)==1){
+        print id
+      }
+    }
+  ' | sort -u
+}
+mapfile -t CHILD_IDS < <(collect_children_for_parent "$LIST" "$PARENT_CELL" "$NEXT_LEVEL")
+if [[ "${#CHILD_IDS[@]}" -ne 4 ]]; then
+  echo "WARN: expected 4 children for ${PARENT_CELL} on level ${NEXT_LEVEL}, got ${#CHILD_IDS[@]}" >&2
+  if [[ "$AUTO_PREPARE_SPLIT" == "1" || "$AUTO_PREPARE_SPLIT" == "true" ]]; then
+    echo "== running split smoke bootstrap =="
+    bash scripts/grid-auto-split-e2e.sh
+    LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.0.1:${REGISTRY_PORT}" list)"
+    echo "$LIST"
+    mapfile -t CHILD_IDS < <(collect_children_for_parent "$LIST" "$PARENT_CELL" "$NEXT_LEVEL")
+  fi
+fi
+if [[ "${#CHILD_IDS[@]}" -ne 4 ]]; then
+  echo "ERROR: need exactly 4 children for ${PARENT_CELL} on level ${NEXT_LEVEL}; got ${#CHILD_IDS[@]}" >&2
+  exit 1
+fi
 CHILD_CSV="$(IFS=,; echo "${CHILD_IDS[*]}")"
 SOURCE_CHILD="${CHILD_IDS[0]}"
 SOURCE_EP="$(printf '%s\n' "$LIST" | awk -v id="$SOURCE_CHILD" '$1==id{for(i=1;i<=NF;i++) if($i ~ /^endpoint=/){sub(/^endpoint=/,"",$i); print $i; exit}}')"

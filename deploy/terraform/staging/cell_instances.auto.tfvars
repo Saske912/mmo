@@ -2,7 +2,7 @@
 # Child-соты для split materialize через cell-controller runtime-path.
 cell_instances = {
   primary = {
-    id    = "cell_0_0_0"
+    id    = "cell_root"
     level = 0
     xmin  = -1000
     xmax  = 1000

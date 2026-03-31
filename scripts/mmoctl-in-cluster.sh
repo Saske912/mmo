@@ -6,8 +6,8 @@
 #
 # Примеры:
 #   ./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 list
-#   ./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 migration-dry-run cell_0_0_0
-#   ./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 forward-update cell_0_0_0 export-npc-persist smoke
+#   ./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 migration-dry-run cell_root
+#   ./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 forward-update cell_root export-npc-persist smoke
 #
 set -euo pipefail
 NS="${K8S_NAMESPACE:-mmo}"

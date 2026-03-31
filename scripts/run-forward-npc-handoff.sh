@@ -3,7 +3,7 @@
 # Требует: KUBECONFIG, kubectl, grid-manager с /mmoctl ИЛИ локальный mmoctl + registry:9100 на localhost.
 #
 # Примеры:
-#   PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET=handoff-$(date +%s) bash scripts/run-forward-npc-handoff.sh
+#   PARENT=cell_root CHILD=cell_q0 TICKET=handoff-$(date +%s) bash scripts/run-forward-npc-handoff.sh
 #   REGISTRY=127.0.0.1:9100 PARENT=... CHILD=... ...  — явный registry
 set -euo pipefail
 

@@ -100,7 +100,7 @@ variable "cell_instances" {
 EOT
   default = {
     primary = {
-      id    = "cell_0_0_0"
+      id    = "cell_root"
       level = 0
       xmin  = -1000
       xmax  = 1000

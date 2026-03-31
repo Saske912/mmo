@@ -10,7 +10,7 @@ import (
 
 func TestAgentServiceRoundTrip(t *testing.T) {
 	spec := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           "cell_root",
 		Level:        1,
 		GrpcEndpoint: "127.0.0.1:5005",
 		Bounds:       &cellv1.Bounds{XMin: -100, XMax: 100, ZMin: -50, ZMax: 50},
@@ -42,7 +42,7 @@ func TestAgentServiceRoundTrip(t *testing.T) {
 
 func TestAgentServiceLogicalIDFromMeta(t *testing.T) {
 	spec := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           "cell_root",
 		Level:        0,
 		GrpcEndpoint: "cell.example:50051",
 		Bounds:       &cellv1.Bounds{XMin: -1, XMax: 1, ZMin: -1, ZMax: 1},
@@ -51,7 +51,7 @@ func TestAgentServiceLogicalIDFromMeta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.ID = "cell_0_0_0-my-pod"
+	reg.ID = "cell_root-my-pod"
 	got, err := agentServiceToCellSpec(&api.AgentService{
 		ID:      reg.ID,
 		Service: reg.Name,
@@ -62,7 +62,7 @@ func TestAgentServiceLogicalIDFromMeta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Id != "cell_0_0_0" {
+	if got.Id != "cell_root" {
 		t.Fatalf("logical id: got %q", got.Id)
 	}
 }

@@ -20,7 +20,7 @@ mmoctl plansplit <родитель_host:port>
 Офлайн-сверка по тем же правилам, что и `PlanSplit`, без вызова соты:
 
 ```bash
-mmoctl partition-plan -id cell_0_0_0 -level 0 \
+mmoctl partition-plan -id cell_root -level 0 \
   -xmin -1000 -xmax 1000 -zmin -1000 -zmax 1000
 mmoctl partition-plan ... -format json
 mmoctl partition-plan ... -tfvars-skeleton   # каркас блоков под cell_instances
@@ -82,7 +82,7 @@ cat parent_export.json | mmoctl -registry ... forward-update <child_cell_id> imp
 mmoctl -registry <grid-manager:9100> forward-npc-handoff <parent_cell_id> <child_cell_id> "handoff-ticket"
 ```
 
-Из пода: `./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 forward-npc-handoff cell_0_0_0 cell_-1_-1_1 ticket`.
+Из пода: `./scripts/mmoctl-in-cluster.sh -registry 127.0.0.1:9100 forward-npc-handoff cell_root cell_q0 ticket`.
 
 Операторский **dry-run** (каталог → прямой gRPC списка кандидатов на **cell** + экспорт через registry):
 
@@ -108,12 +108,12 @@ mmoctl -registry <grid-manager:9100> migration-dry-run <cell_id>
 cd backend
 export GATEWAY_PUBLIC_URL=https://<ingress>   # если `tofu output gateway_public_url` не задан
 STAGING_VERIFY_MIGRATION_DRY_RUN=incluster \
-STAGING_VERIFY_EXPECT_CELL_IDS="cell_0_0_0,cell_-1_-1_1" \
-STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_-1_-1_1" \
+STAGING_VERIFY_EXPECT_CELL_IDS="cell_root,cell_q0" \
+STAGING_VERIFY_RESOLVE_CHECKS="-500,-500,cell_q0" \
 STAGING_VERIFY_READYZ_GOOSE_HEADER=1 \
 ./scripts/staging-verify.sh
 
-PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 TICKET="regression-$(date +%s)" MODE=incluster \
+PARENT=cell_root CHILD=cell_q0 TICKET="regression-$(date +%s)" MODE=incluster \
   ./scripts/run-forward-npc-handoff.sh
 ```
 

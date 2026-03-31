@@ -167,7 +167,7 @@ if ! kubectl -n "$NS" logs "deploy/${CELL_CONTROLLER_DEPLOY}" --since=15m 2>/dev
   exit 1
 fi
 
-PARENT_CELL="${GRID_SPLIT_PARENT_CELL_ID:-cell_0_0_0}"
+PARENT_CELL="${GRID_SPLIT_PARENT_CELL_ID:-cell_root}"
 echo "== verify Redis retire_state phase=automation_complete for ${PARENT_CELL} =="
 RETIRE_JSON="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl split-retire-state "$PARENT_CELL" 2>/dev/null || echo "{}")"
 if ! echo "$RETIRE_JSON" | grep -qE '"phase"[[:space:]]*:[[:space:]]*"automation_complete"'; then

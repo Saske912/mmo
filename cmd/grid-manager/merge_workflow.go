@@ -424,7 +424,11 @@ func (r *mergeWorkflowRuntime) verifyResolveToParent(ctx context.Context, parent
 	if !ok || parent == nil || parent.GetBounds() == nil {
 		return fmt.Errorf("parent missing after topology switch")
 	}
-	for _, ch := range partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel()) {
+	children, err := partition.ChildSpecsForSplit(parentCellID, parent.GetBounds(), parent.GetLevel())
+	if err != nil {
+		return err
+	}
+	for _, ch := range children {
 		b := ch.GetBounds()
 		cx := (b.GetXMin() + b.GetXMax()) / 2
 		cz := (b.GetZMin() + b.GetZMax()) / 2

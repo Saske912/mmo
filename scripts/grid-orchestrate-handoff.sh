@@ -8,9 +8,9 @@
 # Скрипт намеренно не меняет Terraform tfvars: infra-шаг остаётся явным и контролируемым.
 #
 # Примеры:
-#   REGISTRY=127.0.0.1:9100 PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 bash scripts/grid-orchestrate-handoff.sh
+#   REGISTRY=127.0.0.1:9100 PARENT=cell_root CHILD=cell_q0 bash scripts/grid-orchestrate-handoff.sh
 #   EXECUTE=1 REGISTRY=127.0.0.1:9100 PARENT=... CHILD=... bash scripts/grid-orchestrate-handoff.sh
-#   EXECUTE=1 MODE=incluster PARENT=cell_0_0_0 CHILD=cell_-1_-1_1 bash scripts/grid-orchestrate-handoff.sh
+#   EXECUTE=1 MODE=incluster PARENT=cell_root CHILD=cell_q0 bash scripts/grid-orchestrate-handoff.sh
 #
 set -euo pipefail
 

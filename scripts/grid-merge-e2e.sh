@@ -8,7 +8,7 @@ set -euo pipefail
 NS="${NAMESPACE:-mmo}"
 GRID_DEPLOY="${GRID_DEPLOY:-grid-manager}"
 REGISTRY_PORT="${REGISTRY_PORT:-9100}"
-PARENT_CELL="${MERGE_PARENT_CELL_ID:-cell_0_0_0}"
+PARENT_CELL="${MERGE_PARENT_CELL_ID:-cell_root}"
 METRICS_LOCAL_PORT="${METRICS_LOCAL_PORT:-19095}"
 METRICS_REMOTE_PORT="${GRID_METRICS_CONTAINER_PORT:-9091}"
 PF_PID=""
@@ -31,7 +31,7 @@ LIST="$(kubectl -n "$NS" exec "deploy/$GRID_DEPLOY" -- /mmoctl -registry "127.0.
 echo "$LIST"
 
 mapfile -t CHILD_IDS < <(printf '%s\n' "$LIST" | awk '
-  / level=1 / && $1 != "cell_0_0_0" { print $1 }
+  / level=1 / && $1 != "cell_root" { print $1 }
 ')
 if [[ "${#CHILD_IDS[@]}" -lt 4 ]]; then
   echo "ERROR: need at least 4 level=1 child cells in catalog; got ${#CHILD_IDS[@]}" >&2

@@ -471,7 +471,10 @@ func (s *Server) Update(ctx context.Context, req *cellv1.UpdateRequest) (*cellv1
 		if s.Bounds == nil {
 			return &cellv1.UpdateResponse{Ok: false, Message: "no bounds on cell server"}, nil
 		}
-		children := partition.ChildSpecsForSplit(s.Bounds, s.Level)
+		children, err := partition.ChildSpecsForSplit(s.CellID, s.Bounds, s.Level)
+		if err != nil {
+			return &cellv1.UpdateResponse{Ok: false, Message: "split_prepare invalid parent id: " + err.Error()}, nil
+		}
 		reason := ""
 		if p.SplitPrepare != nil {
 			reason = strings.TrimSpace(p.SplitPrepare.GetReason())
@@ -584,7 +587,11 @@ func (s *Server) PlanSplit(_ context.Context, _ *cellv1.PlanSplitRequest) (*cell
 	if s.Bounds == nil {
 		return nil, status.Error(codes.FailedPrecondition, "no bounds on cell server")
 	}
-	return &cellv1.PlanSplitResponse{Children: partition.ChildSpecsForSplit(s.Bounds, s.Level)}, nil
+	children, err := partition.ChildSpecsForSplit(s.CellID, s.Bounds, s.Level)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "invalid parent id: %v", err)
+	}
+	return &cellv1.PlanSplitResponse{Children: children}, nil
 }
 
 // ListMigrationCandidates перечисляет живые сущности с позицией для планирования переноса между сотами.

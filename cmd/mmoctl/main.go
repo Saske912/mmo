@@ -124,7 +124,7 @@ func usage() {
 
 func runPartitionPlan(args []string) {
 	fs := flag.NewFlagSet("partition-plan", flag.ExitOnError)
-	id := fs.String("id", "", "parent cell id (для подписи в выводе)")
+	id := fs.String("id", partition.RootCellID(), "parent cell id")
 	level := fs.Int("level", 0, "parent subdivision level")
 	xmin := fs.Float64("xmin", 0, "parent bounds")
 	xmax := fs.Float64("xmax", 0, "")
@@ -138,7 +138,11 @@ func runPartitionPlan(args []string) {
 		log.Fatal("partition-plan: нужны xmin < xmax и zmin < zmax")
 	}
 	b := &cellv1.Bounds{XMin: *xmin, XMax: *xmax, ZMin: *zmin, ZMax: *zmax}
-	children := partition.ChildSpecsForSplit(b, int32(*level))
+	parentID := strings.TrimSpace(*id)
+	children, err := partition.ChildSpecsForSplit(parentID, b, int32(*level))
+	if err != nil {
+		log.Fatalf("partition-plan: invalid parent id: %v", err)
+	}
 	if len(children) != 4 {
 		log.Fatal("partition-plan: внутренняя ошибка — не 4 ребёнка")
 	}

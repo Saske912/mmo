@@ -14,13 +14,13 @@ func TestResolveMostSpecific_childWinsInSWQuadrant(t *testing.T) {
 	cat := NewMemoryCatalog(registry.NewMemory())
 
 	parent := &cellv1.CellSpec{
-		Id:           "cell_0_0_0",
+		Id:           "cell_root",
 		Level:        0,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		GrpcEndpoint: "parent:50051",
 	}
 	childSW := &cellv1.CellSpec{
-		Id:           "cell_-1_-1_1",
+		Id:           "cell_q0",
 		Level:        1,
 		Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 0, ZMin: -1000, ZMax: 0},
 		GrpcEndpoint: "child-sw:50051",
@@ -36,8 +36,8 @@ func TestResolveMostSpecific_childWinsInSWQuadrant(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("resolve SW: ok=%v err=%v", ok, err)
 	}
-	if got.Id != "cell_-1_-1_1" || got.Level != 1 {
-		t.Fatalf("SW quadrant: got id=%s level=%d want cell_-1_-1_1 level=1", got.Id, got.Level)
+	if got.Id != "cell_q0" || got.Level != 1 {
+		t.Fatalf("SW quadrant: got id=%s level=%d want cell_q0 level=1", got.Id, got.Level)
 	}
 
 	// NE квадрант покрывает только родитель (дочерняя не зарегистрирована).
@@ -45,7 +45,7 @@ func TestResolveMostSpecific_childWinsInSWQuadrant(t *testing.T) {
 	if err != nil || !okNE {
 		t.Fatalf("resolve NE: ok=%v err=%v", okNE, err)
 	}
-	if gotNE.Id != "cell_0_0_0" || gotNE.Level != 0 {
+	if gotNE.Id != "cell_root" || gotNE.Level != 0 {
 		t.Fatalf("NE quadrant: got id=%s level=%d want parent", gotNE.Id, gotNE.Level)
 	}
 }
