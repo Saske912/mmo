@@ -73,6 +73,9 @@ func (c *ConsulCatalog) Deregister(ctx context.Context, serviceID string) error 
 	// #endregion
 	err := c.client.Agent().ServiceDeregister(serviceID)
 	if err != nil {
+		if isConsulUnknownServiceID(err) {
+			return nil
+		}
 		// #region agent log
 		agentDebugLogConsul("run-merge-deregister", "H2", "internal/discovery/consul.go:79", "consul agent deregister error", map[string]any{
 			"service_id": serviceID,
@@ -125,6 +128,10 @@ func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID
 		})
 		// #endregion
 		if derr := c.client.Agent().ServiceDeregister(svcID); derr != nil {
+			if isConsulUnknownServiceID(derr) {
+				removed++
+				continue
+			}
 			if firstErr == nil {
 				firstErr = derr
 			}
@@ -135,10 +142,20 @@ func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID
 	if removed == 0 && firstErr == nil {
 		// Fallback: для memory-like поведения, если serviceID совпадает с logical id.
 		if derr := c.client.Agent().ServiceDeregister(logicalCellID); derr != nil {
+			if isConsulUnknownServiceID(derr) {
+				return nil
+			}
 			return derr
 		}
 	}
 	return firstErr
+}
+
+func isConsulUnknownServiceID(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "unknown service id")
 }
 
 func agentDebugLogConsul(runID, hypothesisID, location, message string, data map[string]any) {
