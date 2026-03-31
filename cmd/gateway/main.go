@@ -947,10 +947,8 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		<-streamDone
 		ds := session.downstream()
 		if ds != nil {
-			lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_, _ = ds.client.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID})
-			lcancel()
-			_ = ds.conn.Close()
+			g.leaveDownstream(context.Background(), ds, playerID, "disconnect", "")
+			g.closeDownstreamConn(ds, "disconnect")
 			if g.db != nil && ds.cellID != "" {
 				px, pz := session.positionOr(rx, rz)
 				uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1000,10 +998,11 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 					streamCancel()
 					<-streamDone
 					old := current
+					g.leaveDownstream(ctx, old, playerID, "switch_old", nextDS.cellID)
 					session.setDownstream(nextDS)
 					streamCtx, streamCancel = context.WithCancel(ctx)
 					streamDone = g.streamDeltasToWS(streamCtx, nextDS, conn, session)
-					_ = old.conn.Close()
+					g.closeDownstreamConn(old, "switch_old")
 					if g.db != nil {
 						px, pz := session.positionOr(rx, rz)
 						uctx, ucancel := context.WithTimeout(ctx, 2*time.Second)
@@ -1137,6 +1136,47 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 		return nil, false, err
 	}
 	return next, true, nil
+}
+
+func (g *gateway) leaveDownstream(ctx context.Context, ds *gatewayDownstream, playerID, phase, nextCellID string) {
+	if ds == nil {
+		return
+	}
+	lctx, lcancel := context.WithTimeout(ctx, 3*time.Second)
+	defer lcancel()
+	resp, err := ds.client.Leave(lctx, &cellv1.LeaveRequest{PlayerId: playerID})
+	result := "ok"
+	switch {
+	case err != nil:
+		result = "rpc_error"
+	case resp == nil:
+		result = "empty_response"
+	case !resp.GetOk():
+		result = "not_ok"
+	}
+	gatewayCellLeaveTotal.WithLabelValues(phase, result).Inc()
+	if result != "ok" {
+		slog.WarnContext(ctx, "gateway_downstream_leave_failed",
+			"phase", phase,
+			"player_id", playerID,
+			"cell_id", ds.cellID,
+			"next_cell_id", nextCellID,
+			"result", result,
+			"err", err,
+		)
+	}
+}
+
+func (g *gateway) closeDownstreamConn(ds *gatewayDownstream, phase string) {
+	if ds == nil || ds.conn == nil {
+		return
+	}
+	if err := ds.conn.Close(); err != nil {
+		gatewayDownstreamCloseTotal.WithLabelValues(phase, "error").Inc()
+		slog.Warn("gateway_downstream_close_failed", "phase", phase, "cell_id", ds.cellID, "err", err)
+		return
+	}
+	gatewayDownstreamCloseTotal.WithLabelValues(phase, "ok").Inc()
 }
 
 func shouldSwitchDownstreamOnTransport(err error) bool {
