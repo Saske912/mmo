@@ -91,10 +91,55 @@ func boundsEqual(a, b *cellv1.Bounds) bool {
 	return a.XMin == b.XMin && a.XMax == b.XMax && a.ZMin == b.ZMin && a.ZMax == b.ZMax
 }
 
+// CatalogMergeChildren находит в каталоге ровно четыре дочерние соты уровня parent.Level+1,
+// bounds которых совпадают с SplitFour(parent.Bounds). Порядок результата — квадранты 0..3.
+func CatalogMergeChildren(parent *cellv1.CellSpec, catalog []*cellv1.CellSpec) ([]*cellv1.CellSpec, error) {
+	if parent == nil || parent.GetBounds() == nil {
+		return nil, fmt.Errorf("parent nil or has no bounds")
+	}
+	wantLevel := parent.GetLevel() + 1
+	quads := SplitFour(parent.GetBounds())
+	out := make([]*cellv1.CellSpec, 4)
+	for qi := range 4 {
+		var match *cellv1.CellSpec
+		for _, c := range catalog {
+			if c == nil || c.GetBounds() == nil {
+				continue
+			}
+			if c.GetLevel() != wantLevel {
+				continue
+			}
+			if !boundsEqual(c.GetBounds(), quads[qi]) {
+				continue
+			}
+			if match != nil && strings.TrimSpace(match.GetId()) != strings.TrimSpace(c.GetId()) {
+				return nil, fmt.Errorf("ambiguous catalog match for merge quadrant %d", qi)
+			}
+			match = c
+		}
+		if match == nil {
+			return nil, fmt.Errorf("missing catalog child for merge quadrant %d", qi)
+		}
+		out[qi] = match
+	}
+	seen := make(map[string]struct{}, 4)
+	for i, c := range out {
+		id := strings.TrimSpace(c.GetId())
+		if id == "" {
+			return nil, fmt.Errorf("empty child id in merge quadrant %d", i)
+		}
+		if _, dup := seen[id]; dup {
+			return nil, fmt.Errorf("duplicate child id %s in merge quadrants", id)
+		}
+		seen[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // ValidateMergeChildren проверяет, что children образуют ровно «обратный split» для parent:
 // - ровно 4 child;
 // - каждый child уровня parentLevel+1;
-// - child IDs и bounds совпадают с ChildSpecsForSplit(parent, parentLevel).
+// - множество bounds совпадает с SplitFour(parent) (порядок в children произвольный).
 func ValidateMergeChildren(parent *cellv1.Bounds, parentLevel int32, children []*cellv1.CellSpec) error {
 	if parent == nil {
 		return fmt.Errorf("parent bounds is nil")
@@ -102,14 +147,9 @@ func ValidateMergeChildren(parent *cellv1.Bounds, parentLevel int32, children []
 	if len(children) != 4 {
 		return fmt.Errorf("need 4 children, got %d", len(children))
 	}
-	expected := ChildSpecsForSplit(parent, parentLevel)
-	expByID := make(map[string]*cellv1.PlanSplitResponseChild, len(expected))
-	for _, e := range expected {
-		if e == nil {
-			continue
-		}
-		expByID[e.GetId()] = e
-	}
+	quads := SplitFour(parent)
+	wantLevel := parentLevel + 1
+	used := [4]bool{}
 	seen := make(map[string]struct{}, 4)
 	for _, c := range children {
 		if c == nil {
@@ -119,24 +159,34 @@ func ValidateMergeChildren(parent *cellv1.Bounds, parentLevel int32, children []
 		if id == "" {
 			return fmt.Errorf("child has empty id")
 		}
-		exp, ok := expByID[id]
-		if !ok {
-			return fmt.Errorf("child id %s is not expected for parent level %d", id, parentLevel)
+		if c.GetLevel() != wantLevel {
+			return fmt.Errorf("child %s level=%d want=%d", id, c.GetLevel(), wantLevel)
 		}
-		if c.GetLevel() != parentLevel+1 {
-			return fmt.Errorf("child %s level=%d want=%d", id, c.GetLevel(), parentLevel+1)
-		}
-		if !boundsEqual(c.GetBounds(), exp.GetBounds()) {
-			return fmt.Errorf("child %s bounds mismatch", id)
+		if c.GetBounds() == nil {
+			return fmt.Errorf("child %s missing bounds", id)
 		}
 		if _, dup := seen[id]; dup {
 			return fmt.Errorf("duplicate child id %s", id)
 		}
 		seen[id] = struct{}{}
+		match := -1
+		for qi := range 4 {
+			if used[qi] {
+				continue
+			}
+			if boundsEqual(c.GetBounds(), quads[qi]) {
+				match = qi
+				break
+			}
+		}
+		if match < 0 {
+			return fmt.Errorf("child %s bounds do not match any merge quadrant", id)
+		}
+		used[match] = true
 	}
-	for id := range expByID {
-		if _, ok := seen[id]; !ok {
-			return fmt.Errorf("missing expected child id %s", id)
+	for qi := range 4 {
+		if !used[qi] {
+			return fmt.Errorf("missing merge quadrant %d", qi)
 		}
 	}
 	return nil

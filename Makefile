@@ -1,4 +1,4 @@
-.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke split-e2e-smoke merge-e2e-smoke merge-auto-e2e-smoke full-cycle-e2e-smoke
+.PHONY: proto unity-proto build test print-image-tag print-harbor-image-ref consul-smoke infra-smoke staging-verify load-smoke verify-readyz-goose staging-image-tfvars staging-tofu-validate docker-build kind-load harbor-login harbor-push tofu-init tofu-plan tofu-apply deploy-staging goose-migrate-job web3-indexer-ingest-smoke split-e2e-smoke merge-e2e-smoke merge-live-players-e2e-smoke merge-auto-e2e-smoke full-cycle-e2e-smoke
 
 # harbor-login и др. рецепты используют bash (подстановки ${var//…}, [[ … ]]).
 SHELL := /bin/bash
@@ -167,6 +167,9 @@ split-e2e-smoke:
 
 merge-e2e-smoke:
 	bash scripts/grid-merge-e2e.sh
+
+merge-live-players-e2e-smoke:
+	bash scripts/grid-merge-live-players-e2e.sh
 
 # Auto merge workflow smoke: handoff + metric + Redis automation marker.
 merge-auto-e2e-smoke:

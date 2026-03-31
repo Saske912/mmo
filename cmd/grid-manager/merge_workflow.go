@@ -52,6 +52,8 @@ type mergeWorkflowConfig struct {
 	initialBackoff time.Duration
 	maxBackoff     time.Duration
 	blockedParents map[string]struct{}
+	playerHandoff  bool
+	maxPlayersMove int
 }
 
 type mergeWorkflowRuntime struct {
@@ -83,6 +85,8 @@ func parseMergeWorkflowConfig() mergeWorkflowConfig {
 		initialBackoff: 1 * time.Second,
 		maxBackoff:     10 * time.Second,
 		blockedParents: parseCellIDSet(os.Getenv("MMO_GRID_MERGE_WORKFLOW_BLOCKLIST")),
+		playerHandoff:  envBool("MMO_GRID_MERGE_PLAYER_HANDOFF"),
+		maxPlayersMove: 32,
 	}
 	if n := parseIntWithDefault(os.Getenv("MMO_GRID_MERGE_WORKFLOW_MAX_RETRIES"), cfg.maxRetries); n >= 1 {
 		cfg.maxRetries = n
@@ -92,6 +96,9 @@ func parseMergeWorkflowConfig() mergeWorkflowConfig {
 	}
 	if d := parseDurationWithDefault(os.Getenv("MMO_GRID_MERGE_WORKFLOW_MAX_BACKOFF"), cfg.maxBackoff); d > 0 {
 		cfg.maxBackoff = d
+	}
+	if n := parseIntWithDefault(os.Getenv("MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS"), cfg.maxPlayersMove); n > 0 {
+		cfg.maxPlayersMove = n
 	}
 	return cfg
 }
@@ -221,8 +228,20 @@ func (r *mergeWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		Children:     childrenCSV,
 		AtUnixMs:     time.Now().UnixMilli(),
 	})
-	if err := r.preflightGroup(ctx, parent, childIDs); err != nil {
+	childPlayers, err := r.preflightGroup(ctx, parent, childIDs)
+	if err != nil {
 		return err
+	}
+	if r.cfg.playerHandoff && childPlayers > 0 {
+		r.publish(mergeWorkflowEvent{
+			ParentCellID: parentCellID,
+			Stage:        "player_handoffs_running",
+			Attempt:      attempt,
+			Message:      fmt.Sprintf("player handoff enabled; expected players=%d", childPlayers),
+			Children:     childrenCSV,
+			AtUnixMs:     time.Now().UnixMilli(),
+			Attrs:        map[string]string{"expected_player_count": fmt.Sprintf("%d", childPlayers)},
+		})
 	}
 	if err := r.setSplitDrain(ctx, parentCellID, true); err != nil {
 		return fmt.Errorf("set parent split_drain true: %w", err)
@@ -230,8 +249,24 @@ func (r *mergeWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 	defer func() {
 		_ = r.setSplitDrain(context.Background(), parentCellID, false)
 	}()
-	if err := r.forwardMerge(ctx, parentCellID, childIDs, fmt.Sprintf("auto-merge-attempt-%d", attempt)); err != nil {
+	resp, err := r.forwardMerge(ctx, parentCellID, childIDs, fmt.Sprintf("auto-merge-attempt-%d", attempt))
+	if err != nil {
 		return err
+	}
+	if r.cfg.playerHandoff && childPlayers > 0 {
+		r.publish(mergeWorkflowEvent{
+			ParentCellID: parentCellID,
+			Stage:        "player_handoffs_done",
+			Attempt:      attempt,
+			Message:      "player handoffs completed",
+			Children:     childrenCSV,
+			AtUnixMs:     time.Now().UnixMilli(),
+			Successful:   true,
+			Attrs: map[string]string{
+				"expected_player_count": fmt.Sprintf("%d", childPlayers),
+				"registry_message":      resp.GetMessage(),
+			},
+		})
 	}
 	r.publish(mergeWorkflowEvent{
 		ParentCellID: parentCellID,
@@ -245,7 +280,7 @@ func (r *mergeWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 	if err := r.switchTopologyAndTeardown(ctx, parentCellID, childIDs); err != nil {
 		return err
 	}
-	return r.saveAutomationState(ctx, parentCellID, childIDs)
+	return r.saveAutomationState(ctx, parentCellID, childIDs, childPlayers)
 }
 
 func (r *mergeWorkflowRuntime) planMergeGroup(ctx context.Context, parentCellID string) (*cellv1.CellSpec, []string, string, error) {
@@ -256,67 +291,57 @@ func (r *mergeWorkflowRuntime) planMergeGroup(ctx context.Context, parentCellID 
 	if !ok || parent == nil || parent.GetBounds() == nil {
 		return nil, nil, "", fmt.Errorf("parent not found or invalid: %s", parentCellID)
 	}
-	exp := partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
-	if len(exp) != 4 {
-		return nil, nil, "", fmt.Errorf("expected 4 merge children, got %d", len(exp))
-	}
 	cells, err := r.cat.List(ctx)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	specByID := make(map[string]*cellv1.CellSpec, len(cells))
-	for _, c := range cells {
-		if c == nil {
-			continue
-		}
-		specByID[strings.TrimSpace(c.GetId())] = c
+	resolved, err := partition.CatalogMergeChildren(parent, cells)
+	if err != nil {
+		return nil, nil, "", err
 	}
 	childIDs := make([]string, 0, 4)
-	for _, ch := range exp {
-		id := strings.TrimSpace(ch.GetId())
-		spec := specByID[id]
-		if spec == nil || spec.GetBounds() == nil {
-			return nil, nil, "", fmt.Errorf("child missing in catalog: %s", id)
-		}
-		if spec.GetLevel() != parent.GetLevel()+1 {
-			return nil, nil, "", fmt.Errorf("child level mismatch: %s", id)
-		}
-		childIDs = append(childIDs, id)
+	for _, spec := range resolved {
+		childIDs = append(childIDs, strings.TrimSpace(spec.GetId()))
 	}
 	return parent, childIDs, strings.Join(childIDs, ","), nil
 }
 
-func (r *mergeWorkflowRuntime) preflightGroup(ctx context.Context, parent *cellv1.CellSpec, childIDs []string) error {
+func (r *mergeWorkflowRuntime) preflightGroup(ctx context.Context, parent *cellv1.CellSpec, childIDs []string) (int, error) {
 	parentPing, err := pingCellStats(ctx, parent.GetGrpcEndpoint())
 	if err != nil {
-		return fmt.Errorf("parent ping failed: %w", err)
+		return 0, fmt.Errorf("parent ping failed: %w", err)
 	}
 	if parentPing.players > 0 {
-		return fmt.Errorf("parent has active players: %d", parentPing.players)
+		return 0, fmt.Errorf("parent has active players: %d", parentPing.players)
 	}
+	childPlayers := 0
 	for _, childID := range childIDs {
 		spec, ok, err := discovery.FindCellByID(ctx, r.cat, childID)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if !ok || spec == nil {
-			return fmt.Errorf("child missing: %s", childID)
+			return 0, fmt.Errorf("child missing: %s", childID)
 		}
 		ping, err := pingCellStats(ctx, spec.GetGrpcEndpoint())
 		if err != nil {
-			return fmt.Errorf("child ping failed %s: %w", childID, err)
+			return 0, fmt.Errorf("child ping failed %s: %w", childID, err)
 		}
-		if ping.players > 0 {
-			return fmt.Errorf("child %s has active players: %d", childID, ping.players)
+		childPlayers += ping.players
+		if !r.cfg.playerHandoff && ping.players > 0 {
+			return 0, fmt.Errorf("child %s has active players: %d", childID, ping.players)
 		}
 	}
-	return nil
+	if r.cfg.playerHandoff && r.cfg.maxPlayersMove > 0 && childPlayers > r.cfg.maxPlayersMove {
+		return 0, fmt.Errorf("merge player handoff guard: child players %d > max %d", childPlayers, r.cfg.maxPlayersMove)
+	}
+	return childPlayers, nil
 }
 
-func (r *mergeWorkflowRuntime) forwardMerge(ctx context.Context, parentCellID string, childIDs []string, reason string) error {
+func (r *mergeWorkflowRuntime) forwardMerge(ctx context.Context, parentCellID string, childIDs []string, reason string) (*cellv1.ForwardMergeHandoffResponse, error) {
 	conn, err := grpc.NewClient(r.cfg.registryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -328,17 +353,30 @@ func (r *mergeWorkflowRuntime) forwardMerge(ctx context.Context, parentCellID st
 		Reason:       reason,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !resp.GetOk() {
-		return fmt.Errorf("forward merge not ok: %s", resp.GetMessage())
+		return nil, fmt.Errorf("forward merge not ok: %s", resp.GetMessage())
 	}
-	return nil
+	return resp, nil
 }
 
 func (r *mergeWorkflowRuntime) switchTopologyAndTeardown(ctx context.Context, parentCellID string, childIDs []string) error {
 	for _, childID := range childIDs {
+		// #region agent log
+		agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:343", "merge workflow deregister child start", map[string]any{
+			"parent_cell_id": parentCellID,
+			"child_cell_id":  childID,
+		})
+		// #endregion
 		if err := discovery.DeregisterLogicalCell(ctx, r.cat, childID); err != nil {
+			// #region agent log
+			agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:350", "merge workflow deregister child error", map[string]any{
+				"parent_cell_id": parentCellID,
+				"child_cell_id":  childID,
+				"error":          err.Error(),
+			})
+			// #endregion
 			return fmt.Errorf("deregister child %s: %w", childID, err)
 		}
 	}
@@ -356,6 +394,13 @@ func (r *mergeWorkflowRuntime) switchTopologyAndTeardown(ctx context.Context, pa
 			if err != nil {
 				continue
 			}
+			// #region agent log
+			agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:372", "merge workflow publish runtime delete", map[string]any{
+				"parent_cell_id": parentCellID,
+				"child_cell_id":  childID,
+				"subject":        natsbus.SubjectCellControl,
+			})
+			// #endregion
 			_ = r.nats.Publish(natsbus.SubjectCellControl, raw)
 		}
 		_ = r.nats.FlushTimeout(400 * time.Millisecond)
@@ -397,7 +442,7 @@ func (r *mergeWorkflowRuntime) verifyResolveToParent(ctx context.Context, parent
 	return nil
 }
 
-func (r *mergeWorkflowRuntime) saveAutomationState(ctx context.Context, parentCellID string, childIDs []string) error {
+func (r *mergeWorkflowRuntime) saveAutomationState(ctx context.Context, parentCellID string, childIDs []string, movedPlayers int) error {
 	if r.store == nil {
 		return nil
 	}
@@ -407,6 +452,8 @@ func (r *mergeWorkflowRuntime) saveAutomationState(ctx context.Context, parentCe
 		"removed_children":        childIDs,
 		"topology_switched":       true,
 		"runtime_teardown_queued": true,
+		"player_handoff_enabled":  r.cfg.playerHandoff,
+		"player_handoff_count":    movedPlayers,
 		"at_unix_ms":              time.Now().UnixMilli(),
 	}
 	raw, err := json.Marshal(state)
@@ -477,4 +524,25 @@ func pingCellStats(ctx context.Context, endpoint string) (pingStats, error) {
 		players:  int(resp.GetPlayerCount()),
 		entities: int(resp.GetEntityCount()),
 	}, nil
+}
+
+func agentDebugLogMerge(runID, hypothesisID, location, message string, data map[string]any) {
+	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	entry := map[string]any{
+		"runId":        runID,
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(b, '\n'))
 }

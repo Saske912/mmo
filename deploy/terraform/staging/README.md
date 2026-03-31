@@ -32,6 +32,11 @@
 
 Для auto merge workflow (scale-in): **`MMO_GRID_AUTO_MERGE_WORKFLOW=true`** и при необходимости **`MMO_GRID_MERGE_*`** (длительность low-load, cooldown, пороги нагрузки группы — см. [`docs/cells-migration-workflow.md`](../../docs/cells-migration-workflow.md)). Текущие значения в [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars) совпадают с дефолтами в `cell_load_policy` в коде.
 
+Для live handoff игроков при merge (child → parent):
+- **`MMO_GRID_MERGE_PLAYER_HANDOFF=true`** — разрешить merge при игроках на children и запускать handoff;
+- **`MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS=<N>`** — guardrail по максимуму игроков в merge-окне;
+- для smoke-проверки: `make merge-live-players-e2e-smoke`.
+
 ## Web3 indexer
 
 По умолчанию **`web3_indexer_enabled = true`**: Deployment `web3-indexer` и Service **`mmo-web3-indexer`** (HTTP, ingest). Переменные см. в `variables.tf` (`web3_indexer_http_port`, `web3_indexer_chain_id`, `web3_indexer_extra_env`, **`web3_indexer_ingest_api_key`**, **`web3_indexer_ingest_hmac_secret`**). Пример секретов без коммита: [`web3_indexer.auto.tfvars.example`](web3_indexer.auto.tfvars.example). Документация: [`docs/web3-indexer.md`](../../docs/web3-indexer.md).

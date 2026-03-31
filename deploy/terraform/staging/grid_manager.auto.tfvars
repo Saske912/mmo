@@ -9,8 +9,8 @@ grid_manager_extra_env = {
 
   # Auto merge (scale-in) из load policy — см. docs/cells-migration-workflow.md
   MMO_GRID_AUTO_MERGE_WORKFLOW              = "true"
-  MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION      = "3m"
-  MMO_GRID_MERGE_COOLDOWN                   = "6m"
+  MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION      = "1m"
+  MMO_GRID_MERGE_COOLDOWN                   = "2m"
   MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS      = "0"
   MMO_GRID_MERGE_THRESHOLD_MAX_ENTITIES     = "300"
   MMO_GRID_MERGE_THRESHOLD_MAX_TICK_SECONDS = "0.01"

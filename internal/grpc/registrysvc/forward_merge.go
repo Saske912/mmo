@@ -3,6 +3,9 @@ package registrysvc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +70,28 @@ func uniqueCellIDs(in []string) []string {
 	return out
 }
 
+func mergePlayerHandoffEnabled() bool {
+	raw := strings.TrimSpace(os.Getenv("MMO_GRID_MERGE_PLAYER_HANDOFF"))
+	return strings.EqualFold(raw, "1") || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "yes")
+}
+
+func mergePlayerHandoffMaxPlayers() int {
+	raw := strings.TrimSpace(os.Getenv("MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS"))
+	if raw == "" {
+		return 32
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 32
+	}
+	return n
+}
+
+type mergePlayerCandidate struct {
+	childID  string
+	playerID string
+}
+
 func (s *Server) pingPlayerCount(ctx context.Context, cellID string) (int32, error) {
 	spec, ok, err := discovery.FindCellByID(ctx, s.Store, cellID)
 	if err != nil {
@@ -92,7 +117,7 @@ func (s *Server) pingPlayerCount(ctx context.Context, cellID string) (int32, err
 	return res.GetPlayerCount(), nil
 }
 
-func (s *Server) saveMergeAutomationState(ctx context.Context, parentID string, childIDs []string) error {
+func (s *Server) saveMergeAutomationState(ctx context.Context, parentID string, childIDs []string, movedPlayers int, handoffEnabled bool) error {
 	cfg := config.FromEnv()
 	if cfg.RedisAddr == "" {
 		return nil
@@ -109,6 +134,8 @@ func (s *Server) saveMergeAutomationState(ctx context.Context, parentID string, 
 		"removed_children":        childIDs,
 		"topology_switched":       true,
 		"runtime_teardown_queued": true,
+		"player_handoff_enabled":  handoffEnabled,
+		"player_handoff_count":    movedPlayers,
 		"at_unix_ms":              time.Now().UnixMilli(),
 	}
 	raw, err := json.Marshal(state)
@@ -122,6 +149,80 @@ func (s *Server) saveMergeAutomationState(ctx context.Context, parentID string, 
 		return status.Errorf(codes.Unavailable, "redis merge state: %v", err)
 	}
 	return nil
+}
+
+func (s *Server) listMergePlayerCandidates(ctx context.Context, childID string) ([]mergePlayerCandidate, error) {
+	conn, cl, _, err := s.dialCellClient(ctx, childID)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	resp, err := cl.ListMigrationCandidates(cctx, &cellv1.ListMigrationCandidatesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mergePlayerCandidate, 0, len(resp.GetCandidates()))
+	for _, cand := range resp.GetCandidates() {
+		if cand == nil || !cand.GetIsPlayer() {
+			continue
+		}
+		pid := strings.TrimSpace(cand.GetPlayerId())
+		if pid == "" {
+			continue
+		}
+		out = append(out, mergePlayerCandidate{childID: childID, playerID: pid})
+	}
+	return out, nil
+}
+
+func (s *Server) runMergePlayerHandoffs(ctx context.Context, parentID string, childIDs []string, reason string) (int, error) {
+	candidates := make([]mergePlayerCandidate, 0, 16)
+	for _, childID := range childIDs {
+		cands, err := s.listMergePlayerCandidates(ctx, childID)
+		if err != nil {
+			return 0, err
+		}
+		candidates = append(candidates, cands...)
+	}
+	if len(candidates) == 0 {
+		return 0, nil
+	}
+	s.publishMergeWorkflowEvent(mergeWorkflowEvent{
+		ParentCellID: parentID,
+		Stage:        "player_handoffs_running",
+		Message:      fmt.Sprintf("player handoffs started: %d", len(candidates)),
+		AtUnixMs:     time.Now().UnixMilli(),
+	})
+	for _, c := range candidates {
+		token := fmt.Sprintf("merge:%s:%s:%d", c.childID, c.playerID, time.Now().UnixNano())
+		_, err := s.ForwardPlayerHandoff(ctx, &cellv1.ForwardPlayerHandoffRequest{
+			ParentCellId: c.childID,
+			ChildCellId:  parentID,
+			PlayerId:     c.playerID,
+			HandoffToken: token,
+			Reason:       reason + "/player_handoff/" + c.childID,
+		})
+		if err != nil {
+			s.publishMergeWorkflowEvent(mergeWorkflowEvent{
+				ParentCellID: parentID,
+				ChildCellID:  c.childID,
+				Stage:        "player_handoff_failed",
+				Message:      err.Error(),
+				AtUnixMs:     time.Now().UnixMilli(),
+			})
+			return 0, err
+		}
+	}
+	s.publishMergeWorkflowEvent(mergeWorkflowEvent{
+		ParentCellID: parentID,
+		Stage:        "player_handoffs_done",
+		Message:      fmt.Sprintf("player handoffs completed: %d", len(candidates)),
+		AtUnixMs:     time.Now().UnixMilli(),
+		Successful:   true,
+	})
+	return len(candidates), nil
 }
 
 // ForwardMergeHandoff экспортирует NPC со списка child и импортирует объединённый persist в parent.
@@ -176,6 +277,8 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 
 	hctx, cancel := context.WithTimeout(ctx, forwardMergeHandoffTimeout)
 	defer cancel()
+	playerHandoffEnabled := mergePlayerHandoffEnabled()
+	playerHandoffMax := mergePlayerHandoffMaxPlayers()
 	parentSpec, ok, err := discovery.FindCellByID(hctx, s.Store, parentID)
 	if err != nil {
 		incRPC("ForwardMergeHandoff", err)
@@ -188,21 +291,33 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 		return nil, e
 	}
-	children := make([]*cellv1.CellSpec, 0, len(childIDs))
-	for _, cid := range childIDs {
-		cs, found, ferr := discovery.FindCellByID(hctx, s.Store, cid)
-		if ferr != nil {
-			incRPC("ForwardMergeHandoff", ferr)
-			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
-			return nil, status.Error(codes.Unavailable, ferr.Error())
-		}
-		if !found || cs == nil {
-			e := status.Errorf(codes.NotFound, "child not found: %s", cid)
+	allCells, lerr := s.Store.List(hctx)
+	if lerr != nil {
+		incRPC("ForwardMergeHandoff", lerr)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		return nil, status.Error(codes.Unavailable, lerr.Error())
+	}
+	children, err := partition.CatalogMergeChildren(parentSpec, allCells)
+	if err != nil {
+		e := status.Errorf(codes.FailedPrecondition, "merge children resolve: %v", err)
+		incRPC("ForwardMergeHandoff", e)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		return nil, e
+	}
+	resolvedSet := make(map[string]struct{}, len(children))
+	orderedChildIDs := make([]string, 0, len(children))
+	for _, ch := range children {
+		id := strings.TrimSpace(ch.GetId())
+		resolvedSet[id] = struct{}{}
+		orderedChildIDs = append(orderedChildIDs, id)
+	}
+	for _, id := range childIDs {
+		if _, ok := resolvedSet[id]; !ok {
+			e := status.Errorf(codes.InvalidArgument, "child_cell_ids mismatch catalog merge quadrants: %s", id)
 			incRPC("ForwardMergeHandoff", e)
 			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 			return nil, e
 		}
-		children = append(children, cs)
 	}
 	if err := partition.ValidateMergeChildren(parentSpec.GetBounds(), parentSpec.GetLevel(), children); err != nil {
 		e := status.Errorf(codes.FailedPrecondition, "merge geometry invalid: %v", err)
@@ -222,19 +337,27 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 		return nil, e
 	}
-	for _, cid := range childIDs {
+	totalChildPlayers := 0
+	for _, cid := range orderedChildIDs {
 		players, err := s.pingPlayerCount(hctx, cid)
 		if err != nil {
 			incRPC("ForwardMergeHandoff", err)
 			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 			return nil, err
 		}
-		if players > 0 {
+		totalChildPlayers += int(players)
+		if !playerHandoffEnabled && players > 0 {
 			e := status.Errorf(codes.FailedPrecondition, "merge blocked: child %s has active players=%d", cid, players)
 			incRPC("ForwardMergeHandoff", e)
 			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 			return nil, e
 		}
+	}
+	if playerHandoffEnabled && playerHandoffMax > 0 && totalChildPlayers > playerHandoffMax {
+		e := status.Errorf(codes.FailedPrecondition, "merge player handoff blocked: active players=%d > max=%d", totalChildPlayers, playerHandoffMax)
+		incRPC("ForwardMergeHandoff", e)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		return nil, e
 	}
 
 	// Parent также переводим в drain на merge-окно.
@@ -252,7 +375,7 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 	}()
 
 	// Включаем drain на child и гарантируем best-effort rollback.
-	for _, cid := range childIDs {
+	for _, cid := range orderedChildIDs {
 		_, _ = s.doForwardCellUpdate(hctx, cid, &cellv1.UpdateRequest{
 			Payload: &cellv1.UpdateRequest_SetSplitDrain{
 				SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: true},
@@ -267,7 +390,7 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		})
 	}
 	defer func() {
-		for _, cid := range childIDs {
+		for _, cid := range orderedChildIDs {
 			_, _ = s.doForwardCellUpdate(context.Background(), cid, &cellv1.UpdateRequest{
 				Payload: &cellv1.UpdateRequest_SetSplitDrain{
 					SetSplitDrain: &cellv1.CellUpdateSetSplitDrain{Enabled: false},
@@ -278,7 +401,7 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 
 	merged := &gamev1.CellPersist{SchemaVersion: snapshot.SchemaVersion}
 	totalNPC := 0
-	for _, cid := range childIDs {
+	for _, cid := range orderedChildIDs {
 		exp, err := s.doForwardCellUpdate(hctx, cid, &cellv1.UpdateRequest{
 			Payload: &cellv1.UpdateRequest_ExportNpcPersist{
 				ExportNpcPersist: &cellv1.CellUpdateExportNpcPersist{Reason: reason + "/export/" + cid},
@@ -342,7 +465,17 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: e.Error(), AtUnixMs: time.Now().UnixMilli()})
 		return nil, e
 	}
-	if err := s.saveMergeAutomationState(hctx, parentID, childIDs); err != nil {
+	movedPlayers := 0
+	if playerHandoffEnabled && totalChildPlayers > 0 {
+		movedPlayers, err = s.runMergePlayerHandoffs(hctx, parentID, orderedChildIDs, reason)
+		if err != nil {
+			incRPC("ForwardMergeHandoff", err)
+			mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+			s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: err.Error(), AtUnixMs: time.Now().UnixMilli()})
+			return nil, err
+		}
+	}
+	if err := s.saveMergeAutomationState(hctx, parentID, orderedChildIDs, movedPlayers, playerHandoffEnabled); err != nil {
 		incRPC("ForwardMergeHandoff", err)
 		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
 		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: err.Error(), AtUnixMs: time.Now().UnixMilli()})
@@ -357,11 +490,11 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		AtUnixMs:     time.Now().UnixMilli(),
 		Successful:   true,
 	})
-	logOpDone("ForwardMergeHandoff", "parent_cell_id", parentID, "child_count", len(childIDs), "npc_entities", totalNPC)
+	logOpDone("ForwardMergeHandoff", "parent_cell_id", parentID, "child_count", len(orderedChildIDs), "npc_entities", totalNPC, "moved_players", movedPlayers)
 	return &cellv1.ForwardMergeHandoffResponse{
 		Ok:             true,
-		Message:        "merge handoff ok: children exported and parent imported",
-		ChildCount:     int32(len(childIDs)),
+		Message:        fmt.Sprintf("merge handoff ok: children exported/imported, moved_players=%d", movedPlayers),
+		ChildCount:     int32(len(orderedChildIDs)),
 		NpcEntityCount: int32(totalNPC),
 	}, nil
 }

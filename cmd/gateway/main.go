@@ -100,6 +100,9 @@ func main() {
 		resolveX:     *resX,
 		resolveZ:     *resZ,
 		db:           pgPool,
+		allowCellIDMismatch: strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "1") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "true") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "yes"),
 	}
 
 	mux := http.NewServeMux()
@@ -124,11 +127,12 @@ func main() {
 }
 
 type gateway struct {
-	registryAddr string
-	jwtSecret    []byte
-	resolveX     float64
-	resolveZ     float64
-	db           *pgxpool.Pool
+	registryAddr        string
+	jwtSecret           []byte
+	resolveX            float64
+	resolveZ            float64
+	db                  *pgxpool.Pool
+	allowCellIDMismatch bool
 }
 
 type gatewayDownstream struct {
@@ -819,25 +823,33 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		if rerr != nil {
 			log.Printf("ws handoff check: %v", rerr)
 		} else if rec != nil && cellID != "" && rec.CellID != "" && rec.CellID != cellID {
-			gatewayCellHandoffMismatch.Inc()
-			w.Header().Set("X-MMO-Last-Cell-Id", rec.CellID)
-			w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":   "cell_handoff_required",
-				"message": "last_cell in DB does not match registry resolve for this session; update resolve in POST /v1/session (or GET /v1/me/resolve-preview), then reconnect WebSocket",
-				"last_cell": map[string]any{
-					"cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
-				},
-				"resolved": map[string]any{
-					"cell_id": cellID, "grpc_endpoint": ep,
-				},
-				"session_resolve_x": rx,
-				"session_resolve_z": rz,
-				"hint":              "Prefer coordinates from last_cell or from resolved cell for the desired shard; JWT mmo_rx/mmo_rz must match before /v1/ws",
-			})
-			return
+			if g.allowCellIDMismatch {
+				slog.WarnContext(ctx, "ws_cell_id_mismatch_allowed",
+					"player_id", playerID,
+					"last_cell_id", rec.CellID,
+					"resolved_cell_id", cellID,
+				)
+			} else {
+				gatewayCellHandoffMismatch.Inc()
+				w.Header().Set("X-MMO-Last-Cell-Id", rec.CellID)
+				w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error":   "cell_handoff_required",
+					"message": "last_cell in DB does not match registry resolve for this session; update resolve in POST /v1/session (or GET /v1/me/resolve-preview), then reconnect WebSocket",
+					"last_cell": map[string]any{
+						"cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
+					},
+					"resolved": map[string]any{
+						"cell_id": cellID, "grpc_endpoint": ep,
+					},
+					"session_resolve_x": rx,
+					"session_resolve_z": rz,
+					"hint":              "Prefer coordinates from last_cell or from resolved cell for the desired shard; JWT mmo_rx/mmo_rz must match before /v1/ws",
+				})
+				return
+			}
 		}
 	}
 

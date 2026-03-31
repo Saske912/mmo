@@ -132,3 +132,82 @@ func TestValidateMergeChildren_BadBounds(t *testing.T) {
 		t.Fatal("expected error for bounds mismatch")
 	}
 }
+
+func TestValidateMergeChildren_PermutedIDs(t *testing.T) {
+	parent := &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000}
+	ch := ChildSpecsForSplit(parent, 0)
+	in := []*cellv1.CellSpec{
+		{Id: ch[1].GetId(), Level: ch[1].GetLevel(), Bounds: ch[0].GetBounds()},
+		{Id: ch[0].GetId(), Level: ch[0].GetLevel(), Bounds: ch[1].GetBounds()},
+		{Id: ch[2].GetId(), Level: ch[2].GetLevel(), Bounds: ch[2].GetBounds()},
+		{Id: ch[3].GetId(), Level: ch[3].GetLevel(), Bounds: ch[3].GetBounds()},
+	}
+	if err := ValidateMergeChildren(parent, 0, in); err != nil {
+		t.Fatalf("permuted ids with valid bounds should pass: %v", err)
+	}
+}
+
+func TestCatalogMergeChildren_OK(t *testing.T) {
+	parent := &cellv1.CellSpec{
+		Id:     "cell_0_0_0",
+		Level:  0,
+		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+	}
+	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	catalog := make([]*cellv1.CellSpec, 0, len(ch))
+	for _, c := range ch {
+		catalog = append(catalog, &cellv1.CellSpec{
+			Id:     c.GetId(),
+			Level:  c.GetLevel(),
+			Bounds: c.GetBounds(),
+		})
+	}
+	got, err := CatalogMergeChildren(parent, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("len=%d", len(got))
+	}
+	for i := range 4 {
+		if !boundsEqual(got[i].GetBounds(), ch[i].GetBounds()) {
+			t.Fatalf("quadrant %d mismatch", i)
+		}
+	}
+}
+
+func TestCatalogMergeChildren_MissingQuadrant(t *testing.T) {
+	parent := &cellv1.CellSpec{
+		Id:     "cell_0_0_0",
+		Level:  0,
+		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+	}
+	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	catalog := []*cellv1.CellSpec{
+		{Id: ch[0].GetId(), Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},
+		{Id: ch[1].GetId(), Level: ch[1].GetLevel(), Bounds: ch[1].GetBounds()},
+		{Id: ch[2].GetId(), Level: ch[2].GetLevel(), Bounds: ch[2].GetBounds()},
+	}
+	if _, err := CatalogMergeChildren(parent, catalog); err == nil {
+		t.Fatal("expected error for missing quadrant")
+	}
+}
+
+func TestCatalogMergeChildren_AmbiguousBounds(t *testing.T) {
+	parent := &cellv1.CellSpec{
+		Id:     "cell_0_0_0",
+		Level:  0,
+		Bounds: &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+	}
+	ch := ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
+	catalog := []*cellv1.CellSpec{
+		{Id: "dup-a", Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},
+		{Id: "dup-b", Level: ch[0].GetLevel(), Bounds: ch[0].GetBounds()},
+		{Id: ch[1].GetId(), Level: ch[1].GetLevel(), Bounds: ch[1].GetBounds()},
+		{Id: ch[2].GetId(), Level: ch[2].GetLevel(), Bounds: ch[2].GetBounds()},
+		{Id: ch[3].GetId(), Level: ch[3].GetLevel(), Bounds: ch[3].GetBounds()},
+	}
+	if _, err := CatalogMergeChildren(parent, catalog); err == nil {
+		t.Fatal("expected error for ambiguous quadrant bounds")
+	}
+}

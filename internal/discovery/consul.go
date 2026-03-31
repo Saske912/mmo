@@ -2,10 +2,12 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 
@@ -64,7 +66,21 @@ func (c *ConsulCatalog) Deregister(ctx context.Context, serviceID string) error 
 	if serviceID == "" {
 		return fmt.Errorf("empty service id")
 	}
-	return c.client.Agent().ServiceDeregister(serviceID)
+	// #region agent log
+	agentDebugLogConsul("run-merge-deregister", "H2", "internal/discovery/consul.go:71", "consul agent deregister call", map[string]any{
+		"service_id": serviceID,
+	})
+	// #endregion
+	err := c.client.Agent().ServiceDeregister(serviceID)
+	if err != nil {
+		// #region agent log
+		agentDebugLogConsul("run-merge-deregister", "H2", "internal/discovery/consul.go:79", "consul agent deregister error", map[string]any{
+			"service_id": serviceID,
+			"error":      err.Error(),
+		})
+		// #endregion
+	}
+	return err
 }
 
 // DeregisterLogicalCell снимает все consul service instances для логического cell_id.
@@ -81,6 +97,12 @@ func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID
 	if err != nil {
 		return err
 	}
+	// #region agent log
+	agentDebugLogConsul("run-merge-deregister", "H4", "internal/discovery/consul.go:97", "consul logical deregister scanned services", map[string]any{
+		"logical_cell_id": logicalCellID,
+		"rows":            len(rows),
+	})
+	// #endregion
 	var firstErr error
 	removed := 0
 	for _, row := range rows {
@@ -95,6 +117,13 @@ func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID
 		if metaID != logicalCellID && svcID != logicalCellID {
 			continue
 		}
+		// #region agent log
+		agentDebugLogConsul("run-merge-deregister", "H4", "internal/discovery/consul.go:117", "consul logical deregister matched service", map[string]any{
+			"logical_cell_id": logicalCellID,
+			"service_id":      svcID,
+			"meta_id":         metaID,
+		})
+		// #endregion
 		if derr := c.client.Agent().ServiceDeregister(svcID); derr != nil {
 			if firstErr == nil {
 				firstErr = derr
@@ -110,6 +139,27 @@ func (c *ConsulCatalog) DeregisterLogicalCell(ctx context.Context, logicalCellID
 		}
 	}
 	return firstErr
+}
+
+func agentDebugLogConsul(runID, hypothesisID, location, message string, data map[string]any) {
+	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	entry := map[string]any{
+		"runId":        runID,
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(b, '\n'))
 }
 
 func (c *ConsulCatalog) List(ctx context.Context) ([]*cellv1.CellSpec, error) {

@@ -51,15 +51,17 @@ var mergePolicyDecisionsTotal = promauto.NewCounterVec(
 )
 
 type loadPolicyConfig struct {
-	minBreachDuration time.Duration
-	cooldown          time.Duration
-	autoSplitDrain    bool
-	autoMergeWorkflow bool
-	mergeLowLoadFor   time.Duration
-	mergeCooldown     time.Duration
-	mergeMaxPlayers   float64
-	mergeMaxEntities  float64
-	mergeMaxTickSec   float64
+	minBreachDuration      time.Duration
+	cooldown               time.Duration
+	autoSplitDrain         bool
+	autoMergeWorkflow      bool
+	mergePlayerHandoff     bool
+	mergeLowLoadFor        time.Duration
+	mergeCooldown          time.Duration
+	mergeMaxPlayers        float64
+	mergeHandoffMaxPlayers float64
+	mergeMaxEntities       float64
+	mergeMaxTickSec        float64
 }
 
 type cellPolicyState struct {
@@ -118,9 +120,11 @@ func parseLoadPolicyConfig() loadPolicyConfig {
 	}
 	cfg.autoSplitDrain = envBool("MMO_GRID_AUTO_SPLIT_DRAIN")
 	cfg.autoMergeWorkflow = envBool("MMO_GRID_AUTO_MERGE_WORKFLOW")
+	cfg.mergePlayerHandoff = envBool("MMO_GRID_MERGE_PLAYER_HANDOFF")
 	cfg.mergeLowLoadFor = parseDurationWithDefault(os.Getenv("MMO_GRID_MERGE_MIN_LOW_LOAD_DURATION"), 3*time.Minute)
 	cfg.mergeCooldown = parseDurationWithDefault(os.Getenv("MMO_GRID_MERGE_COOLDOWN"), 6*time.Minute)
 	cfg.mergeMaxPlayers = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_PLAYERS"), 0)
+	cfg.mergeHandoffMaxPlayers = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS"), 32)
 	cfg.mergeMaxEntities = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_ENTITIES"), 300)
 	cfg.mergeMaxTickSec = parseFloat64WithDefault(os.Getenv("MMO_GRID_MERGE_THRESHOLD_MAX_TICK_SECONDS"), 0.01)
 	return cfg
@@ -272,9 +276,12 @@ func (r *loadPolicyRuntime) observeMergeCandidates(ctx context.Context, cells []
 			continue
 		}
 		seenParent[parentID] = struct{}{}
-		children := partition.ChildSpecsForSplit(parent.GetBounds(), parent.GetLevel())
-		if len(children) != 4 {
-			delete(r.mgState, parentID)
+		children, err := partition.CatalogMergeChildren(parent, cells)
+		if err != nil {
+			st := r.mgState[parentID]
+			st.breachSince = time.Time{}
+			r.mgState[parentID] = st
+			mergePolicyDecisionsTotal.WithLabelValues("skip", parentID, "catalog_merge_children").Inc()
 			continue
 		}
 		low, reason, childrenCSV, aggPlayers, aggEntities := r.mergeGroupLowLoad(cells, specByID, samples, parent.GetLevel(), children)
@@ -337,7 +344,7 @@ func (r *loadPolicyRuntime) mergeGroupLowLoad(
 	specByID map[string]*cellv1.CellSpec,
 	samples map[string]policySample,
 	parentLevel int32,
-	children []*cellv1.PlanSplitResponseChild,
+	children []*cellv1.CellSpec,
 ) (ok bool, reason string, childrenCSV string, playersTotal, entitiesTotal float64) {
 	ids := make([]string, 0, len(children))
 	childLevel := parentLevel + 1
@@ -358,8 +365,12 @@ func (r *loadPolicyRuntime) mergeGroupLowLoad(
 		if !has || !smp.reachable {
 			return false, "child_unreachable", strings.Join(ids, ","), 0, 0
 		}
-		if r.cfg.mergeMaxPlayers >= 0 && smp.players > r.cfg.mergeMaxPlayers {
-			return false, "players_high", strings.Join(ids, ","), 0, 0
+		if !r.cfg.mergePlayerHandoff {
+			if r.cfg.mergeMaxPlayers >= 0 && smp.players > r.cfg.mergeMaxPlayers {
+				return false, "players_high", strings.Join(ids, ","), 0, 0
+			}
+		} else if r.cfg.mergeHandoffMaxPlayers >= 0 && smp.players > r.cfg.mergeHandoffMaxPlayers {
+			return false, "players_high_for_handoff", strings.Join(ids, ","), 0, 0
 		}
 		if r.cfg.mergeMaxEntities >= 0 && smp.entities > r.cfg.mergeMaxEntities {
 			return false, "entities_high", strings.Join(ids, ","), 0, 0
@@ -369,6 +380,9 @@ func (r *loadPolicyRuntime) mergeGroupLowLoad(
 		}
 		playersTotal += smp.players
 		entitiesTotal += smp.entities
+	}
+	if r.cfg.mergePlayerHandoff && r.cfg.mergeHandoffMaxPlayers >= 0 && playersTotal > r.cfg.mergeHandoffMaxPlayers {
+		return false, "players_total_high_for_handoff", strings.Join(ids, ","), 0, 0
 	}
 	for _, c := range cells {
 		if c == nil {
