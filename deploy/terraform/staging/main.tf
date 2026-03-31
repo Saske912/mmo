@@ -621,6 +621,14 @@ resource "kubernetes_deployment" "gateway" {
               value = "true"
             }
           }
+
+          dynamic "env" {
+            for_each = var.gateway_allow_cell_handoff_mismatch ? [1] : []
+            content {
+              name  = "GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH"
+              value = "true"
+            }
+          }
         }
       }
     }

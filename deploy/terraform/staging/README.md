@@ -4,7 +4,7 @@
 
 Переменные из файлов `*.auto.tfvars` (в т.ч. [`grid_manager.auto.tfvars`](grid_manager.auto.tfvars) с **`grid_manager_extra_env`**) попадают в манифесты только после **`tofu apply`** из **этого каталога**.
 
-- **Не полагайтесь** на разовый `kubectl set env deploy/grid-manager …`: при следующем apply Terraform перезапишет env пода из конфига в.git. Если в кластере и в tfvars расходятся — значит apply не делали после коммита или правили кластер вручную.
+- **Не полагайтесь** на разовый `kubectl set env deploy/grid-manager …`: при следующем apply Terraform перезапишет env пода из конфига в.git. Если в кластере и в tfvars расходятся — значит apply не делали после коммита или правили кластер вручную. То же для **`gateway`** и переменных вроде `GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH`; держите их через [`variables.tf`](variables.tf) и `tofu apply`.
 
 ### После изменения `grid_manager.auto.tfvars`
 
@@ -36,6 +36,16 @@
 - **`MMO_GRID_MERGE_PLAYER_HANDOFF=true`** — разрешить merge при игроках на children и запускать handoff;
 - **`MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS=<N>`** — guardrail по максимуму игроков в merge-окне;
 - для smoke-проверки: `make merge-live-players-e2e-smoke`.
+
+Для gateway handoff guard:
+- В Terraform: **`gateway_allow_cell_handoff_mismatch`** ([`variables.tf`](variables.tf), по умолчанию **`true`**) выставляет на поде **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH=true`**. Тогда при расхождении `mmo_player_last_cell` и результата **`ResolvePosition`** для координат сессии gateway **не** возвращает **409** `cell_handoff_required` на **`GET /v1/ws`**, а логирует предупреждение **`ws_cell_id_mismatch_allowed`** и подключает клиента к **resolved** соте (удобно после **merge** к `cell_root`, пока БД ещё содержит id дочерней соты). Для регрессии «строгого» клиентского потока (ожидание 409) задайте **`gateway_allow_cell_handoff_mismatch = false`** и выполните **`tofu apply`**.
+- Проверка в кластере после apply:
+
+  ```bash
+  kubectl -n mmo get deploy gateway -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH
+  ```
+
+- Поведение **gateway** при кратковременных обрывах gRPC к соте (топология/teardown): при ошибках транспорта к текущему downstream выполняется попытка **перерезолва** и переключения сессии на актуальный endpoint (см. `cmd/gateway`). В логах возможны единичные **`apply_input: ... Unavailable`** в момент смены шардов — это не обязательно сбой сессии.
 
 ## Breaking rollout: path-based cell IDs
 

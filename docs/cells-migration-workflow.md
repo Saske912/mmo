@@ -42,7 +42,7 @@
 
 | Область | Что ещё открыто |
 |---------|------------------|
-| **Игроки** | Автоперенос сессии без реконнекта **нет**; есть `GET /v1/me/resolve-preview`, **409** на `/v1/ws` с **JSON** (`cell_handoff_required`, `last_cell` / `resolved`) при расхождении last_cell ↔ resolve — реконнект по [runbook §4](../runbooks/cold-cell-split.md). |
+| **Игроки** | Полный автоперенос без реконнекта — вне scope; **`GET /v1/me/resolve-preview`**. Расхождение **`last_cell`** ↔ **`ResolvePosition`** для JWT: в **строгом** режиме **`GET /v1/ws`** даёт **409** (`cell_handoff_required`, `last_cell` / `resolved`) — клиент обновляет **`POST /v1/session`** с координатами и переподнимает WS ([runbook §4](../runbooks/cold-cell-split.md)). На **staging** по умолчанию включён **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH`** ([Terraform `gateway_allow_cell_handoff_mismatch`](../deploy/terraform/staging/variables.tf)): 409 не отдаётся, в логах **`ws_cell_id_mismatch_allowed`**. При обрыве gRPC к соте gateway может **перерезолвить** и переключить downstream (кратковременные **`apply_input: Unavailable`** в логах при merge/split — ожидаемо). |
 | **Вывод родителя** | Полный вывод из каталога (в т.ч. §5 runbook): graceful shutdown → deregister; при необходимости убрать соту из [`cell_instances.auto.tfvars`](../deploy/terraform/staging/cell_instances.auto.tfvars) и `tofu apply`. |
 | **NPC / миграции** | **`ForwardNpcHandoff`** / **`mmoctl forward-npc-handoff`** — [runbook §6–7](../runbooks/cold-cell-split.md); операторский цикл §7 — выше в этом файле. Репетиция §7 без §5 — см. подраздел выше. |
 
@@ -113,3 +113,29 @@ kubectl -n mmo exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 \
 
 Для смоука с проверкой Redis-маркера:
 - `make merge-auto-e2e-smoke` (включает `MERGE_VERIFY_AUTOMATION_STATE=1`).
+
+**Игроки при auto merge:** `MMO_GRID_MERGE_PLAYER_HANDOFF=true` (и при необходимости `MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS`) — merge не блокируется только из‑за игроков на children; после схлопывания в БД может остаться **stale** `last_cell` с id ребёнка — на staging см. **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH`** в [staging README](../deploy/terraform/staging/README.md).
+
+### Логи и ожидаемый «шум» (staging)
+
+- **grid-manager:** `split workflow: failed` / `ForwardNpcHandoff` с **`import_npc_persist blocked: players connected`** — split/handoff отклонён, пока на целевой соте есть игроки (см. runbook §6), не падение кластера.
+- **gateway:** пачки **`apply_input: ... Unavailable`** / **`SubscribeDeltas recv: ... EOF`** во время teardown/смены endpoint — кратковременно; при стойком росте смотреть каталог и readiness cell-node.
+- **consul:** сообщения вроде **Unknown service ID** при deregister после гонки с control-plane — в коде трактуются как идемпотентный успех (см. `internal/discovery/consul.go`).
+
+Пример отбора в Loki (namespace `mmo`, datasource вашей инсталляции):
+
+```logql
+{namespace="mmo", app="gateway"} |= "apply_input: rpc error"
+```
+
+```logql
+{namespace="mmo", app="grid-manager"} |= "split workflow: failed"
+```
+
+### Латентность ForwardMergeHandoff (staging)
+
+Гистограмма Prometheus **`mmo_grid_registry_rpc_duration_seconds`**, лейбл **`method="ForwardMergeHandoff"`**. В Grafana: дашборд uid **`mmo-grid-rpc-p95`** ([`deploy/observability/grafana-dashboard-grid-rpc-p95-by-method.json`](../deploy/observability/grafana-dashboard-grid-rpc-p95-by-method.json)).
+
+**Наблюдение (staging, март 2026):** во время волн **авто-merge** типичны **p50 порядка субсекунды–1 s**, при этом **p95/p99 могут доходить до нескольких секунд** на отдельных вызовах (глубина пути соты, цепочка gRPC к детям, перенос сущностей/игроков). **Частота вызовов низкая** — на графике в первую очередь виден **хвост** распределения, а не «каждый RPC 5 s». Сверка по факту одного вызова: в Loki у **grid-manager** пары JSON-сообщений **`registry_op_start`** / **`registry_op_done`** с полем **`method":"ForwardMergeHandoff"`** и **`parent_cell_id`**.
+
+**Операционно:** высокий p95 уметь отличать от регрессии **`ForwardCellUpdate`** / **`ResolvePosition`** без контекста; при росте тренда — Loki, при необходимости — разметка стадий внутри handoff или отдельный алерт с порогом под merge. Пункт в чеклисте суперпроекта: [`roadmap-checklist.md`](../../docs/roadmap-checklist.md) → **Мониторинг и observability**.

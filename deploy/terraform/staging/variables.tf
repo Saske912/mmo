@@ -176,6 +176,12 @@ variable "gateway_skip_db_migrations" {
   default     = false
 }
 
+variable "gateway_allow_cell_handoff_mismatch" {
+  type        = bool
+  description = "Если true — env GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH на gateway: при расхождении last_cell и registry resolve не возвращать 409, а продолжать attach по resolved cell."
+  default     = true
+}
+
 variable "harbor_docker_username" {
   type        = string
   description = "Логин Harbor для env секрета приложения и make harbor-login (если непусто — приоритет над outputs.mmo.harbor.docker_login_username)."

@@ -49,6 +49,7 @@ mmoctl -registry <grid-manager:9100> resolve -500 -500
 - Запланируйте окно: отключить клиентов или предупредить о реконнекте.
 - После того как дети в Consul и `resolve` корректен для целевых координат, новые WebSocket-сессии пойдут на правильный endpoint (при согласованных флагах gateway с позицией игрока).
 - Если **`mmo_player_last_cell`** не совпадает с сотой, которую даёт **`ResolvePosition`** для координат из JWT сессии, **`GET /v1/ws`** возвращает **409** с заголовками **`X-MMO-Last-Cell-Id`** / **`X-MMO-Resolved-Cell-Id`** и **JSON-телом** (`error: cell_handoff_required`, поля **`last_cell`**, **`resolved`**, **`session_resolve_x/z`**, **`hint`**) — клиент может вызвать **`POST /v1/session`** с новыми **`resolve_x`/`resolve_z`** и переподнять WebSocket без разбора текста ошибки.
+- **Staging (после merge / path-based id):** если включён **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH=true`** (Terraform: **`gateway_allow_cell_handoff_mismatch`**, см. [deploy/terraform/staging/README.md](../deploy/terraform/staging/README.md)), **409 не выдаётся**: gateway разрешает вход с предупреждением **`ws_cell_id_mismatch_allowed`** и attach к **resolved** соте, пока **`last_cell`** в БД не совпадёт с каталогом (например после выхода из WS и записи актуального `cell_id`).
 
 ## 5. Вывод родителя (cold)
 
@@ -148,9 +149,9 @@ PARENT=cell_root CHILD=cell_q0 TICKET="regression-$(date +%s)" MODE=incluster \
 
 ## Вне этой процедуры
 
-- Live-migrate **игроков** и автоматический redirect в gateway при смене покрытия (сейчас — только реконнект клиента).
+- Полный **live-handoff** игроков без реконнекта по смене покрытия — вне cold-path; тем не менее **gateway** при ошибках транспорта к текущей соте может **перерезолвить** позицию и переключить gRPC downstream на актуальный endpoint (см. `cmd/gateway`), что смягчает краткие обрывы при merge/split.
 - Один Registry RPC `Unregister` для путей без Consul — не требуется, если сота сама снимает регистрацию при shutdown.
-- Scale-in merge/unsplit: отдельный эпик, см. [`adr-merge-unsplit.md`](../docs/adr-merge-unsplit.md).
+- Scale-in merge/unsplit: [`adr-merge-unsplit.md`](../docs/adr-merge-unsplit.md); auto merge и handoff игроков — [`docs/cells-migration-workflow.md`](../docs/cells-migration-workflow.md).
 
 ### Merge handoff smoke (MVP)
 
