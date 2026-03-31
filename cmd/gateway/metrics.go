@@ -52,6 +52,12 @@ var (
 		Name:      "downstream_close_total",
 		Help:      "Downstream gRPC connection closes by phase",
 	}, []string{"phase", "result"})
+	gatewayDownstreamSwitchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "downstream_switch_total",
+		Help:      "Downstream switch attempts by reason and result",
+	}, []string{"reason", "result"})
 
 	// Счётчик: последняя сота в БД не совпала с результатом Registry.ResolvePosition (смена покрытия / handoff).
 	gatewayCellHandoffMismatch = promauto.NewCounter(prometheus.CounterOpts{

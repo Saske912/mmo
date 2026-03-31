@@ -100,6 +100,15 @@ func main() {
 		resolveX:     *resX,
 		resolveZ:     *resZ,
 		db:           pgPool,
+		positionSwitchEnabled: envBoolWithDefault("GATEWAY_POSITION_SWITCH_ENABLED", true),
+		positionSwitchMinInterval: parseDurationWithDefault(
+			os.Getenv("GATEWAY_POSITION_SWITCH_MIN_INTERVAL"),
+			1500*time.Millisecond,
+		),
+		positionSwitchMinMoveMeters: parseFloatWithDefault(
+			os.Getenv("GATEWAY_POSITION_SWITCH_MIN_MOVE_METERS"),
+			0.5,
+		),
 		allowCellIDMismatch: strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "1") ||
 			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "true") ||
 			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "yes"),
@@ -127,12 +136,15 @@ func main() {
 }
 
 type gateway struct {
-	registryAddr        string
-	jwtSecret           []byte
-	resolveX            float64
-	resolveZ            float64
-	db                  *pgxpool.Pool
-	allowCellIDMismatch bool
+	registryAddr                 string
+	jwtSecret                    []byte
+	resolveX                     float64
+	resolveZ                     float64
+	db                           *pgxpool.Pool
+	allowCellIDMismatch          bool
+	positionSwitchEnabled        bool
+	positionSwitchMinInterval    time.Duration
+	positionSwitchMinMoveMeters  float64
 }
 
 type gatewayDownstream struct {
@@ -150,6 +162,10 @@ type gatewaySession struct {
 	lastX    float64
 	lastZ    float64
 	hasPos   bool
+	lastPositionResolveAt time.Time
+	lastResolveX          float64
+	lastResolveZ          float64
+	hasResolvedPos        bool
 }
 
 func (s *gatewaySession) downstream() *gatewayDownstream {
@@ -179,6 +195,36 @@ func (s *gatewaySession) positionOr(fallbackX, fallbackZ float64) (float64, floa
 		return s.lastX, s.lastZ
 	}
 	return fallbackX, fallbackZ
+}
+
+func (s *gatewaySession) position() (float64, float64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastX, s.lastZ, s.hasPos
+}
+
+func (s *gatewaySession) markPositionResolveAttempt(now time.Time, x, z, minMoveMeters float64, minInterval time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasPos {
+		return false
+	}
+	if !s.hasResolvedPos {
+		s.hasResolvedPos = true
+		s.lastResolveX = x
+		s.lastResolveZ = z
+		s.lastPositionResolveAt = now
+		return true
+	}
+	distance := math.Hypot(x-s.lastResolveX, z-s.lastResolveZ)
+	elapsed := now.Sub(s.lastPositionResolveAt)
+	if elapsed < minInterval && distance < minMoveMeters {
+		return false
+	}
+	s.lastResolveX = x
+	s.lastResolveZ = z
+	s.lastPositionResolveAt = now
+	return true
 }
 
 func questAPIMap(q db.PlayerQuestAPIRow) map[string]any {
@@ -977,6 +1023,30 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		if current == nil {
 			return
 		}
+		if g.positionSwitchEnabled {
+			nextDS, switched, serr := g.trySwitchDownstreamByPosition(ctx, tr, reg, session)
+			if serr != nil {
+				gatewayDownstreamSwitchTotal.WithLabelValues("position_resolve", "error").Inc()
+				log.Printf("position switch failed: %v", serr)
+			}
+			if switched && nextDS != nil {
+				gatewayDownstreamSwitchTotal.WithLabelValues("position_resolve", "ok").Inc()
+				streamCtx, streamCancel, streamDone = g.applyDownstreamSwitch(
+					ctx,
+					session,
+					streamCancel,
+					streamDone,
+					conn,
+					current,
+					nextDS,
+					playerID,
+					rx,
+					rz,
+					"switch_position",
+				)
+				continue
+			}
+		}
 		aCtx, acancel := context.WithTimeout(ctx, 2*time.Second)
 		applyStart := time.Now()
 		ares, aerr := current.client.ApplyInput(aCtx, &cellv1.ApplyInputRequest{PlayerId: playerID, Input: &in})
@@ -992,25 +1062,24 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			if shouldTrySwitch {
 				nextDS, switched, serr := g.trySwitchDownstream(ctx, tr, reg, session, rx, rz)
 				if serr != nil {
+					gatewayDownstreamSwitchTotal.WithLabelValues("apply_input_error", "error").Inc()
 					log.Printf("handoff switch failed: %v", serr)
 				}
 				if switched && nextDS != nil {
-					streamCancel()
-					<-streamDone
-					old := current
-					g.leaveDownstream(ctx, old, playerID, "switch_old", nextDS.cellID)
-					session.setDownstream(nextDS)
-					streamCtx, streamCancel = context.WithCancel(ctx)
-					streamDone = g.streamDeltasToWS(streamCtx, nextDS, conn, session)
-					g.closeDownstreamConn(old, "switch_old")
-					if g.db != nil {
-						px, pz := session.positionOr(rx, rz)
-						uctx, ucancel := context.WithTimeout(ctx, 2*time.Second)
-						if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, nextDS.cellID, px, pz); uerr != nil {
-							log.Printf("last_cell persist switch: %v", uerr)
-						}
-						ucancel()
-					}
+					gatewayDownstreamSwitchTotal.WithLabelValues("apply_input_error", "ok").Inc()
+					streamCtx, streamCancel, streamDone = g.applyDownstreamSwitch(
+						ctx,
+						session,
+						streamCancel,
+						streamDone,
+						conn,
+						current,
+						nextDS,
+						playerID,
+						rx,
+						rz,
+						"switch_old",
+					)
 					continue
 				}
 			}
@@ -1138,6 +1207,78 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	return next, true, nil
 }
 
+func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tracer, reg cellv1.RegistryClient, session *gatewaySession) (*gatewayDownstream, bool, error) {
+	cur := session.downstream()
+	if cur == nil {
+		return nil, false, nil
+	}
+	px, pz, hasPos := session.position()
+	if !hasPos {
+		return nil, false, nil
+	}
+	now := time.Now()
+	if !session.markPositionResolveAttempt(now, px, pz, g.positionSwitchMinMoveMeters, g.positionSwitchMinInterval) {
+		return nil, false, nil
+	}
+	rctx, rspan := tr.Start(ctx, "Registry.ResolvePosition.ProactiveSwitch")
+	res, err := reg.ResolvePosition(rctx, &cellv1.ResolvePositionRequest{X: px, Z: pz})
+	rspan.End()
+	if err != nil {
+		return nil, false, err
+	}
+	if !res.GetFound() || res.GetCell() == nil || strings.TrimSpace(res.GetCell().GetGrpcEndpoint()) == "" {
+		return nil, false, fmt.Errorf("proactive resolve switch target not found")
+	}
+	nextCell := res.GetCell()
+	if nextCell.GetId() == cur.cellID {
+		return nil, false, nil
+	}
+	slog.InfoContext(ctx,
+		"gateway_position_switch_candidate",
+		"player_id", session.playerID,
+		"from_cell_id", cur.cellID,
+		"to_cell_id", nextCell.GetId(),
+		"x", px,
+		"z", pz,
+	)
+	next, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	if err != nil {
+		return nil, false, err
+	}
+	return next, true, nil
+}
+
+func (g *gateway) applyDownstreamSwitch(
+	ctx context.Context,
+	session *gatewaySession,
+	streamCancel context.CancelFunc,
+	streamDone <-chan struct{},
+	conn *websocket.Conn,
+	old *gatewayDownstream,
+	next *gatewayDownstream,
+	playerID string,
+	rx float64,
+	rz float64,
+	phase string,
+) (context.Context, context.CancelFunc, <-chan struct{}) {
+	streamCancel()
+	<-streamDone
+	g.leaveDownstream(ctx, old, playerID, phase, next.cellID)
+	session.setDownstream(next)
+	nextStreamCtx, nextStreamCancel := context.WithCancel(ctx)
+	nextStreamDone := g.streamDeltasToWS(nextStreamCtx, next, conn, session)
+	g.closeDownstreamConn(old, phase)
+	if g.db != nil {
+		px, pz := session.positionOr(rx, rz)
+		uctx, ucancel := context.WithTimeout(ctx, 2*time.Second)
+		if uerr := db.UpsertPlayerLastCell(uctx, g.db, playerID, next.cellID, px, pz); uerr != nil {
+			log.Printf("last_cell persist switch: %v", uerr)
+		}
+		ucancel()
+	}
+	return nextStreamCtx, nextStreamCancel, nextStreamDone
+}
+
 func (g *gateway) leaveDownstream(ctx context.Context, ds *gatewayDownstream, playerID, phase, nextCellID string) {
 	if ds == nil {
 		return
@@ -1191,4 +1332,38 @@ func shouldSwitchDownstreamOnTransport(err error) bool {
 		strings.Contains(msg, "connection refused") ||
 		strings.Contains(msg, "connection error") ||
 		strings.Contains(msg, "i/o timeout")
+}
+
+func envBoolWithDefault(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	return strings.EqualFold(raw, "1") ||
+		strings.EqualFold(raw, "true") ||
+		strings.EqualFold(raw, "yes")
+}
+
+func parseDurationWithDefault(raw string, fallback time.Duration) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		return fallback
+	}
+	return d
+}
+
+func parseFloatWithDefault(raw string, fallback float64) float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
 }
