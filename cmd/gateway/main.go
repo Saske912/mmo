@@ -675,11 +675,16 @@ func (g *gateway) resolvePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resolvedForJSON := res.Cell
+	if resolvedForJSON != nil && resolvedForJSON.GetBounds() == nil && strings.TrimSpace(resolvedForJSON.GetId()) != "" {
+		eCtx, eCancel := context.WithTimeout(r.Context(), 3*time.Second)
+		resolvedForJSON = enrichCellSpecBoundsFromRegistryList(eCtx, reg, resolvedForJSON)
+		eCancel()
+	}
+
 	out := map[string]any{"resolve_x": rx, "resolve_z": rz}
-	if res != nil && res.Found && res.Cell != nil && res.Cell.GrpcEndpoint != "" {
-		out["resolved"] = map[string]any{
-			"found": true, "cell_id": res.Cell.GetId(), "grpc_endpoint": res.Cell.GrpcEndpoint,
-		}
+	if res != nil && res.Found && resolvedForJSON != nil && resolvedForJSON.GetGrpcEndpoint() != "" {
+		out["resolved"] = resolvedCellJSON(resolvedForJSON)
 	} else {
 		out["resolved"] = map[string]any{"found": false}
 	}
@@ -696,8 +701,8 @@ func (g *gateway) resolvePreview(w http.ResponseWriter, r *http.Request) {
 				"found": true, "cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
 			}
 			resolvedID := ""
-			if res != nil && res.Found && res.Cell != nil {
-				resolvedID = res.Cell.GetId()
+			if res != nil && res.Found && resolvedForJSON != nil {
+				resolvedID = resolvedForJSON.GetId()
 			}
 			if resolvedID != "" && rec.CellID != "" && resolvedID != rec.CellID {
 				cellMismatch = true
@@ -760,6 +765,65 @@ func bearerOrQueryToken(r *http.Request) string {
 	return r.URL.Query().Get("token")
 }
 
+// enrichCellSpecBoundsFromRegistryList подставляет bounds из ListCells, если ResolvePosition
+// вернул CellSpec без границ (старый билд registry, особенности gRPC/Consul-парсера и т.п.).
+func enrichCellSpecBoundsFromRegistryList(ctx context.Context, reg cellv1.RegistryClient, cell *cellv1.CellSpec) *cellv1.CellSpec {
+	if cell == nil || cell.GetBounds() != nil {
+		return cell
+	}
+	id := strings.TrimSpace(cell.GetId())
+	if id == "" {
+		return cell
+	}
+	list, err := reg.ListCells(ctx, &cellv1.ListCellsRequest{})
+	if err != nil {
+		slog.Debug("gateway enrich bounds: ListCells failed", "cell_id", id, "err", err)
+		return cell
+	}
+	if list == nil {
+		return cell
+	}
+	for _, c := range list.Cells {
+		if c == nil || strings.TrimSpace(c.GetId()) != id || c.GetBounds() == nil {
+			continue
+		}
+		out := proto.Clone(cell).(*cellv1.CellSpec)
+		out.Bounds = proto.Clone(c.GetBounds()).(*cellv1.Bounds)
+		slog.Debug("gateway enrich bounds: ok from ListCells", "cell_id", id)
+		return out
+	}
+	return cell
+}
+
+// boundsToJSON сериализует границы соты (XZ) для ответов /v1/me/resolve-preview и 409 /v1/ws.
+func boundsToJSON(b *cellv1.Bounds) map[string]any {
+	if b == nil {
+		return nil
+	}
+	return map[string]any{
+		"x_min": b.GetXMin(),
+		"x_max": b.GetXMax(),
+		"z_min": b.GetZMin(),
+		"z_max": b.GetZMax(),
+	}
+}
+
+func resolvedCellJSON(cell *cellv1.CellSpec) map[string]any {
+	if cell == nil {
+		return map[string]any{"found": false}
+	}
+	if cell.GetGrpcEndpoint() == "" {
+		return map[string]any{"found": false}
+	}
+	out := map[string]any{
+		"found": true, "cell_id": cell.GetId(), "grpc_endpoint": cell.GetGrpcEndpoint(),
+	}
+	if bj := boundsToJSON(cell.GetBounds()); bj != nil {
+		out["bounds"] = bj
+	}
+	return out
+}
+
 func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	tokenStr := r.URL.Query().Get("token")
 	if tokenStr == "" {
@@ -812,8 +876,14 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no cell for resolve position", http.StatusServiceUnavailable)
 		return
 	}
-	ep := res.Cell.GrpcEndpoint
-	cellID := res.Cell.GetId()
+	cellResolved := res.Cell
+	if cellResolved.GetBounds() == nil && strings.TrimSpace(cellResolved.GetId()) != "" {
+		bCtx, bCancel := context.WithTimeout(ctx, 3*time.Second)
+		cellResolved = enrichCellSpecBoundsFromRegistryList(bCtx, reg, cellResolved)
+		bCancel()
+	}
+	ep := cellResolved.GetGrpcEndpoint()
+	cellID := cellResolved.GetId()
 	slog.InfoContext(rctx, "registry_resolve_ok", "cell_id", cellID, "grpc_endpoint", ep)
 
 	if g.db != nil {
@@ -835,15 +905,14 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-MMO-Resolved-Cell-Id", cellID)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(http.StatusConflict)
+				resolved409 := resolvedCellJSON(cellResolved)
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"error":   "cell_handoff_required",
 					"message": "last_cell in DB does not match registry resolve for this session; update resolve in POST /v1/session (or GET /v1/me/resolve-preview), then reconnect WebSocket",
 					"last_cell": map[string]any{
 						"cell_id": rec.CellID, "resolve_x": rec.ResolveX, "resolve_z": rec.ResolveZ,
 					},
-					"resolved": map[string]any{
-						"cell_id": cellID, "grpc_endpoint": ep,
-					},
+					"resolved":          resolved409,
 					"session_resolve_x": rx,
 					"session_resolve_z": rz,
 					"hint":              "Prefer coordinates from last_cell or from resolved cell for the desired shard; JWT mmo_rx/mmo_rz must match before /v1/ws",
