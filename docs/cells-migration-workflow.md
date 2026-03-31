@@ -114,7 +114,7 @@ kubectl -n mmo exec deploy/grid-manager -- /mmoctl -registry 127.0.0.1:9100 \
 Для смоука с проверкой Redis-маркера:
 - `make merge-auto-e2e-smoke` (включает `MERGE_VERIFY_AUTOMATION_STATE=1`).
 
-**Игроки при auto merge:** `MMO_GRID_MERGE_PLAYER_HANDOFF=true` (и при необходимости `MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS`) — merge не блокируется только из‑за игроков на children; после схлопывания в БД может остаться **stale** `last_cell` с id ребёнка — на staging см. **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH`** в [staging README](../deploy/terraform/staging/README.md).
+**Игроки при auto merge:** `MMO_GRID_MERGE_PLAYER_HANDOFF=true` (и при необходимости `MMO_GRID_MERGE_PLAYER_HANDOFF_MAX_PLAYERS`) — merge не блокируется только из‑за игроков на children; при этом инвариант merge остаётся строгим: на parent к моменту merge должно быть `Ping.player_count == 0`, иначе workflow блокируется. После схлопывания в БД может остаться **stale** `last_cell` с id ребёнка — на staging см. **`GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH`** в [staging README](../deploy/terraform/staging/README.md).
 
 ### Логи и ожидаемый «шум» (staging)
 

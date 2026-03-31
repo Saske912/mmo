@@ -327,6 +327,25 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 	if err != nil {
 		return fmt.Errorf("list player migration candidates: %w", err)
 	}
+	parentStatsBeforeHandoff, err := r.pingParentStats(ctx, parentCellID)
+	if err != nil {
+		return fmt.Errorf("ping parent before player handoff: %w", err)
+	}
+	playerCandidatesCount := uniquePlayerCandidatesCount(playerCandidates)
+	if err := validateParentPlayerHandoffReadiness(parentStatsBeforeHandoff.players, playerCandidatesCount); err != nil {
+		r.publish(splitWorkflowEvent{
+			CellID:   parentCellID,
+			Stage:    "player_handoff_preflight_failed",
+			Attempt:  attempt,
+			Message:  err.Error(),
+			AtUnixMs: time.Now().UnixMilli(),
+			Attrs: map[string]string{
+				"parent_player_count":    strconv.Itoa(parentStatsBeforeHandoff.players),
+				"player_candidate_count": strconv.Itoa(playerCandidatesCount),
+			},
+		})
+		return err
+	}
 	if len(playerCandidates) > 0 {
 		readySet := make(map[string]struct{}, len(readyChildren))
 		for _, childID := range readyChildren {
@@ -370,6 +389,25 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 				return fmt.Errorf("player handoff failed for player %s -> child %s: %w", playerID, targetID, err)
 			}
 		}
+	}
+
+	parentStatsAfterPlayerHandoff, err := r.pingParentStats(ctx, parentCellID)
+	if err != nil {
+		return fmt.Errorf("ping parent after player handoff: %w", err)
+	}
+	if parentStatsAfterPlayerHandoff.players > 0 {
+		err := fmt.Errorf("parent still has active players after player handoff: %d", parentStatsAfterPlayerHandoff.players)
+		r.publish(splitWorkflowEvent{
+			CellID:   parentCellID,
+			Stage:    "player_handoff_verify_failed",
+			Attempt:  attempt,
+			Message:  err.Error(),
+			AtUnixMs: time.Now().UnixMilli(),
+			Attrs: map[string]string{
+				"parent_player_count": strconv.Itoa(parentStatsAfterPlayerHandoff.players),
+			},
+		})
+		return err
 	}
 
 	// Политика спринта: multi-child — все handoff обязаны завершиться успешно (без partial-success).
@@ -625,6 +663,49 @@ func (r *splitWorkflowRuntime) listPlayerCandidates(ctx context.Context, parentC
 		out = append(out, cand)
 	}
 	return out, nil
+}
+
+func (r *splitWorkflowRuntime) pingParentStats(ctx context.Context, parentCellID string) (pingStats, error) {
+	parent, ok, err := discovery.FindCellByID(ctx, r.cat, parentCellID)
+	if err != nil {
+		return pingStats{}, err
+	}
+	if !ok || parent == nil {
+		return pingStats{}, fmt.Errorf("parent cell not found: %s", parentCellID)
+	}
+	endpoint := strings.TrimSpace(parent.GetGrpcEndpoint())
+	if endpoint == "" {
+		return pingStats{}, fmt.Errorf("parent cell has empty grpc endpoint: %s", parentCellID)
+	}
+	return pingCellStats(ctx, endpoint)
+}
+
+func uniquePlayerCandidatesCount(candidates []*cellv1.MigrationCandidate) int {
+	unique := make(map[string]struct{}, len(candidates))
+	for _, cand := range candidates {
+		if cand == nil {
+			continue
+		}
+		playerID := strings.TrimSpace(cand.GetPlayerId())
+		if playerID == "" {
+			continue
+		}
+		unique[playerID] = struct{}{}
+	}
+	return len(unique)
+}
+
+func validateParentPlayerHandoffReadiness(parentPlayerCount, playerCandidateCount int) error {
+	if parentPlayerCount <= 0 {
+		return nil
+	}
+	if playerCandidateCount <= 0 {
+		return fmt.Errorf("parent has active players=%d but no player migration candidates", parentPlayerCount)
+	}
+	if playerCandidateCount < parentPlayerCount {
+		return fmt.Errorf("parent has active players=%d but only %d player migration candidates", parentPlayerCount, playerCandidateCount)
+	}
+	return nil
 }
 
 func (r *splitWorkflowRuntime) resolveTargetChildForPlayer(ctx context.Context, x, z float32, readyChildren map[string]struct{}) (string, error) {
