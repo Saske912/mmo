@@ -1229,7 +1229,18 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 		return nil, false, nil
 	}
 	gatewayResolvedCellMismatchTotal.WithLabelValues(metricCellLabel(cur.cellID), metricCellLabel(nextCell.GetId())).Inc()
-	next, _, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	// В split/handoff сценарии обычный Join может создать новую сущность в (0,0,0) (spawned),
+	// что выглядит как телепорт. Для безопасного switch принимаем только already_joined
+	// или полноценный ForwardPlayerHandoff.
+	probe, joinMsg, probeErr := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	if probeErr == nil && joinMsg == "already_joined" {
+		return probe, true, nil
+	}
+	if probeErr == nil && probe != nil {
+		g.leaveDownstream(ctx, probe, session.playerID, "join_probe_not_existing", cur.cellID)
+		g.closeDownstreamConn(probe, "join_probe_not_existing")
+	}
+	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
 		return nil, false, err
 	}

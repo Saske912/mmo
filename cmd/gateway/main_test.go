@@ -179,13 +179,71 @@ func TestTrySwitchDownstreamByPosition_AlreadyOnTargetCellAfterSplitHandoff(t *t
 	session.setPosition(200, 0) // x >= 0 -> cell_q0 в тестовом registry
 
 	g := &gateway{
-		positionSwitchEnabled:         true,
-		positionSwitchMinInterval:     0,
-		positionSwitchMinMoveMeters:   0,
+		positionSwitchEnabled:       true,
+		positionSwitchMinInterval:   0,
+		positionSwitchMinMoveMeters: 0,
 	}
 	nextDS, switched, err := g.trySwitchDownstreamByPosition(ctx, otel.Tracer("test"), regClient, session)
 	if err != nil {
 		t.Fatalf("proactive switch error: %v", err)
+	}
+	if !switched || nextDS == nil {
+		t.Fatalf("expected switched downstream, got switched=%v next=%v", switched, nextDS)
+	}
+	if nextDS.cellID != "cell_q0" {
+		t.Fatalf("expected switch to cell_q0, got %s", nextDS.cellID)
+	}
+	if nextDS.entityID != handoff.GetChildEntityId() {
+		t.Fatalf("entity_id: want %d got %d", handoff.GetChildEntityId(), nextDS.entityID)
+	}
+}
+
+func TestTrySwitchDownstream_AlreadyOnTargetCellAfterSplitHandoff(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	oldClient, oldConn, shutdownOld := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownOld()
+	_, newConn, shutdownNew := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q0",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownNew()
+
+	if _, err := oldClient.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-1"}); err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	regClient, shutdownReg := startTestRegistryServer(t, map[string]string{
+		"cell_q1": oldConn.Target(),
+		"cell_q0": newConn.Target(),
+	})
+	defer shutdownReg()
+
+	handoff, err := regClient.ForwardPlayerHandoff(ctx, &cellv1.ForwardPlayerHandoffRequest{
+		ParentCellId: "cell_q1",
+		ChildCellId:  "cell_q0",
+		PlayerId:     "player-1",
+		HandoffToken: "test-grid-handoff-token-direct",
+		Reason:       "test_split",
+	})
+	if err != nil || handoff == nil || !handoff.GetOk() || handoff.GetChildEntityId() == 0 {
+		t.Fatalf("forward handoff: %+v err=%v", handoff, err)
+	}
+
+	session := &gatewaySession{playerID: "player-1"}
+	session.setDownstream(&gatewayDownstream{
+		cellID: "cell_q1",
+		conn:   oldConn,
+		client: oldClient,
+	})
+	session.setPosition(200, 0)
+
+	g := &gateway{}
+	nextDS, switched, err := g.trySwitchDownstream(ctx, otel.Tracer("test"), regClient, session, 200, 0)
+	if err != nil {
+		t.Fatalf("switch error: %v", err)
 	}
 	if !switched || nextDS == nil {
 		t.Fatalf("expected switched downstream, got switched=%v next=%v", switched, nextDS)
