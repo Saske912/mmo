@@ -167,6 +167,28 @@ func (s *Server) Leave(ctx context.Context, req *cellv1.LeaveRequest) (*cellv1.L
 		delete(s.playerByID, pid)
 		delete(s.players, uint64(e))
 	}
+	// Снять handoff-freeze и полусостояние prepare, иначе после ре-Join тот же player_id
+	// остаётся в frozenByID — ApplyInput всегда player_handoff_frozen (клиент «застывает» в 0,0,0).
+	delete(s.frozenByID, pid)
+	if s.preparedByID != nil {
+		if tok, had := s.preparedByID[pid]; had {
+			delete(s.preparedByID, pid)
+			if s.preparedByTk != nil {
+				delete(s.preparedByTk, tok)
+			}
+		}
+	}
+	if s.preparedByTk != nil {
+		var drop []string
+		for tok, pp := range s.preparedByTk {
+			if pp != nil && pp.playerID == pid {
+				drop = append(drop, tok)
+			}
+		}
+		for _, tok := range drop {
+			delete(s.preparedByTk, tok)
+		}
+	}
 	s.playerMu.Unlock()
 
 	if !ok {

@@ -1113,6 +1113,7 @@ func (g *gateway) streamDeltasToWS(ctx context.Context, ds *gatewayDownstream, c
 				}
 				return
 			}
+			chunk.ViewerEntityId = entityID
 			g.observeSelfPosition(session, entityID, chunk)
 			b, err := proto.Marshal(chunk)
 			if err != nil {

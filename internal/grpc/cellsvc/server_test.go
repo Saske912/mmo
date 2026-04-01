@@ -513,3 +513,45 @@ func TestPlayerHandoffLifecycle_Idempotent(t *testing.T) {
 		t.Fatalf("expected unknown player after finalize, got %+v err=%v", post, err)
 	}
 }
+
+func TestLeaveClearsHandoffFreezeForRejoin(t *testing.T) {
+	ctx := context.Background()
+	srv := &Server{CellID: "c1", Sim: cellsim.NewRuntime()}
+
+	j1, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "stuck_test"})
+	if err != nil || j1 == nil || !j1.GetOk() {
+		t.Fatalf("join1: %+v err=%v", j1, err)
+	}
+	prep, err := srv.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "stuck_test",
+		TargetCellId: "other",
+		HandoffToken: "tok-abandon",
+	})
+	if err != nil || prep == nil || !prep.GetOk() {
+		t.Fatalf("prepare: %+v err=%v", prep, err)
+	}
+	fr, err := srv.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "stuck_test",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 1},
+	})
+	if err != nil || fr.GetOk() || fr.GetMessage() != "player_handoff_frozen" {
+		t.Fatalf("expected frozen: %+v err=%v", fr, err)
+	}
+
+	lev, err := srv.Leave(ctx, &cellv1.LeaveRequest{PlayerId: "stuck_test"})
+	if err != nil || lev == nil || !lev.GetOk() {
+		t.Fatalf("leave: %+v err=%v", lev, err)
+	}
+
+	j2, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "stuck_test"})
+	if err != nil || j2 == nil || !j2.GetOk() {
+		t.Fatalf("join2: %+v err=%v", j2, err)
+	}
+	okIn, err := srv.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "stuck_test",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 2},
+	})
+	if err != nil || okIn == nil || !okIn.GetOk() {
+		t.Fatalf("apply after leave+rejoin must work, got %+v err=%v", okIn, err)
+	}
+}

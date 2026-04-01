@@ -232,6 +232,8 @@ message PlanSplitResponse {
 
 // Кадр мира: снапшот или дельта (game.v1).
 message WorldChunk {
+  // Сущность этого клиента (viewer / SubscribeDeltas). 0 — не задано (старые билды).
+  uint64 viewer_entity_id = 3;
   oneof kind {
     mmo.game.v1.Snapshot snapshot = 1;
     mmo.game.v1.Delta delta = 2;

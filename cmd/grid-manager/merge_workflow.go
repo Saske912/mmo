@@ -550,3 +550,4 @@ func agentDebugLogMerge(runID, hypothesisID, location, message string, data map[
 	}
 	_, _ = f.Write(append(b, '\n'))
 }
+
