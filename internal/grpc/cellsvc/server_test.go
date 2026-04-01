@@ -11,6 +11,7 @@ import (
 	cellv1 "mmo/gen/cellv1"
 	gamev1 "mmo/gen/gamev1"
 	"mmo/internal/cellsim"
+	"mmo/internal/ecs"
 	"mmo/internal/partition"
 )
 
@@ -511,6 +512,59 @@ func TestPlayerHandoffLifecycle_Idempotent(t *testing.T) {
 	})
 	if err != nil || post.GetOk() || post.GetMessage() != "unknown_player" {
 		t.Fatalf("expected unknown player after finalize, got %+v err=%v", post, err)
+	}
+}
+
+func TestPreparePlayerHandoffZerosSourceVelocity(t *testing.T) {
+	ctx := context.Background()
+	parent := &Server{CellID: "parent", Sim: cellsim.NewRuntime()}
+	j, err := parent.Join(ctx, &cellv1.JoinRequest{PlayerId: "p_vel"})
+	if err != nil || j == nil || !j.GetOk() || j.GetEntityId() == 0 {
+		t.Fatalf("join: %+v err=%v", j, err)
+	}
+	ent := ecs.Entity(j.GetEntityId())
+	_, err = parent.ApplyInput(ctx, &cellv1.ApplyInputRequest{
+		PlayerId: "p_vel",
+		Input:    &gamev1.ClientInput{InputMask: InputForward, Seq: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.Sim.Mu.Lock()
+	parent.Sim.Loop.Step()
+	velMoving, ok := parent.Sim.World.Velocity(ent)
+	parent.Sim.Mu.Unlock()
+	if !ok || (velMoving.VX == 0 && velMoving.VZ == 0) {
+		t.Fatalf("expected non-zero velocity after forward input+step, got %+v ok=%v", velMoving, ok)
+	}
+
+	prep, err := parent.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_vel",
+		TargetCellId: "child",
+		HandoffToken: "tok-zv",
+	})
+	if err != nil || prep == nil || !prep.GetOk() || prep.GetPayload() == nil {
+		t.Fatalf("prepare: %+v err=%v", prep, err)
+	}
+	vp := prep.GetPayload().GetVelocity()
+	if vp.GetX() != 0 || vp.GetZ() != 0 {
+		t.Fatalf("payload velocity should be zero after prepare, got %+v", vp)
+	}
+
+	parent.Sim.Mu.Lock()
+	pos0, _ := parent.Sim.World.Position(ent)
+	afterPrep, okv := parent.Sim.World.Velocity(ent)
+	parent.Sim.Mu.Unlock()
+	if !okv || afterPrep.VX != 0 || afterPrep.VZ != 0 {
+		t.Fatalf("sim velocity after prepare should be zero, got %+v", afterPrep)
+	}
+
+	parent.Sim.Mu.Lock()
+	parent.Sim.Loop.Step()
+	pos1, _ := parent.Sim.World.Position(ent)
+	parent.Sim.Mu.Unlock()
+	if pos1.X != pos0.X || pos1.Z != pos0.Z {
+		t.Fatalf("entity drifted while handoff-frozen: before=%+v after=%+v", pos0, pos1)
 	}
 }
 

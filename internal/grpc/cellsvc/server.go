@@ -292,7 +292,12 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 	s.frozenByID[playerID] = struct{}{}
 	s.playerMu.Unlock()
 
+	// Пока handoff в процессе ApplyInput не меняет скорость, но MovementSystem всё ещё интегрирует Velocity —
+	// без обнуления игрок «улетает» с края соты с последней скоростью.
 	s.Sim.Mu.Lock()
+	if _, ok := s.Sim.World.Position(entityID); ok {
+		s.Sim.World.SetVelocity(entityID, ecs.Velocity{})
+	}
 	pos, hasPos := s.Sim.World.Position(entityID)
 	vel, hasVel := s.Sim.World.Velocity(entityID)
 	hp, hasHP := s.Sim.World.Health(entityID)
