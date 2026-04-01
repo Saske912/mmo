@@ -977,7 +977,7 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 
 	inLim := rate.NewLimiter(rate.Limit(100), 50)
 	session := &gatewaySession{playerID: playerID}
-	initialDS, err := g.attachToCell(ctx, tr, playerID, cellID, ep)
+	initialDS, _, err := g.attachToCell(ctx, tr, playerID, cellID, ep)
 	if err != nil {
 		log.Printf("initial attach: %v", err)
 		return
@@ -1058,7 +1058,9 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 			if aerr != nil {
 				log.Printf("apply_input: %v", aerr)
 			}
-			shouldTrySwitch := (ares != nil && ares.GetMessage() == "unknown_player") || shouldSwitchDownstreamOnTransport(aerr)
+			// После split handoff игрок уже на дочерней соте, а сессия ещё на родителе:
+			// unknown_player | entity_gone ИЛИ handoff-freeze на родителе — пробуем сменить downstream.
+			shouldTrySwitch := (ares != nil && shouldSwitchOnApplyInputMessage(ares.GetMessage())) || shouldSwitchDownstreamOnTransport(aerr)
 			if shouldTrySwitch {
 				nextDS, switched, serr := g.trySwitchDownstream(ctx, tr, reg, session, rx, rz)
 				if serr != nil {
@@ -1167,13 +1169,13 @@ func (g *gateway) observeSelfPosition(session *gatewaySession, entityID uint64, 
 	}
 }
 
-func (g *gateway) attachToCell(ctx context.Context, tr trace.Tracer, playerID, cellID, endpoint string) (*gatewayDownstream, error) {
+func (g *gateway) attachToCell(ctx context.Context, tr trace.Tracer, playerID, cellID, endpoint string) (*gatewayDownstream, string, error) {
 	cellCC, err := grpc.NewClient(endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("cell dial %s: %w", endpoint, err)
+		return nil, "", fmt.Errorf("cell dial %s: %w", endpoint, err)
 	}
 	cellClient := cellv1.NewCellClient(cellCC)
 	jctx, jspan := tr.Start(ctx, "Cell.Join")
@@ -1187,16 +1189,17 @@ func (g *gateway) attachToCell(ctx context.Context, tr trace.Tracer, playerID, c
 	gatewayCellJoinDuration.WithLabelValues(joinResult).Observe(time.Since(joinStart).Seconds())
 	if err != nil || jres == nil || !jres.Ok {
 		_ = cellCC.Close()
-		return nil, fmt.Errorf("join failed: err=%v res=%+v", err, jres)
+		return nil, "", fmt.Errorf("join failed: err=%v res=%+v", err, jres)
 	}
-	slog.InfoContext(jctx, "cell_join_ok", "player_id", playerID, "entity_id", jres.EntityId, "cell_id", cellID)
+	joinMsg := strings.TrimSpace(jres.GetMessage())
+	slog.InfoContext(jctx, "cell_join_ok", "player_id", playerID, "entity_id", jres.EntityId, "cell_id", cellID, "message", joinMsg)
 	return &gatewayDownstream{
 		cellID:   cellID,
 		endpoint: endpoint,
 		conn:     cellCC,
 		client:   cellClient,
 		entityID: jres.EntityId,
-	}, nil
+	}, joinMsg, nil
 }
 
 func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg cellv1.RegistryClient, session *gatewaySession, fallbackX, fallbackZ float64) (*gatewayDownstream, bool, error) {
@@ -1218,7 +1221,7 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	if nextCell.GetId() == cur.cellID {
 		return nil, false, nil
 	}
-	next, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	next, _, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
 	if err != nil {
 		return nil, false, err
 	}
@@ -1259,6 +1262,15 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 		"x", px,
 		"z", pz,
 	)
+	// Игрок уже на целевой соте (например grid split): Join → already_joined, без Prepare на родителе.
+	probe, joinMsg, probeErr := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	if probeErr == nil && joinMsg == "already_joined" {
+		return probe, true, nil
+	}
+	if probeErr == nil && probe != nil {
+		g.leaveDownstream(ctx, probe, session.playerID, "join_probe_not_existing", cur.cellID)
+		g.closeDownstreamConn(probe, "join_probe_not_existing")
+	}
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
 		return nil, false, err
@@ -1387,6 +1399,15 @@ func (g *gateway) closeDownstreamConn(ds *gatewayDownstream, phase string) {
 		return
 	}
 	gatewayDownstreamCloseTotal.WithLabelValues(phase, "ok").Inc()
+}
+
+func shouldSwitchOnApplyInputMessage(msg string) bool {
+	switch strings.TrimSpace(msg) {
+	case "unknown_player", "player_handoff_frozen", "entity_gone":
+		return true
+	default:
+		return false
+	}
 }
 
 func shouldSwitchDownstreamOnTransport(err error) bool {
