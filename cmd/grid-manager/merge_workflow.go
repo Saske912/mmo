@@ -363,20 +363,7 @@ func (r *mergeWorkflowRuntime) forwardMerge(ctx context.Context, parentCellID st
 
 func (r *mergeWorkflowRuntime) switchTopologyAndTeardown(ctx context.Context, parentCellID string, childIDs []string) error {
 	for _, childID := range childIDs {
-		// #region agent log
-		agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:343", "merge workflow deregister child start", map[string]any{
-			"parent_cell_id": parentCellID,
-			"child_cell_id":  childID,
-		})
-		// #endregion
 		if err := discovery.DeregisterLogicalCell(ctx, r.cat, childID); err != nil {
-			// #region agent log
-			agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:350", "merge workflow deregister child error", map[string]any{
-				"parent_cell_id": parentCellID,
-				"child_cell_id":  childID,
-				"error":          err.Error(),
-			})
-			// #endregion
 			return fmt.Errorf("deregister child %s: %w", childID, err)
 		}
 	}
@@ -394,13 +381,6 @@ func (r *mergeWorkflowRuntime) switchTopologyAndTeardown(ctx context.Context, pa
 			if err != nil {
 				continue
 			}
-			// #region agent log
-			agentDebugLogMerge("run-merge-deregister", "H1", "cmd/grid-manager/merge_workflow.go:372", "merge workflow publish runtime delete", map[string]any{
-				"parent_cell_id": parentCellID,
-				"child_cell_id":  childID,
-				"subject":        natsbus.SubjectCellControl,
-			})
-			// #endregion
 			_ = r.nats.Publish(natsbus.SubjectCellControl, raw)
 		}
 		_ = r.nats.FlushTimeout(400 * time.Millisecond)
@@ -528,26 +508,5 @@ func pingCellStats(ctx context.Context, endpoint string) (pingStats, error) {
 		players:  int(resp.GetPlayerCount()),
 		entities: int(resp.GetEntityCount()),
 	}, nil
-}
-
-func agentDebugLogMerge(runID, hypothesisID, location, message string, data map[string]any) {
-	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	entry := map[string]any{
-		"runId":        runID,
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	b, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	_, _ = f.Write(append(b, '\n'))
 }
 

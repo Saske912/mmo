@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -146,20 +145,8 @@ func main() {
 
 	select {
 	case <-ctx.Done():
-		// #region agent log
-		agentDebugLog("run-merge-deregister", "H1", "cmd/cell-node/main.go:148", "cell-node context done", map[string]any{
-			"cell_id": *cellID,
-			"reason":  ctx.Err().Error(),
-		})
-		// #endregion
 		log.Printf("shutdown: %v", ctx.Err())
 	case err := <-errServe:
-		// #region agent log
-		agentDebugLog("run-merge-deregister", "H3", "cmd/cell-node/main.go:153", "cell-node serve loop ended", map[string]any{
-			"cell_id": *cellID,
-			"error":   fmt.Sprintf("%v", err),
-		})
-		// #endregion
 		if err != nil {
 			log.Printf("serve: %v", err)
 		}
@@ -170,29 +157,8 @@ func main() {
 	saveOnShutdown(shutdownCtx, rdb, redisStateKey(*cellID), sim, cellSvc, usePersist)
 	if consulCat != nil {
 		svcID := discovery.ConsulServiceInstanceID(*cellID)
-		// #region agent log
-		agentDebugLog("run-merge-deregister", "H2", "cmd/cell-node/main.go:165", "cell-node consul deregister start", map[string]any{
-			"cell_id":     *cellID,
-			"service_id":  svcID,
-			"consul_addr": caddr,
-		})
-		// #endregion
 		if err := consulCat.Deregister(shutdownCtx, svcID); err != nil {
-			// #region agent log
-			agentDebugLog("run-merge-deregister", "H2", "cmd/cell-node/main.go:172", "cell-node consul deregister error", map[string]any{
-				"cell_id":    *cellID,
-				"service_id": svcID,
-				"error":      err.Error(),
-			})
-			// #endregion
 			log.Printf("consul deregister: %v", err)
-		} else {
-			// #region agent log
-			agentDebugLog("run-merge-deregister", "H2", "cmd/cell-node/main.go:181", "cell-node consul deregister ok", map[string]any{
-				"cell_id":    *cellID,
-				"service_id": svcID,
-			})
-			// #endregion
 		}
 	}
 	srv.GracefulStop()
@@ -209,25 +175,4 @@ func grpcEndpointForRegistry(flagAdvertise, listenAddr string) string {
 		}
 	}
 	return listenAddr
-}
-
-func agentDebugLog(runID, hypothesisID, location, message string, data map[string]any) {
-	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	entry := map[string]any{
-		"runId":        runID,
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	b, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	_, _ = f.Write(append(b, '\n'))
 }

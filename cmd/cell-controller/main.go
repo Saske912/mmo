@@ -222,12 +222,6 @@ func handleControlMessage(raw []byte, rdb *redis.Client, nc *natsbus.Client, k8s
 			slog.Warn("cell-controller: bad delete request", "err", err)
 			return
 		}
-		// #region agent log
-		agentDebugLogController("run-merge-deregister", "H1", "cmd/cell-controller/main.go:228", "cell-controller received runtime delete op", map[string]any{
-			"cell_id": del.CellID,
-			"reason":  del.Reason,
-		})
-		// #endregion
 		handleRuntimeCellDelete(del, rdb, nc, k8s, ns)
 		return
 	}
@@ -242,14 +236,6 @@ func handleRuntimeCellDelete(del splitcontrol.RuntimeCellDeleteRequest, rdb *red
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	svc, dep := namesForCell(cid)
-	// #region agent log
-	agentDebugLogController("run-merge-deregister", "H1", "cmd/cell-controller/main.go:244", "cell-controller deleting runtime resources", map[string]any{
-		"cell_id":      cid,
-		"service_name": svc,
-		"deploy_name":  dep,
-		"reason":       del.Reason,
-	})
-	// #endregion
 	svcErr := k8s.CoreV1().Services(ns).Delete(ctx, svc, metav1.DeleteOptions{})
 	if svcErr != nil && !apierrors.IsNotFound(svcErr) {
 		publishCellLifecycle(nc, splitcontrol.CellLifecycleEvent{
@@ -282,27 +268,6 @@ func handleRuntimeCellDelete(del splitcontrol.RuntimeCellDeleteRequest, rdb *red
 	if rdb != nil {
 		_ = rdb.Del(ctx, "mmo:cell-controller:created:"+cid).Err()
 	}
-}
-
-func agentDebugLogController(runID, hypothesisID, location, message string, data map[string]any) {
-	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	entry := map[string]any{
-		"runId":        runID,
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	b, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	_, _ = f.Write(append(b, '\n'))
 }
 
 func handleControlEvent(raw []byte, rdb *redis.Client, nc *natsbus.Client, k8s *kubernetes.Clientset, ns string) {
