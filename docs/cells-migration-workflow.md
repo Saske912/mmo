@@ -65,11 +65,11 @@ Guardrails для controlled scale-out:
 
 Текущий путь авто-split в staging:
 
-1. `grid-manager` на breach включает `split_drain`.
+1. `grid-manager` на breach запускает split workflow (без раннего `split_drain`, если `MMO_GRID_AUTO_SPLIT_WORKFLOW=true`).
 2. Делает `PlanSplit` и публикует `cell.control` запросы на создание child-cell.
 3. `cell-controller` materialize child-cell как Kubernetes `Service` + `Deployment`.
 4. Workflow ждёт, пока children появятся в каталоге и пройдут `Ping` reachability.
-5. В начале `runOnce` workflow идемпотентно выставляет `split_drain=true` на parent; после **всех** успешных `ForwardNpcHandoff` по детям (multi-child без partial-success) снимает `split_drain` и публикует стадию **`retire_ready`** в `grid.split.workflow`.
+5. После того как children появились в каталоге и прошли `Ping`, workflow выставляет `split_drain=true` на parent; после **всех** успешных `ForwardNpcHandoff` по детям (multi-child без partial-success) снимает `split_drain` и публикует стадию **`retire_ready`** в `grid.split.workflow`.
 6. **Post-handoff orchestration (по умолчанию вкл.):** после записи `retire_ready` в Redis grid-manager выполняет префлайт (parent/children в каталоге, `Ping`, `Resolve` по probe-точкам внутри bounds каждого child, с фильтром чужих более глубоких веток) и переводит `mmo:grid:split:retire_state:<parent>` в **`phase=automation_complete`** либо **`phase=preflight_blocked`** с массивом `preflight_blocked_reasons`. События в `grid.split.workflow`: **`automation_complete`** или **`post_handoff_preflight_failed`**. Отключить: **`MMO_GRID_AUTO_POST_HANDOFF_ORCHESTRATION=false`**.
 7. **Формальное состояние после сплита:** в Redis (grid-manager / cell-controller):
    - `mmo:grid:split:retire_state:<parent_cell_id>` — JSON: `phase` (`retire_ready` → `automation_complete` или `preflight_blocked`), `handoff_children`, `next_action` (`operator_final_retire`), `next_step` (операторский §5 для вывода baseline parent);

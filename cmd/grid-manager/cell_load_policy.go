@@ -211,13 +211,16 @@ func (r *loadPolicyRuntime) observe(ctx context.Context, sample policySample, wi
 	result := loadPolicyResultOK
 	if r.cfg.autoSplitDrain && sample.reachable {
 		action = loadPolicyActionSplitDrain
-		if err := setCellSplitDrain(ctx, sample.endpoint, true); err != nil {
-			result = loadPolicyResultErr
-			slog.Error("grid load policy split_drain failed",
-				"cell_id", sample.cellID,
-				"endpoint", sample.endpoint,
-				"err", err,
-			)
+		autoSplitWorkflowEnabled := r.split != nil && r.split.cfg.enabled
+		if !autoSplitWorkflowEnabled {
+			if err := setCellSplitDrain(ctx, sample.endpoint, true); err != nil {
+				result = loadPolicyResultErr
+				slog.Error("grid load policy split_drain failed",
+					"cell_id", sample.cellID,
+					"endpoint", sample.endpoint,
+					"err", err,
+				)
+			}
 		}
 	} else if !sample.reachable {
 		result = loadPolicyResultSkip

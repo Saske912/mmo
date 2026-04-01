@@ -275,18 +275,6 @@ func (r *splitWorkflowRuntime) run(ctx context.Context, cellID string) {
 }
 
 func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string, attempt int) error {
-	r.publish(splitWorkflowEvent{
-		CellID:   parentCellID,
-		Stage:    "draining",
-		Attempt:  attempt,
-		Message:  "ensure split_drain=true",
-		AtUnixMs: time.Now().UnixMilli(),
-	})
-	// Идемпотентно фиксируем drain (не только от load policy).
-	if err := r.setSplitDrain(ctx, parentCellID, true); err != nil {
-		return fmt.Errorf("set split_drain true: %w", err)
-	}
-
 	children, err := r.planSplitChildren(ctx, parentCellID)
 	if err != nil {
 		return err
@@ -318,6 +306,16 @@ func (r *splitWorkflowRuntime) runOnce(ctx context.Context, parentCellID string,
 		AtUnixMs: time.Now().UnixMilli(),
 		Attrs:    map[string]string{"children": strings.Join(readyChildren, ",")},
 	})
+	r.publish(splitWorkflowEvent{
+		CellID:   parentCellID,
+		Stage:    "draining",
+		Attempt:  attempt,
+		Message:  "ensure split_drain=true after children_wait_ready",
+		AtUnixMs: time.Now().UnixMilli(),
+	})
+	if err := r.setSplitDrain(ctx, parentCellID, true); err != nil {
+		return fmt.Errorf("set split_drain true after children ready: %w", err)
+	}
 
 	if err := r.runMigrationDryRun(ctx, parentCellID); err != nil {
 		return err
