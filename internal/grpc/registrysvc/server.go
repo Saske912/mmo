@@ -3,6 +3,8 @@ package registrysvc
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -22,6 +24,36 @@ type Server struct {
 	cellv1.UnimplementedRegistryServer
 	Store discovery.Catalog
 	NATS  *natsbus.Client
+
+	mergeMu       sync.Mutex
+	mergeInFlight map[string]struct{}
+}
+
+func (s *Server) tryAcquireMerge(parentCellID string) bool {
+	parentCellID = strings.TrimSpace(parentCellID)
+	if parentCellID == "" {
+		return false
+	}
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+	if s.mergeInFlight == nil {
+		s.mergeInFlight = make(map[string]struct{})
+	}
+	if _, ok := s.mergeInFlight[parentCellID]; ok {
+		return false
+	}
+	s.mergeInFlight[parentCellID] = struct{}{}
+	return true
+}
+
+func (s *Server) releaseMerge(parentCellID string) {
+	parentCellID = strings.TrimSpace(parentCellID)
+	if parentCellID == "" {
+		return
+	}
+	s.mergeMu.Lock()
+	delete(s.mergeInFlight, parentCellID)
+	s.mergeMu.Unlock()
 }
 
 var errBadRequest = errors.New("bad request")

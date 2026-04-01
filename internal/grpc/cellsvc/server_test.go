@@ -605,6 +605,41 @@ func TestPreparePlayerHandoff_RecoversFromStaleInFlightToken(t *testing.T) {
 	}
 }
 
+func TestFinalizePlayerHandoff_ClearsInFlightOnMissingPreparedToken(t *testing.T) {
+	ctx := context.Background()
+	srv := &Server{CellID: "parent", Sim: cellsim.NewRuntime()}
+	j, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "p_finalize"})
+	if err != nil || j == nil || !j.GetOk() || j.GetEntityId() == 0 {
+		t.Fatalf("join: %+v err=%v", j, err)
+	}
+
+	srv.playerMu.Lock()
+	srv.preparedByID = map[string]string{"p_finalize": "tok-lost"}
+	srv.frozenByID = map[string]struct{}{"p_finalize": {}}
+	srv.preparedByTk = map[string]*preparedPlayerHandoff{}
+	srv.playerMu.Unlock()
+
+	fin, err := srv.FinalizePlayerHandoff(ctx, &cellv1.FinalizePlayerHandoffRequest{
+		PlayerId:     "p_finalize",
+		HandoffToken: "tok-lost",
+	})
+	if err != nil {
+		t.Fatalf("finalize err: %v", err)
+	}
+	if fin == nil || fin.GetOk() {
+		t.Fatalf("expected finalize to fail with missing token, got %+v", fin)
+	}
+
+	prep, err := srv.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_finalize",
+		TargetCellId: "child",
+		HandoffToken: "tok-new",
+	})
+	if err != nil || prep == nil || !prep.GetOk() {
+		t.Fatalf("prepare after finalize cleanup: %+v err=%v", prep, err)
+	}
+}
+
 func TestLeaveClearsHandoffFreezeForRejoin(t *testing.T) {
 	ctx := context.Background()
 	srv := &Server{CellID: "c1", Sim: cellsim.NewRuntime()}

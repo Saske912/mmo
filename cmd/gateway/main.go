@@ -45,8 +45,6 @@ var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-const debugLogPath = "/home/pfile/MMO/.cursor/debug.log"
-
 func main() {
 	logging.SetupFromEnv()
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
@@ -111,6 +109,14 @@ func main() {
 			os.Getenv("GATEWAY_POSITION_SWITCH_MIN_MOVE_METERS"),
 			0.5,
 		),
+		positionSwitchRetryBase: parseDurationWithDefault(
+			os.Getenv("GATEWAY_POSITION_SWITCH_RETRY_BACKOFF"),
+			700*time.Millisecond,
+		),
+		positionSwitchRetryMax: parseDurationWithDefault(
+			os.Getenv("GATEWAY_POSITION_SWITCH_RETRY_MAX_BACKOFF"),
+			5*time.Second,
+		),
 		allowCellIDMismatch: strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "1") ||
 			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "true") ||
 			strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_CELL_HANDOFF_MISMATCH")), "yes"),
@@ -147,6 +153,8 @@ type gateway struct {
 	positionSwitchEnabled       bool
 	positionSwitchMinInterval   time.Duration
 	positionSwitchMinMoveMeters float64
+	positionSwitchRetryBase     time.Duration
+	positionSwitchRetryMax      time.Duration
 }
 
 type gatewayDownstream struct {
@@ -168,6 +176,12 @@ type gatewaySession struct {
 	lastResolveX          float64
 	lastResolveZ          float64
 	hasResolvedPos        bool
+	switchRetryState      map[string]switchRetryState
+}
+
+type switchRetryState struct {
+	attempts      int
+	nextAttemptAt time.Time
 }
 
 func (s *gatewaySession) downstream() *gatewayDownstream {
@@ -227,6 +241,63 @@ func (s *gatewaySession) markPositionResolveAttempt(now time.Time, x, z, minMove
 	s.lastResolveZ = z
 	s.lastPositionResolveAt = now
 	return true
+}
+
+func switchRetryKey(fromCellID, toCellID string) string {
+	return strings.TrimSpace(fromCellID) + "->" + strings.TrimSpace(toCellID)
+}
+
+func (s *gatewaySession) allowPositionSwitchRetry(now time.Time, fromCellID, toCellID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.switchRetryState) == 0 {
+		return true
+	}
+	st, ok := s.switchRetryState[switchRetryKey(fromCellID, toCellID)]
+	if !ok {
+		return true
+	}
+	return !now.Before(st.nextAttemptAt)
+}
+
+func (s *gatewaySession) markPositionSwitchRetryFailure(now time.Time, fromCellID, toCellID string, baseBackoff, maxBackoff time.Duration) {
+	if baseBackoff <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.switchRetryState == nil {
+		s.switchRetryState = make(map[string]switchRetryState)
+	}
+	key := switchRetryKey(fromCellID, toCellID)
+	st := s.switchRetryState[key]
+	if now.After(st.nextAttemptAt) || st.attempts <= 0 {
+		st.attempts = 1
+	} else {
+		st.attempts++
+	}
+	backoff := baseBackoff
+	for i := 1; i < st.attempts; i++ {
+		backoff *= 2
+		if maxBackoff > 0 && backoff >= maxBackoff {
+			backoff = maxBackoff
+			break
+		}
+	}
+	if maxBackoff > 0 && backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+	st.nextAttemptAt = now.Add(backoff)
+	s.switchRetryState[key] = st
+}
+
+func (s *gatewaySession) clearPositionSwitchRetryState(fromCellID, toCellID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.switchRetryState) == 0 {
+		return
+	}
+	delete(s.switchRetryState, switchRetryKey(fromCellID, toCellID))
 }
 
 func questAPIMap(q db.PlayerQuestAPIRow) map[string]any {
@@ -1229,28 +1300,6 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	nextCell := res.GetCell()
 	if nextCell.GetId() == cur.cellID {
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
-		// #region agent log
-		debugLogGateway("H2", "cmd/gateway/main.go:trySwitchDownstream.same_cell", "resolve remained on current cell in fallback switch", map[string]any{
-			"playerId":         session.playerID,
-			"currentCellId":    cur.cellID,
-			"resolvedCellId":   nextCell.GetId(),
-			"fallbackSwitched": switched,
-			"fallbackCellId": func() string {
-				if fallbackDS != nil {
-					return fallbackDS.cellID
-				}
-				return ""
-			}(),
-			"fallbackErr": func() string {
-				if ferr != nil {
-					return ferr.Error()
-				}
-				return ""
-			}(),
-			"x": px,
-			"z": pz,
-		})
-		// #endregion
 		if ferr != nil {
 			return nil, false, ferr
 		}
@@ -1280,27 +1329,6 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 			}
 		}
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
-		// #region agent log
-		debugLogGateway("H3", "cmd/gateway/main.go:trySwitchDownstream.forward_error", "forward handoff failed in fallback switch", map[string]any{
-			"playerId":         session.playerID,
-			"fromCellId":       cur.cellID,
-			"toCellId":         nextCell.GetId(),
-			"forwardErr":       err.Error(),
-			"fallbackSwitched": switched,
-			"fallbackCellId": func() string {
-				if fallbackDS != nil {
-					return fallbackDS.cellID
-				}
-				return ""
-			}(),
-			"fallbackErr": func() string {
-				if ferr != nil {
-					return ferr.Error()
-				}
-				return ""
-			}(),
-		})
-		// #endregion
 		if ferr == nil && switched && fallbackDS != nil {
 			return fallbackDS, true, nil
 		}
@@ -1338,13 +1366,6 @@ func (g *gateway) tryAttachAlreadyJoinedFromCatalog(
 		}
 		probe, joinMsg, probeErr := g.attachToCell(ctx, tr, playerID, id, ep)
 		if probeErr == nil && joinMsg == "already_joined" {
-			// #region agent log
-			debugLogGateway("H4", "cmd/gateway/main.go:tryAttachAlreadyJoinedFromCatalog.hit", "catalog probe found already_joined", map[string]any{
-				"playerId":      playerID,
-				"currentCellId": currentCellID,
-				"candidateCell": id,
-			})
-			// #endregion
 			return probe, true
 		}
 		if probeErr == nil && probe != nil {
@@ -1370,13 +1391,6 @@ func (g *gateway) tryAttachAlreadyJoinedFromCatalog(
 			return ds, true, nil
 		}
 	}
-	// #region agent log
-	debugLogGateway("H4", "cmd/gateway/main.go:tryAttachAlreadyJoinedFromCatalog.miss", "catalog probe found no already_joined candidate", map[string]any{
-		"playerId":      playerID,
-		"currentCellId": currentCellID,
-		"catalogSize":   len(cells),
-	})
-	// #endregion
 	return nil, false, nil
 }
 
@@ -1406,37 +1420,8 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 		return nil, false, fmt.Errorf("proactive resolve switch target not found")
 	}
 	nextCell := res.GetCell()
-	// #region agent log
-	debugLogGateway("H1", "cmd/gateway/main.go:trySwitchDownstreamByPosition.resolve", "proactive resolve result", map[string]any{
-		"playerId":       session.playerID,
-		"currentCellId":  cur.cellID,
-		"resolvedCellId": nextCell.GetId(),
-		"x":              px,
-		"z":              pz,
-	})
-	// #endregion
 	if nextCell.GetId() == cur.cellID {
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
-		// #region agent log
-		debugLogGateway("H1", "cmd/gateway/main.go:trySwitchDownstreamByPosition.same_cell", "proactive resolve stayed on current cell", map[string]any{
-			"playerId":         session.playerID,
-			"currentCellId":    cur.cellID,
-			"resolvedCellId":   nextCell.GetId(),
-			"fallbackSwitched": switched,
-			"fallbackCellId": func() string {
-				if fallbackDS != nil {
-					return fallbackDS.cellID
-				}
-				return ""
-			}(),
-			"fallbackErr": func() string {
-				if ferr != nil {
-					return ferr.Error()
-				}
-				return ""
-			}(),
-		})
-		// #endregion
 		if ferr != nil {
 			return nil, false, ferr
 		}
@@ -1444,6 +1429,10 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 			return fallbackDS, true, nil
 		}
 		gatewayPositionSwitchSkippedTotal.WithLabelValues("same_cell").Inc()
+		return nil, false, nil
+	}
+	if !session.allowPositionSwitchRetry(now, cur.cellID, nextCell.GetId()) {
+		gatewayPositionSwitchSkippedTotal.WithLabelValues("cooldown").Inc()
 		return nil, false, nil
 	}
 	gatewayResolvedCellMismatchTotal.WithLabelValues(metricCellLabel(cur.cellID), metricCellLabel(nextCell.GetId())).Inc()
@@ -1474,10 +1463,15 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 		}
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
 		if ferr == nil && switched && fallbackDS != nil {
+			session.clearPositionSwitchRetryState(cur.cellID, nextCell.GetId())
 			return fallbackDS, true, nil
+		}
+		if isRetriablePositionSwitchErr(err) {
+			session.markPositionSwitchRetryFailure(now, cur.cellID, nextCell.GetId(), g.positionSwitchRetryBase, g.positionSwitchRetryMax)
 		}
 		return nil, false, err
 	}
+	session.clearPositionSwitchRetryState(cur.cellID, nextCell.GetId())
 	return next, true, nil
 }
 
@@ -1545,6 +1539,22 @@ func isParentCellMissingErr(err error) bool {
 	return strings.Contains(msg, "cell not found")
 }
 
+func isRetriablePositionSwitchErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok || st == nil {
+		return false
+	}
+	switch st.Code() {
+	case codes.Unavailable, codes.FailedPrecondition:
+		return true
+	default:
+		return false
+	}
+}
+
 func (g *gateway) tryRecoverFromMissingParentSwitch(
 	ctx context.Context,
 	tr trace.Tracer,
@@ -1575,14 +1585,6 @@ func (g *gateway) tryRecoverFromMissingParentSwitch(
 		"to_cell_id", nextCell.GetId(),
 		"join_msg", joinMsg,
 	)
-	// #region agent log
-	debugLogGateway("H5", "cmd/gateway/main.go:tryRecoverFromMissingParentSwitch", "recovered switch after missing parent cell", map[string]any{
-		"playerId":   playerID,
-		"fromCellId": fromCellID,
-		"toCellId":   nextCell.GetId(),
-		"joinMsg":    joinMsg,
-	})
-	// #endregion
 	return recovered, true, nil
 }
 
@@ -1749,26 +1751,4 @@ func recordCellTransition(fromCellID, toCellID, phase, result string) {
 		strings.TrimSpace(phase),
 		strings.TrimSpace(result),
 	).Inc()
-}
-
-func debugLogGateway(hypothesisID, location, message string, data map[string]any) {
-	entry := map[string]any{
-		"id":           fmt.Sprintf("gw_%d", time.Now().UnixNano()),
-		"runId":        "run1",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	b, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
 }

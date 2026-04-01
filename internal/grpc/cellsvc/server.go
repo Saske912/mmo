@@ -2,9 +2,7 @@ package cellsvc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +55,22 @@ type preparedPlayerHandoff struct {
 }
 
 const handoffInFlightStaleTimeout = 5 * time.Second
+
+func (s *Server) pruneStalePreparedLocked(now time.Time) {
+	if s.preparedByID == nil || s.preparedByTk == nil {
+		return
+	}
+	for playerID, token := range s.preparedByID {
+		pp, ok := s.preparedByTk[token]
+		if !ok || pp == nil || pp.finalized || pp.createdAt.IsZero() || now.Sub(pp.createdAt) > handoffInFlightStaleTimeout {
+			delete(s.preparedByID, playerID)
+			delete(s.frozenByID, playerID)
+			if token != "" {
+				delete(s.preparedByTk, token)
+			}
+		}
+	}
+}
 
 // SetApplyInputHook вызывается из cell-node для Prometheus; не обязателен.
 func (s *Server) SetApplyInputHook(fn func(ok bool)) {
@@ -276,6 +290,7 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 	if s.frozenByID == nil {
 		s.frozenByID = make(map[string]struct{})
 	}
+	s.pruneStalePreparedLocked(time.Now())
 	if existing, ok := s.preparedByTk[token]; ok && existing != nil && existing.payload != nil {
 		s.playerMu.Unlock()
 		return &cellv1.PreparePlayerHandoffResponse{
@@ -318,20 +333,6 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 	hp, hasHP := s.Sim.World.Health(entityID)
 	tick := s.Sim.Loop.Stats.TickCount
 	s.Sim.Mu.Unlock()
-	// #region agent log
-	debugLogCellsvc("H5", "internal/grpc/cellsvc/server.go:PreparePlayerHandoff", "prepare payload source snapshot", map[string]any{
-		"cellId":     s.CellID,
-		"playerId":   playerID,
-		"targetCell": targetCellID,
-		"hasPos":     hasPos,
-		"posX":       pos.X,
-		"posY":       pos.Y,
-		"posZ":       pos.Z,
-		"velX":       vel.VX,
-		"velY":       vel.VY,
-		"velZ":       vel.VZ,
-	})
-	// #endregion
 	if !hasPos {
 		s.playerMu.Lock()
 		delete(s.preparedByID, playerID)
@@ -421,18 +422,6 @@ func (s *Server) AcceptPlayerHandoff(ctx context.Context, req *cellv1.AcceptPlay
 	})
 	s.Sim.World.SetHealth(e, ecs.Health{HP: curHP, MaxHP: maxHP})
 	s.Sim.Mu.Unlock()
-	// #region agent log
-	debugLogCellsvc("H5", "internal/grpc/cellsvc/server.go:AcceptPlayerHandoff", "accept applied payload position", map[string]any{
-		"cellId":   s.CellID,
-		"playerId": playerID,
-		"posX":     payload.GetPosition().GetX(),
-		"posY":     payload.GetPosition().GetY(),
-		"posZ":     payload.GetPosition().GetZ(),
-		"velX":     payload.GetVelocity().GetX(),
-		"velY":     payload.GetVelocity().GetY(),
-		"velZ":     payload.GetVelocity().GetZ(),
-	})
-	// #endregion
 
 	s.playerMu.Lock()
 	if s.players == nil {
@@ -465,6 +454,10 @@ func (s *Server) FinalizePlayerHandoff(ctx context.Context, req *cellv1.Finalize
 	s.playerMu.Lock()
 	prepared, ok := s.preparedByTk[token]
 	if !ok || prepared == nil {
+		if activeToken, hasActive := s.preparedByID[playerID]; hasActive && activeToken == token {
+			delete(s.preparedByID, playerID)
+			delete(s.frozenByID, playerID)
+		}
 		s.playerMu.Unlock()
 		return &cellv1.FinalizePlayerHandoffResponse{Ok: false, Message: "unknown handoff_token"}, nil
 	}
@@ -503,28 +496,6 @@ func (s *Server) reportApplyInput(ok bool) {
 	if fn != nil {
 		fn(ok)
 	}
-}
-
-func debugLogCellsvc(hypothesisID, location, message string, data map[string]any) {
-	entry := map[string]any{
-		"id":           fmt.Sprintf("cell_%d", time.Now().UnixNano()),
-		"runId":        "run1",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	b, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile("/home/pfile/MMO/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
 }
 
 // Update команды от grid-manager / админки (noop, смена TPS).

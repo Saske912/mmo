@@ -150,6 +150,8 @@ func (r *mergeWorkflowRuntime) maybeStart(ctx context.Context, parentCellID stri
 	r.mu.Lock()
 	if _, ok := r.active[parentCellID]; ok {
 		r.mu.Unlock()
+		mergeAutoWorkflowRunsTotal.WithLabelValues("skipped_reentry").Inc()
+		slog.Info("merge workflow: skip duplicate run", "parent_cell_id", parentCellID)
 		return
 	}
 	r.active[parentCellID] = struct{}{}
@@ -509,4 +511,3 @@ func pingCellStats(ctx context.Context, endpoint string) (pingStats, error) {
 		entities: int(resp.GetEntityCount()),
 	}, nil
 }
-

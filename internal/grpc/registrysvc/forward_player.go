@@ -23,6 +23,7 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	if req == nil {
 		e := status.Error(codes.InvalidArgument, "empty request")
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("validate", e)
 		logOpError("ForwardPlayerHandoff", e)
 		return nil, e
 	}
@@ -43,15 +44,18 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	if parentID == "" || childID == "" || playerID == "" || token == "" {
 		e := status.Error(codes.InvalidArgument, "parent_cell_id, child_cell_id, player_id, handoff_token required")
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("validate", e)
 		logOpError("ForwardPlayerHandoff", e)
 		return nil, e
 	}
 	if parentID == childID {
 		e := status.Error(codes.InvalidArgument, "parent_cell_id must differ from child_cell_id")
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("validate", e)
 		logOpError("ForwardPlayerHandoff", e)
 		return nil, e
 	}
+	observeForwardPlayerHandoffStage("validate", nil)
 
 	hctx, cancel := context.WithTimeout(ctx, forwardPlayerHandoffTimeout)
 	defer cancel()
@@ -59,16 +63,20 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	parentConn, parentCell, parentSpec, err := s.dialCellClient(hctx, parentID)
 	if err != nil {
 		incRPC("ForwardPlayerHandoff", err)
+		observeForwardPlayerHandoffStage("dial_parent", err)
 		logOpError("ForwardPlayerHandoff", err, "stage", "dial_parent", "parent_cell_id", parentID)
 		return nil, err
 	}
+	observeForwardPlayerHandoffStage("dial_parent", nil)
 	defer parentConn.Close()
 	childConn, childCell, childSpec, err := s.dialCellClient(hctx, childID)
 	if err != nil {
 		incRPC("ForwardPlayerHandoff", err)
+		observeForwardPlayerHandoffStage("dial_child", err)
 		logOpError("ForwardPlayerHandoff", err, "stage", "dial_child", "child_cell_id", childID)
 		return nil, err
 	}
+	observeForwardPlayerHandoffStage("dial_child", nil)
 	defer childConn.Close()
 
 	prepResp, err := parentCell.PreparePlayerHandoff(hctx, &cellv1.PreparePlayerHandoffRequest{
@@ -78,6 +86,7 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	})
 	if err != nil {
 		incRPC("ForwardPlayerHandoff", err)
+		observeForwardPlayerHandoffStage("prepare", err)
 		logOpError("ForwardPlayerHandoff", err, "stage", "prepare", "parent_cell_id", parentID, "player_id", playerID)
 		return nil, err
 	}
@@ -88,9 +97,11 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 		}
 		e := status.Errorf(codes.FailedPrecondition, "prepare failed: %s", msg)
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("prepare", e)
 		logOpError("ForwardPlayerHandoff", e, "stage", "prepare", "parent_cell_id", parentID, "player_id", playerID)
 		return nil, e
 	}
+	observeForwardPlayerHandoffStage("prepare", nil)
 
 	payload := prepResp.GetPayload()
 	payload.SourceCellId = parentSpec.GetId()
@@ -99,6 +110,7 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	acceptResp, err := childCell.AcceptPlayerHandoff(hctx, &cellv1.AcceptPlayerHandoffRequest{Payload: payload})
 	if err != nil {
 		incRPC("ForwardPlayerHandoff", err)
+		observeForwardPlayerHandoffStage("accept", err)
 		logOpError("ForwardPlayerHandoff", err, "stage", "accept", "child_cell_id", childID, "player_id", playerID)
 		return nil, err
 	}
@@ -109,9 +121,11 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 		}
 		e := status.Errorf(codes.FailedPrecondition, "accept failed: %s", msg)
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("accept", e)
 		logOpError("ForwardPlayerHandoff", e, "stage", "accept", "child_cell_id", childID, "player_id", playerID)
 		return nil, e
 	}
+	observeForwardPlayerHandoffStage("accept", nil)
 
 	finalResp, err := parentCell.FinalizePlayerHandoff(hctx, &cellv1.FinalizePlayerHandoffRequest{
 		PlayerId:     playerID,
@@ -119,6 +133,7 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 	})
 	if err != nil {
 		incRPC("ForwardPlayerHandoff", err)
+		observeForwardPlayerHandoffStage("finalize", err)
 		logOpError("ForwardPlayerHandoff", err, "stage", "finalize", "parent_cell_id", parentID, "player_id", playerID)
 		return nil, err
 	}
@@ -129,9 +144,11 @@ func (s *Server) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPl
 		}
 		e := status.Errorf(codes.FailedPrecondition, "finalize failed: %s", msg)
 		incRPC("ForwardPlayerHandoff", e)
+		observeForwardPlayerHandoffStage("finalize", e)
 		logOpError("ForwardPlayerHandoff", e, "stage", "finalize", "parent_cell_id", parentID, "player_id", playerID)
 		return nil, e
 	}
+	observeForwardPlayerHandoffStage("finalize", nil)
 
 	incRPC("ForwardPlayerHandoff", nil)
 	logOpDone("ForwardPlayerHandoff", "parent_cell_id", parentID, "child_cell_id", childID, "player_id", playerID, "child_entity_id", acceptResp.GetEntityId())

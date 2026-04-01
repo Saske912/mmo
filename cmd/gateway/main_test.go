@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -464,9 +465,73 @@ func TestTrySwitchDownstream_RecoversWhenParentCellMissing(t *testing.T) {
 	}
 }
 
+func TestTrySwitchDownstreamByPosition_CooldownOnRetriableForwardError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	oldClient, oldConn, shutdownOld := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownOld()
+	_, newConn, shutdownNew := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q0",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownNew()
+
+	if _, err := oldClient.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-1"}); err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	regSrv := &testRegistryServer{
+		endpoints: map[string]string{
+			"cell_q1": oldConn.Target(),
+			"cell_q0": newConn.Target(),
+		},
+		forwardErr: status.Error(codes.Unavailable, "temporary unavailable"),
+	}
+	regClient, shutdownReg := startCustomTestRegistryServer(t, regSrv)
+	defer shutdownReg()
+
+	session := &gatewaySession{playerID: "player-1"}
+	session.setDownstream(&gatewayDownstream{
+		cellID: "cell_q1",
+		conn:   oldConn,
+		client: oldClient,
+	})
+	session.setPosition(200, 0)
+
+	g := &gateway{
+		positionSwitchEnabled:       true,
+		positionSwitchMinInterval:   0,
+		positionSwitchMinMoveMeters: 0,
+		positionSwitchRetryBase:     5 * time.Second,
+		positionSwitchRetryMax:      5 * time.Second,
+	}
+
+	_, switched1, err1 := g.trySwitchDownstreamByPosition(ctx, otel.Tracer("test"), regClient, session)
+	if err1 == nil {
+		t.Fatalf("expected first switch attempt to fail with retriable error")
+	}
+	if switched1 {
+		t.Fatalf("unexpected switched=true on first attempt")
+	}
+	_, switched2, err2 := g.trySwitchDownstreamByPosition(ctx, otel.Tracer("test"), regClient, session)
+	if err2 != nil {
+		t.Fatalf("expected second attempt to be skipped by cooldown, got error: %v", err2)
+	}
+	if switched2 {
+		t.Fatalf("expected no switch while cooldown is active")
+	}
+	if calls := atomic.LoadInt32(&regSrv.forwardCalls); calls != 1 {
+		t.Fatalf("expected exactly one ForwardPlayerHandoff call, got %d", calls)
+	}
+}
+
 type testRegistryServer struct {
 	cellv1.UnimplementedRegistryServer
-	endpoints map[string]string
+	endpoints    map[string]string
+	forwardErr   error
+	forwardCalls int32
 }
 
 func (s *testRegistryServer) ResolvePosition(_ context.Context, req *cellv1.ResolvePositionRequest) (*cellv1.ResolvePositionResponse, error) {
@@ -501,6 +566,10 @@ func (s *testRegistryServer) ListCells(_ context.Context, _ *cellv1.ListCellsReq
 }
 
 func (s *testRegistryServer) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPlayerHandoffRequest) (*cellv1.ForwardPlayerHandoffResponse, error) {
+	atomic.AddInt32(&s.forwardCalls, 1)
+	if s.forwardErr != nil {
+		return nil, s.forwardErr
+	}
 	parentID := strings.TrimSpace(req.GetParentCellId())
 	childID := strings.TrimSpace(req.GetChildCellId())
 	playerID := strings.TrimSpace(req.GetPlayerId())
@@ -603,12 +672,17 @@ func startTestCellServer(t *testing.T, srv cellv1.CellServer) (cellv1.CellClient
 
 func startTestRegistryServer(t *testing.T, endpoints map[string]string) (cellv1.RegistryClient, func()) {
 	t.Helper()
+	return startCustomTestRegistryServer(t, &testRegistryServer{endpoints: endpoints})
+}
+
+func startCustomTestRegistryServer(t *testing.T, srvImpl cellv1.RegistryServer) (cellv1.RegistryClient, func()) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("registry listen: %v", err)
 	}
 	grpcSrv := grpc.NewServer()
-	cellv1.RegisterRegistryServer(grpcSrv, &testRegistryServer{endpoints: endpoints})
+	cellv1.RegisterRegistryServer(grpcSrv, srvImpl)
 	go func() { _ = grpcSrv.Serve(lis) }()
 
 	conn, err := grpc.NewClient(

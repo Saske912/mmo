@@ -260,6 +260,14 @@ func (s *Server) ForwardMergeHandoff(ctx context.Context, req *cellv1.ForwardMer
 		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "failed", Message: e.Error(), AtUnixMs: time.Now().UnixMilli()})
 		return nil, e
 	}
+	if !s.tryAcquireMerge(parentID) {
+		e := status.Errorf(codes.FailedPrecondition, "merge already in progress for parent: %s", parentID)
+		incRPC("ForwardMergeHandoff", e)
+		mergeWorkflowRunsTotal.WithLabelValues("error").Inc()
+		s.publishMergeWorkflowEvent(mergeWorkflowEvent{ParentCellID: parentID, Stage: "skipped_reentry", Message: e.Error(), AtUnixMs: time.Now().UnixMilli()})
+		return nil, e
+	}
+	defer s.releaseMerge(parentID)
 	if len(childIDs) != 4 {
 		e := status.Errorf(codes.InvalidArgument, "need exactly 4 unique child_cell_ids, got %d", len(childIDs))
 		incRPC("ForwardMergeHandoff", e)
