@@ -293,13 +293,16 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 	s.playerMu.Unlock()
 
 	// Пока handoff в процессе ApplyInput не меняет скорость, но MovementSystem всё ещё интегрирует Velocity —
-	// без обнуления игрок «улетает» с края соты с последней скоростью.
+	// обнуляем только в мире родителя (нет дрейфа). Импульс для дочерней соты передаём в payload до обнуления.
 	s.Sim.Mu.Lock()
-	if _, ok := s.Sim.World.Position(entityID); ok {
-		s.Sim.World.SetVelocity(entityID, ecs.Velocity{})
-	}
 	pos, hasPos := s.Sim.World.Position(entityID)
 	vel, hasVel := s.Sim.World.Velocity(entityID)
+	if !hasVel {
+		vel = ecs.Velocity{}
+	}
+	if hasPos {
+		s.Sim.World.SetVelocity(entityID, ecs.Velocity{})
+	}
 	hp, hasHP := s.Sim.World.Health(entityID)
 	tick := s.Sim.Loop.Stats.TickCount
 	s.Sim.Mu.Unlock()
@@ -309,9 +312,6 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 		delete(s.frozenByID, playerID)
 		s.playerMu.Unlock()
 		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "entity_gone"}, nil
-	}
-	if !hasVel {
-		vel = ecs.Velocity{}
 	}
 	if !hasHP || hp.MaxHP <= 0 {
 		hp = ecs.Health{HP: 100, MaxHP: 100}

@@ -547,8 +547,8 @@ func TestPreparePlayerHandoffZerosSourceVelocity(t *testing.T) {
 		t.Fatalf("prepare: %+v err=%v", prep, err)
 	}
 	vp := prep.GetPayload().GetVelocity()
-	if vp.GetX() != 0 || vp.GetZ() != 0 {
-		t.Fatalf("payload velocity should be zero after prepare, got %+v", vp)
+	if vp.GetX() == 0 && vp.GetZ() == 0 {
+		t.Fatalf("payload should preserve pre-handoff velocity for child cell, got %+v", vp)
 	}
 
 	parent.Sim.Mu.Lock()
