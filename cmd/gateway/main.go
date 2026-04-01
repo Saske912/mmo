@@ -1090,10 +1090,27 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// JSON text кадр до первого WorldChunk: клиент выставляет локального игрока даже без поля viewer_entity_id в protobuf (старые билды / парсеры).
+func writeWsEntityMeta(conn *websocket.Conn, entityID uint64) {
+	if conn == nil || entityID == 0 {
+		return
+	}
+	b, err := json.Marshal(map[string]any{
+		"mmo_ws_meta": map[string]any{"entity_id": entityID},
+	})
+	if err != nil {
+		return
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
+		log.Printf("ws entity meta: %v", err)
+	}
+}
+
 func (g *gateway) streamDeltasToWS(ctx context.Context, ds *gatewayDownstream, conn *websocket.Conn, session *gatewaySession) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		writeWsEntityMeta(conn, ds.entityID)
 		sub, err := ds.client.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{ViewerEntityId: ds.entityID})
 		if err != nil {
 			if ctx.Err() == nil {
