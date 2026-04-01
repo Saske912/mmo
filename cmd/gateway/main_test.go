@@ -11,7 +11,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	cellv1 "mmo/gen/cellv1"
 	"mmo/internal/cellsim"
@@ -414,6 +416,54 @@ func TestTrySwitchDownstreamByPosition_FallbackCatalogProbeWhenResolveStale(t *t
 	}
 }
 
+func TestTrySwitchDownstream_RecoversWhenParentCellMissing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	oldClient, oldConn, shutdownOld := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownOld()
+	_, newConn, shutdownNew := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q0",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownNew()
+
+	if _, err := oldClient.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-1"}); err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	regClient, shutdownReg := startTestRegistryServer(t, map[string]string{
+		"cell_q1": oldConn.Target(),
+		"cell_q0": newConn.Target(),
+	})
+	defer shutdownReg()
+
+	session := &gatewaySession{playerID: "player-1"}
+	session.setDownstream(&gatewayDownstream{
+		// Имитируем случай из прода: attached cell уже удалена/неизвестна registry.
+		cellID: "cell_q2_q1",
+		conn:   oldConn,
+		client: oldClient,
+	})
+	session.setPosition(10, 0) // registry test server maps x >= 0 to cell_q0
+
+	g := &gateway{}
+	nextDS, switched, err := g.trySwitchDownstream(ctx, otel.Tracer("test"), regClient, session, 10, 0)
+	if err != nil {
+		t.Fatalf("switch error: %v", err)
+	}
+	if !switched || nextDS == nil {
+		t.Fatalf("expected recovered switch, got switched=%v next=%v", switched, nextDS)
+	}
+	if nextDS.cellID != "cell_q0" {
+		t.Fatalf("expected recovery to cell_q0, got %s", nextDS.cellID)
+	}
+	if nextDS.entityID == 0 {
+		t.Fatalf("expected non-zero recovered entity_id")
+	}
+}
+
 type testRegistryServer struct {
 	cellv1.UnimplementedRegistryServer
 	endpoints map[string]string
@@ -460,7 +510,7 @@ func (s *testRegistryServer) ForwardPlayerHandoff(ctx context.Context, req *cell
 	}
 	parentEndpoint, ok := s.endpoints[parentID]
 	if !ok {
-		return nil, fmt.Errorf("missing parent endpoint for %s", parentID)
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("cell not found: %s", parentID))
 	}
 	childEndpoint, ok := s.endpoints[childID]
 	if !ok {

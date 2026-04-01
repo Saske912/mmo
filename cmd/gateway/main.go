@@ -1273,6 +1273,12 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	}
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
+		if isParentCellMissingErr(err) {
+			recoveredDS, recovered, recoverErr := g.tryRecoverFromMissingParentSwitch(ctx, tr, session.playerID, cur.cellID, nextCell)
+			if recoverErr == nil && recovered && recoveredDS != nil {
+				return recoveredDS, true, nil
+			}
+		}
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
 		// #region agent log
 		debugLogGateway("H3", "cmd/gateway/main.go:trySwitchDownstream.forward_error", "forward handoff failed in fallback switch", map[string]any{
@@ -1460,6 +1466,12 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 	}
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
+		if isParentCellMissingErr(err) {
+			recoveredDS, recovered, recoverErr := g.tryRecoverFromMissingParentSwitch(ctx, tr, session.playerID, cur.cellID, nextCell)
+			if recoverErr == nil && recovered && recoveredDS != nil {
+				return recoveredDS, true, nil
+			}
+		}
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
 		if ferr == nil && switched && fallbackDS != nil {
 			return fallbackDS, true, nil
@@ -1518,6 +1530,60 @@ func (g *gateway) forwardPlayerHandoffSwitch(
 		client:   cellv1.NewCellClient(cellCC),
 		entityID: resp.GetChildEntityId(),
 	}, nil
+}
+
+func isParentCellMissingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := status.FromError(err); ok && st != nil {
+		if st.Code() == codes.NotFound && strings.Contains(strings.ToLower(st.Message()), "cell not found") {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "cell not found")
+}
+
+func (g *gateway) tryRecoverFromMissingParentSwitch(
+	ctx context.Context,
+	tr trace.Tracer,
+	playerID string,
+	fromCellID string,
+	nextCell *cellv1.CellSpec,
+) (*gatewayDownstream, bool, error) {
+	if nextCell == nil || strings.TrimSpace(nextCell.GetId()) == "" || strings.TrimSpace(nextCell.GetGrpcEndpoint()) == "" {
+		return nil, false, nil
+	}
+	recovered, joinMsg, err := g.attachToCell(ctx, tr, playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	if err != nil {
+		return nil, false, err
+	}
+	if recovered == nil {
+		return nil, false, nil
+	}
+	if joinMsg != "already_joined" && joinMsg != "spawned" {
+		g.leaveDownstream(ctx, recovered, playerID, "join_probe_not_existing", fromCellID)
+		g.closeDownstreamConn(recovered, "join_probe_not_existing")
+		return nil, false, nil
+	}
+	slog.WarnContext(
+		ctx,
+		"gateway_position_switch_parent_missing_recover",
+		"player_id", playerID,
+		"from_cell_id", fromCellID,
+		"to_cell_id", nextCell.GetId(),
+		"join_msg", joinMsg,
+	)
+	// #region agent log
+	debugLogGateway("H5", "cmd/gateway/main.go:tryRecoverFromMissingParentSwitch", "recovered switch after missing parent cell", map[string]any{
+		"playerId":   playerID,
+		"fromCellId": fromCellID,
+		"toCellId":   nextCell.GetId(),
+		"joinMsg":    joinMsg,
+	})
+	// #endregion
+	return recovered, true, nil
 }
 
 func (g *gateway) applyDownstreamSwitch(
