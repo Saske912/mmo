@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,6 +173,69 @@ func (s *testRegistryServer) ResolvePosition(_ context.Context, req *cellv1.Reso
 			GrpcEndpoint: ep,
 			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		},
+	}, nil
+}
+
+func (s *testRegistryServer) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPlayerHandoffRequest) (*cellv1.ForwardPlayerHandoffResponse, error) {
+	parentID := strings.TrimSpace(req.GetParentCellId())
+	childID := strings.TrimSpace(req.GetChildCellId())
+	playerID := strings.TrimSpace(req.GetPlayerId())
+	token := strings.TrimSpace(req.GetHandoffToken())
+	if parentID == "" || childID == "" || playerID == "" || token == "" {
+		return nil, fmt.Errorf("invalid handoff request")
+	}
+	parentEndpoint, ok := s.endpoints[parentID]
+	if !ok {
+		return nil, fmt.Errorf("missing parent endpoint for %s", parentID)
+	}
+	childEndpoint, ok := s.endpoints[childID]
+	if !ok {
+		return nil, fmt.Errorf("missing child endpoint for %s", childID)
+	}
+	parentConn, err := grpc.NewClient(parentEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer parentConn.Close()
+	childConn, err := grpc.NewClient(childEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer childConn.Close()
+	parentCl := cellv1.NewCellClient(parentConn)
+	childCl := cellv1.NewCellClient(childConn)
+	prep, err := parentCl.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     playerID,
+		TargetCellId: childID,
+		HandoffToken: token,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if prep == nil || !prep.GetOk() || prep.GetPayload() == nil {
+		return nil, fmt.Errorf("prepare failed")
+	}
+	acc, err := childCl.AcceptPlayerHandoff(ctx, &cellv1.AcceptPlayerHandoffRequest{Payload: prep.GetPayload()})
+	if err != nil {
+		return nil, err
+	}
+	if acc == nil || !acc.GetOk() || acc.GetEntityId() == 0 {
+		return nil, fmt.Errorf("accept failed")
+	}
+	fin, err := parentCl.FinalizePlayerHandoff(ctx, &cellv1.FinalizePlayerHandoffRequest{
+		PlayerId:     playerID,
+		HandoffToken: token,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if fin == nil || !fin.GetOk() {
+		return nil, fmt.Errorf("finalize failed")
+	}
+	return &cellv1.ForwardPlayerHandoffResponse{
+		Ok:            true,
+		Message:       "ok",
+		ChildEntityId: acc.GetEntityId(),
 	}, nil
 }
 

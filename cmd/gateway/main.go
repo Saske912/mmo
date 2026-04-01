@@ -1241,11 +1241,62 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 		"x", px,
 		"z", pz,
 	)
-	next, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
+	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
 		return nil, false, err
 	}
 	return next, true, nil
+}
+
+func (g *gateway) forwardPlayerHandoffSwitch(
+	ctx context.Context,
+	tr trace.Tracer,
+	reg cellv1.RegistryClient,
+	playerID, fromCellID string,
+	nextCell *cellv1.CellSpec,
+) (*gatewayDownstream, error) {
+	if nextCell == nil || strings.TrimSpace(nextCell.GetId()) == "" || strings.TrimSpace(nextCell.GetGrpcEndpoint()) == "" {
+		return nil, fmt.Errorf("forward handoff switch: invalid target cell")
+	}
+	handoffToken := fmt.Sprintf("gw-pos-%s-%d", playerID, time.Now().UnixNano())
+	hctx, hspan := tr.Start(ctx, "Registry.ForwardPlayerHandoff.Switch")
+	resp, err := reg.ForwardPlayerHandoff(hctx, &cellv1.ForwardPlayerHandoffRequest{
+		ParentCellId: fromCellID,
+		ChildCellId:  nextCell.GetId(),
+		PlayerId:     playerID,
+		HandoffToken: handoffToken,
+		Reason:       "gateway_position_switch",
+	})
+	hspan.End()
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || !resp.GetOk() || resp.GetChildEntityId() == 0 {
+		return nil, fmt.Errorf("forward handoff switch failed: %+v", resp)
+	}
+	cellCC, err := grpc.NewClient(
+		nextCell.GetGrpcEndpoint(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cell dial %s: %w", nextCell.GetGrpcEndpoint(), err)
+	}
+	slog.InfoContext(
+		ctx,
+		"gateway_position_switch_handoff_ok",
+		"player_id", playerID,
+		"from_cell_id", fromCellID,
+		"to_cell_id", nextCell.GetId(),
+		"entity_id", resp.GetChildEntityId(),
+	)
+	return &gatewayDownstream{
+		cellID:   nextCell.GetId(),
+		endpoint: nextCell.GetGrpcEndpoint(),
+		conn:     cellCC,
+		client:   cellv1.NewCellClient(cellCC),
+		entityID: resp.GetChildEntityId(),
+	}, nil
 }
 
 func (g *gateway) applyDownstreamSwitch(
