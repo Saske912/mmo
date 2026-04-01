@@ -95,11 +95,11 @@ func main() {
 	}
 
 	g := &gateway{
-		registryAddr: *registry,
-		jwtSecret:    jwtBytes,
-		resolveX:     *resX,
-		resolveZ:     *resZ,
-		db:           pgPool,
+		registryAddr:          *registry,
+		jwtSecret:             jwtBytes,
+		resolveX:              *resX,
+		resolveZ:              *resZ,
+		db:                    pgPool,
 		positionSwitchEnabled: envBoolWithDefault("GATEWAY_POSITION_SWITCH_ENABLED", true),
 		positionSwitchMinInterval: parseDurationWithDefault(
 			os.Getenv("GATEWAY_POSITION_SWITCH_MIN_INTERVAL"),
@@ -136,15 +136,15 @@ func main() {
 }
 
 type gateway struct {
-	registryAddr                 string
-	jwtSecret                    []byte
-	resolveX                     float64
-	resolveZ                     float64
-	db                           *pgxpool.Pool
-	allowCellIDMismatch          bool
-	positionSwitchEnabled        bool
-	positionSwitchMinInterval    time.Duration
-	positionSwitchMinMoveMeters  float64
+	registryAddr                string
+	jwtSecret                   []byte
+	resolveX                    float64
+	resolveZ                    float64
+	db                          *pgxpool.Pool
+	allowCellIDMismatch         bool
+	positionSwitchEnabled       bool
+	positionSwitchMinInterval   time.Duration
+	positionSwitchMinMoveMeters float64
 }
 
 type gatewayDownstream struct {
@@ -156,12 +156,12 @@ type gatewayDownstream struct {
 }
 
 type gatewaySession struct {
-	playerID string
-	mu       sync.RWMutex
-	ds       *gatewayDownstream
-	lastX    float64
-	lastZ    float64
-	hasPos   bool
+	playerID              string
+	mu                    sync.RWMutex
+	ds                    *gatewayDownstream
+	lastX                 float64
+	lastZ                 float64
+	hasPos                bool
 	lastPositionResolveAt time.Time
 	lastResolveX          float64
 	lastResolveZ          float64
@@ -983,6 +983,8 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session.setDownstream(initialDS)
+	recordAttachedCellAttach(initialDS.cellID)
+	recordCellTransition("", initialDS.cellID, "ws_connect", "ok")
 	gatewayWsSessions.Inc()
 	log.Printf("ws join player=%s entity_id=%d cell=%s", playerID, initialDS.entityID, initialDS.cellID)
 
@@ -993,6 +995,8 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 		<-streamDone
 		ds := session.downstream()
 		if ds != nil {
+			recordAttachedCellDetach(ds.cellID)
+			recordCellTransition(ds.cellID, "", "disconnect", "ok")
 			g.leaveDownstream(context.Background(), ds, playerID, "disconnect", "")
 			g.closeDownstreamConn(ds, "disconnect")
 			if g.db != nil && ds.cellID != "" {
@@ -1093,12 +1097,15 @@ func (g *gateway) ws(w http.ResponseWriter, r *http.Request) {
 }
 
 // JSON text кадр до первого WorldChunk: клиент выставляет локального игрока даже без поля viewer_entity_id в protobuf (старые билды / парсеры).
-func writeWsEntityMeta(conn *websocket.Conn, entityID uint64) {
+func writeWsEntityMeta(conn *websocket.Conn, entityID uint64, attachedCellID string) {
 	if conn == nil || entityID == 0 {
 		return
 	}
 	b, err := json.Marshal(map[string]any{
-		"mmo_ws_meta": map[string]any{"entity_id": entityID},
+		"mmo_ws_meta": map[string]any{
+			"entity_id": entityID,
+			"cell_id":   strings.TrimSpace(attachedCellID),
+		},
 	})
 	if err != nil {
 		return
@@ -1112,7 +1119,7 @@ func (g *gateway) streamDeltasToWS(ctx context.Context, ds *gatewayDownstream, c
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		writeWsEntityMeta(conn, ds.entityID)
+		writeWsEntityMeta(conn, ds.entityID, ds.cellID)
 		sub, err := ds.client.SubscribeDeltas(ctx, &cellv1.SubscribeDeltasRequest{ViewerEntityId: ds.entityID})
 		if err != nil {
 			if ctx.Err() == nil {
@@ -1221,6 +1228,7 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	if nextCell.GetId() == cur.cellID {
 		return nil, false, nil
 	}
+	gatewayResolvedCellMismatchTotal.WithLabelValues(metricCellLabel(cur.cellID), metricCellLabel(nextCell.GetId())).Inc()
 	next, _, err := g.attachToCell(ctx, tr, session.playerID, nextCell.GetId(), nextCell.GetGrpcEndpoint())
 	if err != nil {
 		return nil, false, err
@@ -1231,14 +1239,17 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tracer, reg cellv1.RegistryClient, session *gatewaySession) (*gatewayDownstream, bool, error) {
 	cur := session.downstream()
 	if cur == nil {
+		gatewayPositionSwitchSkippedTotal.WithLabelValues("no_downstream").Inc()
 		return nil, false, nil
 	}
 	px, pz, hasPos := session.position()
 	if !hasPos {
+		gatewayPositionSwitchSkippedTotal.WithLabelValues("no_position").Inc()
 		return nil, false, nil
 	}
 	now := time.Now()
 	if !session.markPositionResolveAttempt(now, px, pz, g.positionSwitchMinMoveMeters, g.positionSwitchMinInterval) {
+		gatewayPositionSwitchSkippedTotal.WithLabelValues("throttled").Inc()
 		return nil, false, nil
 	}
 	rctx, rspan := tr.Start(ctx, "Registry.ResolvePosition.ProactiveSwitch")
@@ -1252,8 +1263,10 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 	}
 	nextCell := res.GetCell()
 	if nextCell.GetId() == cur.cellID {
+		gatewayPositionSwitchSkippedTotal.WithLabelValues("same_cell").Inc()
 		return nil, false, nil
 	}
+	gatewayResolvedCellMismatchTotal.WithLabelValues(metricCellLabel(cur.cellID), metricCellLabel(nextCell.GetId())).Inc()
 	slog.InfoContext(ctx,
 		"gateway_position_switch_candidate",
 		"player_id", session.playerID,
@@ -1342,10 +1355,21 @@ func (g *gateway) applyDownstreamSwitch(
 	rz float64,
 	phase string,
 ) (context.Context, context.CancelFunc, <-chan struct{}) {
+	fromCellID := ""
+	if old != nil {
+		fromCellID = old.cellID
+	}
+	toCellID := ""
+	if next != nil {
+		toCellID = next.cellID
+	}
 	streamCancel()
 	<-streamDone
+	recordAttachedCellDetach(fromCellID)
 	g.leaveDownstream(ctx, old, playerID, phase, next.cellID)
 	session.setDownstream(next)
+	recordAttachedCellAttach(toCellID)
+	recordCellTransition(fromCellID, toCellID, phase, "ok")
 	nextStreamCtx, nextStreamCancel := context.WithCancel(ctx)
 	nextStreamDone := g.streamDeltasToWS(nextStreamCtx, next, conn, session)
 	g.closeDownstreamConn(old, phase)
@@ -1456,4 +1480,29 @@ func parseFloatWithDefault(raw string, fallback float64) float64 {
 		return fallback
 	}
 	return v
+}
+
+func metricCellLabel(cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return "unknown"
+	}
+	return cellID
+}
+
+func recordAttachedCellAttach(cellID string) {
+	gatewayAttachedCellPlayers.WithLabelValues(metricCellLabel(cellID)).Inc()
+}
+
+func recordAttachedCellDetach(cellID string) {
+	gatewayAttachedCellPlayers.WithLabelValues(metricCellLabel(cellID)).Dec()
+}
+
+func recordCellTransition(fromCellID, toCellID, phase, result string) {
+	gatewayCellTransitionTotal.WithLabelValues(
+		metricCellLabel(fromCellID),
+		metricCellLabel(toCellID),
+		strings.TrimSpace(phase),
+		strings.TrimSpace(result),
+	).Inc()
 }

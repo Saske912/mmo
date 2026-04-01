@@ -58,6 +58,30 @@ var (
 		Name:      "downstream_switch_total",
 		Help:      "Downstream switch attempts by reason and result",
 	}, []string{"reason", "result"})
+	gatewayAttachedCellPlayers = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "attached_cell_players",
+		Help:      "Online players currently attached to cell_id in gateway sessions",
+	}, []string{"cell_id"})
+	gatewayResolvedCellMismatchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "resolved_cell_mismatch_total",
+		Help:      "ResolvePosition result differs from currently attached cell in active gateway session",
+	}, []string{"attached_cell_id", "resolved_cell_id"})
+	gatewayCellTransitionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "cell_transition_total",
+		Help:      "Gateway cell transitions between attached cells",
+	}, []string{"from_cell_id", "to_cell_id", "phase", "result"})
+	gatewayPositionSwitchSkippedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "mmo",
+		Subsystem: "gateway",
+		Name:      "position_switch_skipped_total",
+		Help:      "Proactive position-based switch skipped by reason",
+	}, []string{"reason"})
 
 	// Счётчик: последняя сота в БД не совпала с результатом Registry.ResolvePosition (смена покрытия / handoff).
 	gatewayCellHandoffMismatch = promauto.NewCounter(prometheus.CounterOpts{

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -68,6 +69,18 @@ func TestCloseDownstreamConn_NoPanic(t *testing.T) {
 	g.closeDownstreamConn(ds, "switch_old")
 }
 
+func TestRecordAttachedCellAttachDetach(t *testing.T) {
+	t.Parallel()
+	cellID := fmt.Sprintf("cell_test_attach_%d", time.Now().UnixNano())
+	recordAttachedCellAttach(cellID)
+	recordAttachedCellDetach(cellID)
+
+	got := testutil.ToFloat64(gatewayAttachedCellPlayers.WithLabelValues(cellID))
+	if got != 0 {
+		t.Fatalf("expected gauge back to 0, got %v", got)
+	}
+}
+
 func TestTrySwitchDownstreamByPosition_SwitchesWithoutUnknownPlayer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -114,6 +127,10 @@ func TestTrySwitchDownstreamByPosition_SwitchesWithoutUnknownPlayer(t *testing.T
 	}
 	if nextDS.cellID != "cell_q0" {
 		t.Fatalf("expected switch to cell_q0, got %s", nextDS.cellID)
+	}
+	mismatch := testutil.ToFloat64(gatewayResolvedCellMismatchTotal.WithLabelValues("cell_q1", "cell_q0"))
+	if mismatch < 1 {
+		t.Fatalf("expected resolved/attached mismatch metric >= 1, got %v", mismatch)
 	}
 }
 
