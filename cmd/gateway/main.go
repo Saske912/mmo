@@ -45,6 +45,8 @@ var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+const debugLogPath = "/home/pfile/MMO/.cursor/debug.log"
+
 func main() {
 	logging.SetupFromEnv()
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
@@ -1227,6 +1229,28 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	nextCell := res.GetCell()
 	if nextCell.GetId() == cur.cellID {
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		// #region agent log
+		debugLogGateway("H2", "cmd/gateway/main.go:trySwitchDownstream.same_cell", "resolve remained on current cell in fallback switch", map[string]any{
+			"playerId":         session.playerID,
+			"currentCellId":    cur.cellID,
+			"resolvedCellId":   nextCell.GetId(),
+			"fallbackSwitched": switched,
+			"fallbackCellId": func() string {
+				if fallbackDS != nil {
+					return fallbackDS.cellID
+				}
+				return ""
+			}(),
+			"fallbackErr": func() string {
+				if ferr != nil {
+					return ferr.Error()
+				}
+				return ""
+			}(),
+			"x": px,
+			"z": pz,
+		})
+		// #endregion
 		if ferr != nil {
 			return nil, false, ferr
 		}
@@ -1250,6 +1274,27 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		// #region agent log
+		debugLogGateway("H3", "cmd/gateway/main.go:trySwitchDownstream.forward_error", "forward handoff failed in fallback switch", map[string]any{
+			"playerId":         session.playerID,
+			"fromCellId":       cur.cellID,
+			"toCellId":         nextCell.GetId(),
+			"forwardErr":       err.Error(),
+			"fallbackSwitched": switched,
+			"fallbackCellId": func() string {
+				if fallbackDS != nil {
+					return fallbackDS.cellID
+				}
+				return ""
+			}(),
+			"fallbackErr": func() string {
+				if ferr != nil {
+					return ferr.Error()
+				}
+				return ""
+			}(),
+		})
+		// #endregion
 		if ferr == nil && switched && fallbackDS != nil {
 			return fallbackDS, true, nil
 		}
@@ -1287,6 +1332,13 @@ func (g *gateway) tryAttachAlreadyJoinedFromCatalog(
 		}
 		probe, joinMsg, probeErr := g.attachToCell(ctx, tr, playerID, id, ep)
 		if probeErr == nil && joinMsg == "already_joined" {
+			// #region agent log
+			debugLogGateway("H4", "cmd/gateway/main.go:tryAttachAlreadyJoinedFromCatalog.hit", "catalog probe found already_joined", map[string]any{
+				"playerId":      playerID,
+				"currentCellId": currentCellID,
+				"candidateCell": id,
+			})
+			// #endregion
 			return probe, true
 		}
 		if probeErr == nil && probe != nil {
@@ -1312,6 +1364,13 @@ func (g *gateway) tryAttachAlreadyJoinedFromCatalog(
 			return ds, true, nil
 		}
 	}
+	// #region agent log
+	debugLogGateway("H4", "cmd/gateway/main.go:tryAttachAlreadyJoinedFromCatalog.miss", "catalog probe found no already_joined candidate", map[string]any{
+		"playerId":      playerID,
+		"currentCellId": currentCellID,
+		"catalogSize":   len(cells),
+	})
+	// #endregion
 	return nil, false, nil
 }
 
@@ -1341,8 +1400,37 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 		return nil, false, fmt.Errorf("proactive resolve switch target not found")
 	}
 	nextCell := res.GetCell()
+	// #region agent log
+	debugLogGateway("H1", "cmd/gateway/main.go:trySwitchDownstreamByPosition.resolve", "proactive resolve result", map[string]any{
+		"playerId":       session.playerID,
+		"currentCellId":  cur.cellID,
+		"resolvedCellId": nextCell.GetId(),
+		"x":              px,
+		"z":              pz,
+	})
+	// #endregion
 	if nextCell.GetId() == cur.cellID {
 		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		// #region agent log
+		debugLogGateway("H1", "cmd/gateway/main.go:trySwitchDownstreamByPosition.same_cell", "proactive resolve stayed on current cell", map[string]any{
+			"playerId":         session.playerID,
+			"currentCellId":    cur.cellID,
+			"resolvedCellId":   nextCell.GetId(),
+			"fallbackSwitched": switched,
+			"fallbackCellId": func() string {
+				if fallbackDS != nil {
+					return fallbackDS.cellID
+				}
+				return ""
+			}(),
+			"fallbackErr": func() string {
+				if ferr != nil {
+					return ferr.Error()
+				}
+				return ""
+			}(),
+		})
+		// #endregion
 		if ferr != nil {
 			return nil, false, ferr
 		}
@@ -1595,4 +1683,26 @@ func recordCellTransition(fromCellID, toCellID, phase, result string) {
 		strings.TrimSpace(phase),
 		strings.TrimSpace(result),
 	).Inc()
+}
+
+func debugLogGateway(hypothesisID, location, message string, data map[string]any) {
+	entry := map[string]any{
+		"id":           fmt.Sprintf("gw_%d", time.Now().UnixNano()),
+		"runId":        "run1",
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
 }
