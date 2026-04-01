@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -565,6 +566,42 @@ func TestPreparePlayerHandoffZerosSourceVelocity(t *testing.T) {
 	parent.Sim.Mu.Unlock()
 	if pos1.X != pos0.X || pos1.Z != pos0.Z {
 		t.Fatalf("entity drifted while handoff-frozen: before=%+v after=%+v", pos0, pos1)
+	}
+}
+
+func TestPreparePlayerHandoff_RecoversFromStaleInFlightToken(t *testing.T) {
+	ctx := context.Background()
+	srv := &Server{CellID: "parent", Sim: cellsim.NewRuntime()}
+	j, err := srv.Join(ctx, &cellv1.JoinRequest{PlayerId: "p_stale"})
+	if err != nil || j == nil || !j.GetOk() || j.GetEntityId() == 0 {
+		t.Fatalf("join: %+v err=%v", j, err)
+	}
+
+	prep1, err := srv.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_stale",
+		TargetCellId: "child_a",
+		HandoffToken: "tok-stale-1",
+	})
+	if err != nil || prep1 == nil || !prep1.GetOk() {
+		t.Fatalf("prep1: %+v err=%v", prep1, err)
+	}
+
+	srv.playerMu.Lock()
+	if pp := srv.preparedByTk["tok-stale-1"]; pp != nil {
+		pp.createdAt = time.Now().Add(-10 * time.Second)
+	}
+	srv.playerMu.Unlock()
+
+	prep2, err := srv.PreparePlayerHandoff(ctx, &cellv1.PreparePlayerHandoffRequest{
+		PlayerId:     "p_stale",
+		TargetCellId: "child_b",
+		HandoffToken: "tok-stale-2",
+	})
+	if err != nil || prep2 == nil || !prep2.GetOk() || prep2.GetPayload() == nil {
+		t.Fatalf("prep2: %+v err=%v", prep2, err)
+	}
+	if prep2.GetPayload().GetHandoffToken() != "tok-stale-2" {
+		t.Fatalf("expected new handoff token, got %q", prep2.GetPayload().GetHandoffToken())
 	}
 }
 

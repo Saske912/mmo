@@ -52,8 +52,11 @@ type preparedPlayerHandoff struct {
 	token     string
 	entityID  ecs.Entity
 	finalized bool
+	createdAt time.Time
 	payload   *gamev1.PlayerHandoffState
 }
+
+const handoffInFlightStaleTimeout = 5 * time.Second
 
 // SetApplyInputHook вызывается из cell-node для Prometheus; не обязателен.
 func (s *Server) SetApplyInputHook(fn func(ok bool)) {
@@ -282,8 +285,15 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 		}, nil
 	}
 	if inFlightToken, ok := s.preparedByID[playerID]; ok && inFlightToken != token {
-		s.playerMu.Unlock()
-		return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "handoff already in progress for player"}, nil
+		inFlight := s.preparedByTk[inFlightToken]
+		if inFlight == nil || inFlight.createdAt.IsZero() || time.Since(inFlight.createdAt) > handoffInFlightStaleTimeout {
+			delete(s.preparedByID, playerID)
+			delete(s.frozenByID, playerID)
+			delete(s.preparedByTk, inFlightToken)
+		} else {
+			s.playerMu.Unlock()
+			return &cellv1.PreparePlayerHandoffResponse{Ok: false, Message: "handoff already in progress for player"}, nil
+		}
 	}
 	entityID, ok := s.playerByID[playerID]
 	if !ok {
@@ -347,10 +357,11 @@ func (s *Server) PreparePlayerHandoff(ctx context.Context, req *cellv1.PreparePl
 
 	s.playerMu.Lock()
 	s.preparedByTk[token] = &preparedPlayerHandoff{
-		playerID: playerID,
-		token:    token,
-		entityID: entityID,
-		payload:  payload,
+		playerID:  playerID,
+		token:     token,
+		entityID:  entityID,
+		createdAt: time.Now(),
+		payload:   payload,
 	}
 	s.playerMu.Unlock()
 	return &cellv1.PreparePlayerHandoffResponse{Ok: true, Message: "prepared", Payload: payload}, nil
