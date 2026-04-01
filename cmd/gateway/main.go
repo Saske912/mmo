@@ -1226,6 +1226,13 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	}
 	nextCell := res.GetCell()
 	if nextCell.GetId() == cur.cellID {
+		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		if ferr != nil {
+			return nil, false, ferr
+		}
+		if switched && fallbackDS != nil {
+			return fallbackDS, true, nil
+		}
 		return nil, false, nil
 	}
 	gatewayResolvedCellMismatchTotal.WithLabelValues(metricCellLabel(cur.cellID), metricCellLabel(nextCell.GetId())).Inc()
@@ -1242,9 +1249,70 @@ func (g *gateway) trySwitchDownstream(ctx context.Context, tr trace.Tracer, reg 
 	}
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
+		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		if ferr == nil && switched && fallbackDS != nil {
+			return fallbackDS, true, nil
+		}
 		return nil, false, err
 	}
 	return next, true, nil
+}
+
+func (g *gateway) tryAttachAlreadyJoinedFromCatalog(
+	ctx context.Context,
+	tr trace.Tracer,
+	reg cellv1.RegistryClient,
+	playerID string,
+	currentCellID string,
+) (*gatewayDownstream, bool, error) {
+	lctx, lcancel := context.WithTimeout(ctx, 3*time.Second)
+	defer lcancel()
+	list, err := reg.ListCells(lctx, &cellv1.ListCellsRequest{})
+	if err != nil || list == nil {
+		if err != nil {
+			return nil, false, err
+		}
+		return nil, false, nil
+	}
+	currentCellID = strings.TrimSpace(currentCellID)
+	cells := list.GetCells()
+	tryCandidate := func(spec *cellv1.CellSpec) (*gatewayDownstream, bool) {
+		if spec == nil {
+			return nil, false
+		}
+		id := strings.TrimSpace(spec.GetId())
+		ep := strings.TrimSpace(spec.GetGrpcEndpoint())
+		if id == "" || ep == "" || id == currentCellID {
+			return nil, false
+		}
+		probe, joinMsg, probeErr := g.attachToCell(ctx, tr, playerID, id, ep)
+		if probeErr == nil && joinMsg == "already_joined" {
+			return probe, true
+		}
+		if probeErr == nil && probe != nil {
+			g.leaveDownstream(ctx, probe, playerID, "join_probe_not_existing", currentCellID)
+			g.closeDownstreamConn(probe, "join_probe_not_existing")
+		}
+		return nil, false
+	}
+	// Сначала пробуем потомков текущей соты (split-путь), затем остальные.
+	if currentCellID != "" {
+		prefix := currentCellID + "_"
+		for _, spec := range cells {
+			if spec == nil || !strings.HasPrefix(strings.TrimSpace(spec.GetId()), prefix) {
+				continue
+			}
+			if ds, ok := tryCandidate(spec); ok {
+				return ds, true, nil
+			}
+		}
+	}
+	for _, spec := range cells {
+		if ds, ok := tryCandidate(spec); ok {
+			return ds, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tracer, reg cellv1.RegistryClient, session *gatewaySession) (*gatewayDownstream, bool, error) {
@@ -1274,6 +1342,13 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 	}
 	nextCell := res.GetCell()
 	if nextCell.GetId() == cur.cellID {
+		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		if ferr != nil {
+			return nil, false, ferr
+		}
+		if switched && fallbackDS != nil {
+			return fallbackDS, true, nil
+		}
 		gatewayPositionSwitchSkippedTotal.WithLabelValues("same_cell").Inc()
 		return nil, false, nil
 	}
@@ -1297,6 +1372,10 @@ func (g *gateway) trySwitchDownstreamByPosition(ctx context.Context, tr trace.Tr
 	}
 	next, err := g.forwardPlayerHandoffSwitch(ctx, tr, reg, session.playerID, cur.cellID, nextCell)
 	if err != nil {
+		fallbackDS, switched, ferr := g.tryAttachAlreadyJoinedFromCatalog(ctx, tr, reg, session.playerID, cur.cellID)
+		if ferr == nil && switched && fallbackDS != nil {
+			return fallbackDS, true, nil
+		}
 		return nil, false, err
 	}
 	return next, true, nil

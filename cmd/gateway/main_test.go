@@ -256,6 +256,66 @@ func TestTrySwitchDownstream_AlreadyOnTargetCellAfterSplitHandoff(t *testing.T) 
 	}
 }
 
+func TestTrySwitchDownstream_FallbackCatalogProbeWhenResolveStale(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	oldClient, oldConn, shutdownOld := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownOld()
+	_, newConn, shutdownNew := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1_q0",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownNew()
+
+	if _, err := oldClient.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-1"}); err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	regClient, shutdownReg := startTestRegistryServer(t, map[string]string{
+		"cell_q1":    oldConn.Target(),
+		"cell_q1_q0": newConn.Target(),
+	})
+	defer shutdownReg()
+
+	// Имитируем, что игрок уже мигрировал в дочернюю соту split-операцией.
+	handoff, err := regClient.ForwardPlayerHandoff(ctx, &cellv1.ForwardPlayerHandoffRequest{
+		ParentCellId: "cell_q1",
+		ChildCellId:  "cell_q1_q0",
+		PlayerId:     "player-1",
+		HandoffToken: "test-stale-resolve-token",
+		Reason:       "test_split_stale_resolve",
+	})
+	if err != nil || handoff == nil || !handoff.GetOk() || handoff.GetChildEntityId() == 0 {
+		t.Fatalf("forward handoff: %+v err=%v", handoff, err)
+	}
+
+	session := &gatewaySession{playerID: "player-1"}
+	session.setDownstream(&gatewayDownstream{
+		cellID: "cell_q1",
+		conn:   oldConn,
+		client: oldClient,
+	})
+	// Resolve останется на cell_q1 (x<0 в test registry), но fallback по каталогу должен найти already_joined в child.
+	session.setPosition(-10, 0)
+
+	g := &gateway{}
+	nextDS, switched, err := g.trySwitchDownstream(ctx, otel.Tracer("test"), regClient, session, -10, 0)
+	if err != nil {
+		t.Fatalf("switch error: %v", err)
+	}
+	if !switched || nextDS == nil {
+		t.Fatalf("expected switched downstream, got switched=%v next=%v", switched, nextDS)
+	}
+	if nextDS.cellID != "cell_q1_q0" {
+		t.Fatalf("expected switch to cell_q1_q0, got %s", nextDS.cellID)
+	}
+	if nextDS.entityID != handoff.GetChildEntityId() {
+		t.Fatalf("entity_id: want %d got %d", handoff.GetChildEntityId(), nextDS.entityID)
+	}
+}
+
 func TestTrySwitchDownstreamByPosition_NoSwitchWhenSameCell(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -291,6 +351,69 @@ func TestTrySwitchDownstreamByPosition_NoSwitchWhenSameCell(t *testing.T) {
 	}
 }
 
+func TestTrySwitchDownstreamByPosition_FallbackCatalogProbeWhenResolveStale(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	oldClient, oldConn, shutdownOld := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownOld()
+	_, childConn, shutdownChild := startTestCellServer(t, &cellsvc.Server{
+		CellID: "cell_q1_q0",
+		Sim:    cellsim.NewRuntime(),
+	})
+	defer shutdownChild()
+
+	if _, err := oldClient.Join(ctx, &cellv1.JoinRequest{PlayerId: "player-1"}); err != nil {
+		t.Fatalf("old join: %v", err)
+	}
+	regClient, shutdownReg := startTestRegistryServer(t, map[string]string{
+		"cell_q1":    oldConn.Target(),
+		"cell_q1_q0": childConn.Target(),
+	})
+	defer shutdownReg()
+
+	handoff, err := regClient.ForwardPlayerHandoff(ctx, &cellv1.ForwardPlayerHandoffRequest{
+		ParentCellId: "cell_q1",
+		ChildCellId:  "cell_q1_q0",
+		PlayerId:     "player-1",
+		HandoffToken: "test-stale-resolve-token-proactive",
+		Reason:       "test_split_stale_resolve",
+	})
+	if err != nil || handoff == nil || !handoff.GetOk() || handoff.GetChildEntityId() == 0 {
+		t.Fatalf("forward handoff: %+v err=%v", handoff, err)
+	}
+
+	session := &gatewaySession{playerID: "player-1"}
+	session.setDownstream(&gatewayDownstream{
+		cellID: "cell_q1",
+		conn:   oldConn,
+		client: oldClient,
+	})
+	// Resolve останется на cell_q1 (x<0), но fallback должен найти already_joined в child.
+	session.setPosition(-10, 0)
+
+	g := &gateway{
+		positionSwitchEnabled:       true,
+		positionSwitchMinInterval:   0,
+		positionSwitchMinMoveMeters: 0,
+	}
+	nextDS, switched, err := g.trySwitchDownstreamByPosition(ctx, otel.Tracer("test"), regClient, session)
+	if err != nil {
+		t.Fatalf("switch error: %v", err)
+	}
+	if !switched || nextDS == nil {
+		t.Fatalf("expected switched downstream, got switched=%v next=%v", switched, nextDS)
+	}
+	if nextDS.cellID != "cell_q1_q0" {
+		t.Fatalf("expected switch to cell_q1_q0, got %s", nextDS.cellID)
+	}
+	if nextDS.entityID != handoff.GetChildEntityId() {
+		t.Fatalf("entity_id: want %d got %d", handoff.GetChildEntityId(), nextDS.entityID)
+	}
+}
+
 type testRegistryServer struct {
 	cellv1.UnimplementedRegistryServer
 	endpoints map[string]string
@@ -313,6 +436,18 @@ func (s *testRegistryServer) ResolvePosition(_ context.Context, req *cellv1.Reso
 			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
 		},
 	}, nil
+}
+
+func (s *testRegistryServer) ListCells(_ context.Context, _ *cellv1.ListCellsRequest) (*cellv1.ListCellsResponse, error) {
+	out := make([]*cellv1.CellSpec, 0, len(s.endpoints))
+	for id, ep := range s.endpoints {
+		out = append(out, &cellv1.CellSpec{
+			Id:           id,
+			GrpcEndpoint: ep,
+			Bounds:       &cellv1.Bounds{XMin: -1000, XMax: 1000, ZMin: -1000, ZMax: 1000},
+		})
+	}
+	return &cellv1.ListCellsResponse{Cells: out}, nil
 }
 
 func (s *testRegistryServer) ForwardPlayerHandoff(ctx context.Context, req *cellv1.ForwardPlayerHandoffRequest) (*cellv1.ForwardPlayerHandoffResponse, error) {
